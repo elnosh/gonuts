@@ -29,9 +29,8 @@ func GenerateKeyset(seed, derivationPath string) *Keyset {
 
 	for i := 0; i < maxOrder; i++ {
 		amount := uint64(math.Pow(2, float64(i)))
-		hash := sha256.New()
-		hash.Write([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
-		privKey, pubKey := btcec.PrivKeyFromBytes(hash.Sum(nil))
+		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
+		privKey, pubKey := btcec.PrivKeyFromBytes(hash[:])
 		keyPairs[i] = KeyPair{Amount: amount, PrivateKey: privKey, PublicKey: pubKey}
 	}
 	keysetId := DeriveKeysetId(keyPairs)
