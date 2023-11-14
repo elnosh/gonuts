@@ -20,8 +20,8 @@ type Keyset struct {
 
 type KeyPair struct {
 	Amount     uint64
-	PrivateKey *btcec.PrivateKey
-	PublicKey  *btcec.PublicKey
+	PrivateKey []byte
+	PublicKey  []byte
 }
 
 func GenerateKeyset(seed, derivationPath string) *Keyset {
@@ -31,7 +31,7 @@ func GenerateKeyset(seed, derivationPath string) *Keyset {
 		amount := uint64(math.Pow(2, float64(i)))
 		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
 		privKey, pubKey := btcec.PrivKeyFromBytes(hash[:])
-		keyPairs[i] = KeyPair{Amount: amount, PrivateKey: privKey, PublicKey: pubKey}
+		keyPairs[i] = KeyPair{Amount: amount, PrivateKey: privKey.Serialize(), PublicKey: pubKey.SerializeCompressed()}
 	}
 	keysetId := DeriveKeysetId(keyPairs)
 	return &Keyset{Id: keysetId, KeyPairs: keyPairs}
@@ -44,7 +44,7 @@ func DeriveKeysetId(keys []KeyPair) string {
 
 	pubkeys := make([]byte, 0)
 	for _, key := range keys {
-		pubkeys = append(pubkeys, key.PublicKey.SerializeCompressed()...)
+		pubkeys = append(pubkeys, key.PublicKey...)
 	}
 	hash := sha256.New()
 	hash.Write(pubkeys)
@@ -55,7 +55,7 @@ func DeriveKeysetId(keys []KeyPair) string {
 func (ks *Keyset) DerivePublic() map[uint64]string {
 	pubKeys := make(map[uint64]string)
 	for _, key := range ks.KeyPairs {
-		pubkey := hex.EncodeToString(key.PublicKey.SerializeCompressed())
+		pubkey := hex.EncodeToString(key.PublicKey)
 		pubKeys[key.Amount] = pubkey
 	}
 

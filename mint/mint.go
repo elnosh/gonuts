@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,11 +13,15 @@ import (
 
 type Mint struct {
 	db *bolt.DB
+
 	// current keyset
 	Keyset *crypto.Keyset
+
+	// list of all keysets
+	Keysets []*crypto.Keyset
 }
 
-func SetupMint(config config.Config) *Mint {
+func LoadMint(config config.Config) (*Mint, error) {
 	path := setMintDBPath()
 	db, err := bolt.Open(filepath.Join(path, "mint.db"), 0600, nil)
 	if err != nil {
@@ -24,8 +29,14 @@ func SetupMint(config config.Config) *Mint {
 	}
 
 	keyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
+	mint := &Mint{db: db, Keyset: keyset}
+	err = mint.InitKeysetsBucket(*keyset)
+	if err != nil {
+		return nil, fmt.Errorf("error setting keyset: %v", err)
+	}
+	mint.Keysets = mint.GetKeysets()
 
-	return &Mint{db: db, Keyset: keyset}
+	return mint, nil
 }
 
 func setMintDBPath() string {
@@ -40,4 +51,13 @@ func setMintDBPath() string {
 		log.Fatal(err)
 	}
 	return path
+}
+
+func (m *Mint) KeysetList() []string {
+	keysetIds := make([]string, len(m.Keysets))
+
+	for i, keyset := range m.Keysets {
+		keysetIds[i] = keyset.Id
+	}
+	return keysetIds
 }
