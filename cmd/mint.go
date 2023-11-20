@@ -3,14 +3,18 @@ package main
 import (
 	"log"
 
+	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/mint"
-	"github.com/elnosh/gonuts/mint/config"
+	"github.com/joho/godotenv"
 )
 
-const configPath = "../mint/config/config.json"
-
 func main() {
-	mintConfig := config.GetConfig(configPath)
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("error loading .env file")
+	}
+	mintConfig := config.GetConfig()
+
 	mintServer, err := mint.SetupMintServer(mintConfig)
 	if err != nil {
 		log.Fatalf("error starting mint server: %v", err)

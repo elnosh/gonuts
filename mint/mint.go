@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
-	"github.com/elnosh/gonuts/mint/config"
+	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -19,6 +20,8 @@ type Mint struct {
 
 	// list of all keysets
 	Keysets []*crypto.Keyset
+
+	LightningClient lightning.Client
 }
 
 func LoadMint(config config.Config) (*Mint, error) {
@@ -35,6 +38,8 @@ func LoadMint(config config.Config) (*Mint, error) {
 		return nil, fmt.Errorf("error setting keyset: %v", err)
 	}
 	mint.Keysets = mint.GetKeysets()
+
+	mint.LightningClient = lightning.NewLightningClient()
 
 	return mint, nil
 }
