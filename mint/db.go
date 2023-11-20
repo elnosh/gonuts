@@ -70,7 +70,7 @@ func (m *Mint) SaveInvoice(invoice lightning.Invoice) error {
 
 	if err := m.db.Update(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
-		key := []byte(invoice.Hash)
+		key := []byte(invoice.MintHash)
 		err := invoicesb.Put(key, jsonbytes)
 		return err
 	}); err != nil {

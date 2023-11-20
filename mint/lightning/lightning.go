@@ -10,7 +10,8 @@ const (
 )
 
 type Client interface {
-	CreateInvoice(amount int64) (string, error)
+	CreateInvoice(amount int64) (string, string, error)
+	InvoiceSettled(hash string) bool
 }
 
 func NewLightningClient() Client {
@@ -32,7 +33,8 @@ func NewLightningClient() Client {
 }
 
 type Invoice struct {
-	Hash     string
-	Settled  bool
-	Redeemed bool
+	PaymentHash string
+	MintHash    string
+	Settled     bool
+	Redeemed    bool
 }

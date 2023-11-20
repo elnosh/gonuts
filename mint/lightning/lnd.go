@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 )
 
 const (
@@ -63,27 +64,55 @@ func (lnd *LndClient) httpClient() *http.Client {
 	}
 }
 
-func (lnd *LndClient) CreateInvoice(amount int64) (string, error) {
+func (lnd *LndClient) CreateInvoice(amount int64) (string, string, error) {
 	body := map[string]any{"value": amount}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return "", fmt.Errorf("invalid amount: %v", err)
+		return "", "", fmt.Errorf("invalid amount: %v", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, lnd.host+"/v1/invoices", bytes.NewBuffer(jsonBody))
 	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
 
 	client := lnd.httpClient()
-
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("lnd.CreateInvoice: %v", err)
+		return "", "", fmt.Errorf("lnd.CreateInvoice: %v", err)
 	}
 	defer resp.Body.Close()
 
 	var res map[string]any
 	json.NewDecoder(resp.Body).Decode(&res)
 	pr := res["payment_request"]
+	paymentHash := res["r_hash"]
 
-	return pr.(string), nil
+	return pr.(string), paymentHash.(string), nil
+}
+
+func (lnd *LndClient) InvoiceSettled(hash string) bool {
+	hash = strings.ReplaceAll(strings.ReplaceAll(hash, "/", "_"), "+", "-")
+	url := lnd.host + "/v2/invoices/lookup?payment_hash=" + hash
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		fmt.Printf("error creating request: %v", err)
+	}
+	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
+
+	client := lnd.httpClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	var res map[string]any
+	json.NewDecoder(resp.Body).Decode(&res)
+	settled := res["state"]
+
+	if settled == "SETTLED" {
+		return true
+	}
+
+	return false
 }
