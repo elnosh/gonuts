@@ -30,3 +30,9 @@ func NewLightningClient() Client {
 
 	return nil
 }
+
+type Invoice struct {
+	Hash     string
+	Settled  bool
+	Redeemed bool
+}

@@ -1,9 +1,6 @@
 package mint
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"log/slog"
@@ -128,8 +125,11 @@ type RequestMintResponse struct {
 }
 
 func (ms *MintServer) requestMint(rw http.ResponseWriter, req *http.Request) {
-	// check value exists and that is a valid number
 	amount := req.URL.Query().Get("amount")
+	if amount == "" {
+		http.Error(rw, "specify an amount", http.StatusBadRequest)
+		return
+	}
 
 	satsAmount, err := strconv.ParseInt(amount, 10, 64)
 	if err != nil {
@@ -137,24 +137,12 @@ func (ms *MintServer) requestMint(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	randomBytes := make([]byte, 32)
-	_, err = rand.Read(randomBytes)
+	pr, hash, err := ms.mint.RequestInvoice(satsAmount)
 	if err != nil {
-		http.Error(rw, "unable to create invoice", http.StatusInternalServerError)
-		return
+		http.Error(rw, err.Error(), http.StatusBadRequest)
 	}
 
-	hash := sha256.Sum256(randomBytes)
-	hashStr := hex.EncodeToString(hash[:])
-
-	pr, err := ms.mint.LightningClient.CreateInvoice(satsAmount)
-	if err != nil {
-		errMsg := "error creating invoice: " + err.Error()
-		http.Error(rw, errMsg, http.StatusInternalServerError)
-		return
-	}
-
-	reqMintResponse := RequestMintResponse{PaymentRequest: pr, Hash: hashStr}
+	reqMintResponse := RequestMintResponse{PaymentRequest: pr, Hash: hash}
 	jsonRes, err := json.Marshal(reqMintResponse)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)

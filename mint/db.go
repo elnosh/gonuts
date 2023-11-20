@@ -2,13 +2,16 @@ package mint
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	keysetsBucket = "keysets"
+	keysetsBucket  = "keysets"
+	invoicesBucket = "invoices"
 )
 
 func (m *Mint) InitKeysetsBucket(keyset crypto.Keyset) error {
@@ -50,4 +53,44 @@ func (m *Mint) GetKeysets() []*crypto.Keyset {
 	})
 
 	return keysets
+}
+
+func (m *Mint) InitInvoiceBucket() {
+	m.db.Update(func(tx *bolt.Tx) error {
+		_, _ = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
+		return nil
+	})
+}
+
+func (m *Mint) SaveInvoice(invoice lightning.Invoice) error {
+	jsonbytes, err := json.Marshal(invoice)
+	if err != nil {
+		return fmt.Errorf("invalid invoice: %v", err)
+	}
+
+	if err := m.db.Update(func(tx *bolt.Tx) error {
+		invoicesb := tx.Bucket([]byte(invoicesBucket))
+		key := []byte(invoice.Hash)
+		err := invoicesb.Put(key, jsonbytes)
+		return err
+	}); err != nil {
+		return fmt.Errorf("error saving invoice: %v", err)
+	}
+	return nil
+}
+
+func (m *Mint) GetInvoice(hash string) *lightning.Invoice {
+	var invoice *lightning.Invoice
+
+	m.db.View(func(tx *bolt.Tx) error {
+		invoicesb := tx.Bucket([]byte(invoicesBucket))
+		invoiceBytes := invoicesb.Get([]byte(hash))
+		err := json.Unmarshal(invoiceBytes, &invoice)
+		if err != nil {
+			invoice = nil
+		}
+
+		return nil
+	})
+	return invoice
 }

@@ -1,6 +1,9 @@
 package mint
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -37,8 +40,8 @@ func LoadMint(config config.Config) (*Mint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error setting keyset: %v", err)
 	}
+	mint.InitInvoiceBucket()
 	mint.Keysets = mint.GetKeysets()
-
 	mint.LightningClient = lightning.NewLightningClient()
 
 	return mint, nil
@@ -65,4 +68,30 @@ func (m *Mint) KeysetList() []string {
 		keysetIds[i] = keyset.Id
 	}
 	return keysetIds
+}
+
+// creates lightning invoice and saves it in db
+func (m *Mint) RequestInvoice(amount int64) (string, string, error) {
+	pr, err := m.LightningClient.CreateInvoice(amount)
+	if err != nil {
+		return "", "", fmt.Errorf("error creating invoice: %v", err)
+	}
+
+	randomBytes := make([]byte, 32)
+	_, err = rand.Read(randomBytes)
+	if err != nil {
+		return "", "", fmt.Errorf("error creating invoice: %v", err)
+	}
+
+	hash := sha256.Sum256(randomBytes)
+	hashStr := hex.EncodeToString(hash[:])
+
+	invoice := lightning.Invoice{Hash: hashStr}
+
+	err = m.SaveInvoice(invoice)
+	if err != nil {
+		return "", "", fmt.Errorf("error creating invoice: %v", err)
+	}
+
+	return pr, hashStr, nil
 }
