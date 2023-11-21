@@ -108,17 +108,13 @@ func TestSignBlindedMessage(t *testing.T) {
 }
 
 func TestUnblindSignature(t *testing.T) {
-	src := []byte("02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2")
-	dst := make([]byte, hex.DecodedLen(len(src)))
-	_, _ = hex.Decode(dst, src)
+	dst, _ := hex.DecodeString("02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2")
 	C_, err := secp256k1.ParsePubKey(dst)
 	if err != nil {
 		t.Error(err)
 	}
 
-	ksrc := []byte("020000000000000000000000000000000000000000000000000000000000000001")
-	kdst := make([]byte, hex.DecodedLen(len(ksrc)))
-	_, _ = hex.Decode(kdst, ksrc)
+	kdst, _ := hex.DecodeString("020000000000000000000000000000000000000000000000000000000000000001")
 	K, err := secp256k1.ParsePubKey(kdst)
 	if err != nil {
 		t.Error(err)

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
@@ -38,10 +39,11 @@ func SetupMintServer(config config.Config) (*MintServer, error) {
 func (ms *MintServer) setupHttpServer() {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/keys", ms.getPublicKeyset).Methods("GET")
-	r.HandleFunc("/keys/{id}", ms.getKeysetById).Methods("GET")
-	r.HandleFunc("/keysets", ms.getKeysetsList).Methods("GET")
-	r.HandleFunc("/mint", ms.requestMint).Methods("GET")
+	r.HandleFunc("/keys", ms.getPublicKeyset).Methods(http.MethodGet)
+	r.HandleFunc("/keys/{id}", ms.getKeysetById).Methods(http.MethodGet)
+	r.HandleFunc("/keysets", ms.getKeysetsList).Methods(http.MethodGet)
+	r.HandleFunc("/mint", ms.requestMint).Methods(http.MethodGet)
+	r.HandleFunc("/mint", ms.postMint).Methods(http.MethodPost)
 
 	server := &http.Server{
 		Addr:    "127.0.0.1:3338",
@@ -150,4 +152,52 @@ func (ms *MintServer) requestMint(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	rw.Write(jsonRes)
+}
+
+func (ms *MintServer) postMint(rw http.ResponseWriter, req *http.Request) {
+	hash := req.URL.Query().Get("hash")
+	if hash == "" {
+		http.Error(rw, "specify hash", http.StatusBadRequest)
+		return
+	}
+
+	invoice := ms.mint.GetInvoice(hash)
+	if invoice == nil {
+		http.Error(rw, "invoice not found", http.StatusNotFound)
+		return
+	}
+
+	if !invoice.Settled {
+		settled := ms.mint.LightningClient.InvoiceSettled(invoice.PaymentHash)
+		if !settled {
+			http.Error(rw, "invoice has not been paid", http.StatusBadRequest)
+			return
+		}
+
+		var mintRequest cashu.PostMintRequest
+		err := json.NewDecoder(req.Body).Decode(&mintRequest)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		blindedSignatures, err := cashu.SignBlindedMessages(mintRequest.Outputs, ms.mint.Keyset)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		invoice.Settled = true
+		invoice.Redeemed = true
+		ms.mint.SaveInvoice(*invoice)
+
+		response := cashu.PostMintResponse{Promises: blindedSignatures}
+		rw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(rw).Encode(response)
+		return
+	} else {
+		if invoice.Redeemed {
+			http.Error(rw, "tokens have already been minted", http.StatusBadRequest)
+			return
+		}
+	}
 }
