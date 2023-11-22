@@ -1,5 +1,9 @@
 package cashu
 
+type PostMintRequest struct {
+	Outputs BlindedMessages `json:"outputs"`
+}
+
 type BlindedMessage struct {
 	Amount uint64 `json:"amount"`
 	B_     string `json:"B_"`
@@ -15,10 +19,15 @@ type BlindedSignature struct {
 
 type BlindedSignatures []BlindedSignature
 
-type PostMintRequest struct {
-	Outputs BlindedMessages `json:"outputs"`
-}
-
 type PostMintResponse struct {
 	Promises BlindedSignatures `json:"promises"`
 }
+
+type Proof struct {
+	Amount uint64 `json:"amount"`
+	Secret string `json:"secret"`
+	C      string `json:"C"`
+	Id     string `json:"id"`
+}
+
+type Proofs []Proof

@@ -15,6 +15,7 @@ const maxOrder = 64
 
 type Keyset struct {
 	Id       string
+	MintURL  string
 	KeyPairs []KeyPair
 }
 
