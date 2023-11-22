@@ -70,7 +70,7 @@ func (m *Mint) SaveInvoice(invoice lightning.Invoice) error {
 
 	if err := m.db.Update(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
-		key := []byte(invoice.MintHash)
+		key := []byte(invoice.Id)
 		err := invoicesb.Put(key, jsonbytes)
 		return err
 	}); err != nil {
@@ -79,12 +79,12 @@ func (m *Mint) SaveInvoice(invoice lightning.Invoice) error {
 	return nil
 }
 
-func (m *Mint) GetInvoice(mintHash string) *lightning.Invoice {
+func (m *Mint) GetInvoice(id string) *lightning.Invoice {
 	var invoice *lightning.Invoice
 
 	m.db.View(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
-		invoiceBytes := invoicesb.Get([]byte(mintHash))
+		invoiceBytes := invoicesb.Get([]byte(id))
 		err := json.Unmarshal(invoiceBytes, &invoice)
 		if err != nil {
 			invoice = nil

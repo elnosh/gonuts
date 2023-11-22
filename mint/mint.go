@@ -71,26 +71,26 @@ func (m *Mint) KeysetList() []string {
 }
 
 // creates lightning invoice and saves it in db
-func (m *Mint) RequestInvoice(amount int64) (string, string, error) {
-	pr, paymentHash, err := m.LightningClient.CreateInvoice(amount)
+func (m *Mint) RequestInvoice(amount int64) (*lightning.Invoice, error) {
+	invoice, err := m.LightningClient.CreateInvoice(amount)
 	if err != nil {
-		return "", "", fmt.Errorf("error creating invoice: %v", err)
+		return nil, fmt.Errorf("error creating invoice: %v", err)
 	}
 
 	randomBytes := make([]byte, 32)
 	_, err = rand.Read(randomBytes)
 	if err != nil {
-		return "", "", fmt.Errorf("error creating invoice: %v", err)
+		return nil, fmt.Errorf("error creating invoice: %v", err)
 	}
 
 	hash := sha256.Sum256(randomBytes)
 	hashStr := hex.EncodeToString(hash[:])
 
-	invoice := lightning.Invoice{PaymentHash: paymentHash, MintHash: hashStr}
+	invoice.Id = hashStr
 	err = m.SaveInvoice(invoice)
 	if err != nil {
-		return "", "", fmt.Errorf("error creating invoice: %v", err)
+		return nil, fmt.Errorf("error creating invoice: %v", err)
 	}
 
-	return pr, hashStr, nil
+	return &invoice, nil
 }

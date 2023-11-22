@@ -121,11 +121,6 @@ func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) 
 	return
 }
 
-type RequestMintResponse struct {
-	PaymentRequest string `json:"pr"`
-	Hash           string `json:"hash"`
-}
-
 func (ms *MintServer) requestMint(rw http.ResponseWriter, req *http.Request) {
 	amount := req.URL.Query().Get("amount")
 	if amount == "" {
@@ -139,12 +134,12 @@ func (ms *MintServer) requestMint(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	pr, hash, err := ms.mint.RequestInvoice(satsAmount)
+	invoice, err := ms.mint.RequestInvoice(satsAmount)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 	}
 
-	reqMintResponse := RequestMintResponse{PaymentRequest: pr, Hash: hash}
+	reqMintResponse := cashu.RequestMintResponse{PaymentRequest: invoice.PaymentRequest, Hash: invoice.Id}
 	jsonRes, err := json.Marshal(reqMintResponse)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)

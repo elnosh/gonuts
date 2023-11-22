@@ -64,11 +64,11 @@ func (lnd *LndClient) httpClient() *http.Client {
 	}
 }
 
-func (lnd *LndClient) CreateInvoice(amount int64) (string, string, error) {
+func (lnd *LndClient) CreateInvoice(amount int64) (Invoice, error) {
 	body := map[string]any{"value": amount}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid amount: %v", err)
+		return Invoice{}, fmt.Errorf("invalid amount: %v", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, lnd.host+"/v1/invoices", bytes.NewBuffer(jsonBody))
@@ -77,16 +77,17 @@ func (lnd *LndClient) CreateInvoice(amount int64) (string, string, error) {
 	client := lnd.httpClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("lnd.CreateInvoice: %v", err)
+		return Invoice{}, fmt.Errorf("lnd.CreateInvoice: %v", err)
 	}
 	defer resp.Body.Close()
 
 	var res map[string]any
 	json.NewDecoder(resp.Body).Decode(&res)
-	pr := res["payment_request"]
-	paymentHash := res["r_hash"]
+	pr := res["payment_request"].(string)
+	paymentHash := res["r_hash"].(string)
 
-	return pr.(string), paymentHash.(string), nil
+	invoice := Invoice{PaymentRequest: pr, PaymentHash: paymentHash}
+	return invoice, nil
 }
 
 func (lnd *LndClient) InvoiceSettled(hash string) bool {

@@ -1,5 +1,10 @@
 package cashu
 
+type RequestMintResponse struct {
+	PaymentRequest string `json:"pr"`
+	Hash           string `json:"hash"`
+}
+
 type PostMintRequest struct {
 	Outputs BlindedMessages `json:"outputs"`
 }

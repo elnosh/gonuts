@@ -12,6 +12,7 @@ import (
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet/storage"
 )
 
@@ -65,7 +66,7 @@ func LoadWallet() (*Wallet, error) {
 	wallet.mintURL = os.Getenv(MINT_URL)
 	if wallet.mintURL == "" {
 		// if no mint specified, default to localhost
-		wallet.mintURL = "https://127.0.0.1:3338"
+		wallet.mintURL = "http://127.0.0.1:3338"
 	}
 
 	// keyset, err := getMintCurrentKeyset(wallet.mintURL)
@@ -85,7 +86,10 @@ func getMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
 	defer resp.Body.Close()
 
 	var keysetRes map[string]string
-	json.NewDecoder(resp.Body).Decode(&keysetRes)
+	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
 
 	keyset := &crypto.Keyset{MintURL: mintURL}
 	for amountStr, pubkey := range keysetRes {
@@ -114,4 +118,26 @@ func (w *Wallet) GetBalance() uint64 {
 	}
 
 	return balance
+}
+
+func (w *Wallet) RequestMint(amount uint64) (*cashu.RequestMintResponse, error) {
+	amountStr := strconv.FormatUint(amount, 10)
+
+	resp, err := http.Get(w.mintURL + "/mint?amount=" + amountStr)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var reqMintResponse cashu.RequestMintResponse
+	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return &reqMintResponse, nil
+}
+
+func (w *Wallet) SaveInvoice(invoice lightning.Invoice) error {
+	return w.db.SaveInvoice(invoice)
 }
