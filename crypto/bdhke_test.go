@@ -56,8 +56,9 @@ func TestBlindMessage(t *testing.T) {
 		if err != nil {
 			t.Errorf("error decoding blinding factor: %v", err)
 		}
+		r := secp256k1.PrivKeyFromBytes(rbytes)
 
-		B_, _ := BlindMessage(test.secret, rbytes)
+		B_, _ := BlindMessage(test.secret, r)
 		B_Hex := hex.EncodeToString(B_.SerializeCompressed())
 		if B_Hex != test.expected {
 			t.Errorf("expected '%v' but got '%v' instead\n", test.expected, B_Hex)
@@ -89,8 +90,9 @@ func TestSignBlindedMessage(t *testing.T) {
 		if err != nil {
 			t.Errorf("error decoding blinding factor: %v", err)
 		}
+		r := secp256k1.PrivKeyFromBytes(rbytes)
 
-		B_, _ := BlindMessage(test.secret, rbytes)
+		B_, _ := BlindMessage(test.secret, r)
 
 		mintKeyBytes, err := hex.DecodeString(test.mintPrivKey)
 		if err != nil {
@@ -121,7 +123,7 @@ func TestUnblindSignature(t *testing.T) {
 	}
 
 	rhex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
-	r, _ := btcec.PrivKeyFromBytes(rhex)
+	r := secp256k1.PrivKeyFromBytes(rhex)
 
 	C := UnblindSignature(C_, r, K)
 	CHex := hex.EncodeToString(C.SerializeCompressed())
@@ -134,8 +136,9 @@ func TestUnblindSignature(t *testing.T) {
 func TestVerify(t *testing.T) {
 	secret := []byte("test_message")
 	rhex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000002")
+	r := secp256k1.PrivKeyFromBytes(rhex)
 
-	B_, r := BlindMessage(secret, rhex)
+	B_, r := BlindMessage(secret, r)
 
 	khex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
 	k, _ := btcec.PrivKeyFromBytes(khex)

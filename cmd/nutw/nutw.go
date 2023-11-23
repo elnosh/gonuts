@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/urfave/cli/v2"
@@ -57,13 +58,29 @@ func getBalance(ctx *cli.Context) error {
 var mintCmd = &cli.Command{
 	Name:   "mint",
 	Before: SetupWallet,
-	Action: requestMint,
+	Action: mint,
 }
 
-func requestMint(ctx *cli.Context) error {
+func mint(ctx *cli.Context) error {
 	args := ctx.Args()
 	amountStr := args.First()
+	err := requestMint(amountStr)
+	if err != nil {
+		// handle err
+	}
 
+	// if invoice paid and minting tokens - run mintTokens
+	// check for flag with payment request
+	pr := "lnbcr..."
+	err = mintTokens(pr)
+	if err != nil {
+		// handle err
+	}
+
+	return nil
+}
+
+func requestMint(amountStr string) error {
 	amount, err := strconv.ParseUint(amountStr, 10, 64)
 	if err != nil {
 		printErr(errors.New("invalid amount"))
@@ -83,6 +100,36 @@ func requestMint(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("invoice: %v\n", mintResponse.PaymentRequest)
+	return nil
+}
+
+func mintTokens(paymentRequest string) error {
+	invoice := nutw.GetInvoice(paymentRequest)
+	if invoice == nil {
+		return errors.New("invoice not found")
+	}
+
+	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount)
+	if err != nil {
+		// handle err
+	}
+
+	// make post request to mint with outputs payload
+	blindedSignatures, err := nutw.MintTokens(invoice.Id, blindedMessages)
+	if err != nil {
+		// handle err
+	}
+
+	mintKeyset, err := wallet.GetMintCurrentKeyset(nutw.MintURL)
+	if err != nil {
+		// handle err
+	}
+
+	// unblind the signatures from the promises and build the proofs
+	proofs, err := nutw.ConstructProofs(blindedSignatures, secrets, rs, mintKeyset)
+
+	// store proofs in db
+
 	return nil
 }
 

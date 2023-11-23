@@ -3,7 +3,6 @@ package crypto
 import (
 	"crypto/sha256"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
@@ -20,16 +19,16 @@ func HashToCurve(message []byte) *secp256k1.PublicKey {
 }
 
 // B_ = Y + rG
-func BlindMessage(secret []byte, blindingFactor []byte) (*secp256k1.PublicKey, *secp256k1.PrivateKey) {
+func BlindMessage(secret []byte, r *secp256k1.PrivateKey) (*secp256k1.PublicKey, *secp256k1.PrivateKey) {
 	var ypoint, rpoint, blindedMessage secp256k1.JacobianPoint
 
 	Y := HashToCurve(secret)
 	Y.AsJacobian(&ypoint)
 
-	r, rpub := btcec.PrivKeyFromBytes(blindingFactor)
+	rpub := r.PubKey()
 	rpub.AsJacobian(&rpoint)
 
-	// blindedMessage = Y + rG (rpub)
+	// blindedMessage = Y + rG
 	secp256k1.AddNonConst(&ypoint, &rpoint, &blindedMessage)
 	blindedMessage.ToAffine()
 	B_ := secp256k1.NewPublicKey(&blindedMessage.X, &blindedMessage.Y)

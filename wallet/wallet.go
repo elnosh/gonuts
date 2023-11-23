@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -24,7 +26,7 @@ type Wallet struct {
 	db storage.DB
 
 	// current mint url
-	mintURL string
+	MintURL string
 
 	// current keyset
 	keyset  *crypto.Keyset
@@ -78,7 +80,7 @@ func LoadWallet() (*Wallet, error) {
 	return wallet, nil
 }
 
-func getMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
+func GetMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
 	resp, err := http.Get(mintURL + "/keys")
 	if err != nil {
 		return nil, err
@@ -138,6 +140,74 @@ func (w *Wallet) RequestMint(amount uint64) (*cashu.RequestMintResponse, error) 
 	return &reqMintResponse, nil
 }
 
+func (w *Wallet) MintTokens(hash string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+	msg := cashu.PostMintRequest{Outputs: blindedMessages}
+	outputs, err := json.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling blinded messages: %v", err)
+	}
+
+	resp, err := http.Post(w.mintURL+"/mint?hash="+hash, "application/json", bytes.NewBuffer(outputs))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var mintResponse cashu.PostMintResponse
+	err = json.NewDecoder(resp.Body).Decode(&mintResponse)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding response from mint: %v", err)
+	}
+
+	return mintResponse.Promises, nil
+}
+
+func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
+	secrets [][]byte, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
+
+	// check that length of slices match
+
+	proofs := make(cashu.Proofs, len(blindedSignatures))
+
+	for i, blindedSignature := range blindedSignatures {
+		C_bytes, err := hex.DecodeString(blindedSignature.C_)
+		if err != nil {
+			return nil, fmt.Errorf("error unblinding signature: %v", err)
+		}
+		C_, err := secp256k1.ParsePubKey(C_bytes)
+		if err != nil {
+			return nil, fmt.Errorf("error unblinding signature: %v", err)
+		}
+
+		var pubKey []byte
+		for _, kp := range keyset.KeyPairs {
+			if kp.Amount == blindedSignature.Amount {
+				pubKey = kp.PublicKey
+			}
+		}
+
+		K, err := secp256k1.ParsePubKey(pubKey)
+		if err != nil {
+			return nil, fmt.Errorf("error unblinding signature: %v", err)
+		}
+
+		C := crypto.UnblindSignature(C_, rs[i], K)
+		Cstr := hex.EncodeToString(C.SerializeCompressed())
+
+		secret := hex.EncodeToString(secrets[i])
+		proof := cashu.Proof{Amount: blindedSignature.Amount,
+			Secret: secret, C: Cstr, Id: blindedSignature.Id}
+
+		proofs = append(proofs, proof)
+	}
+
+	return proofs, nil
+}
+
 func (w *Wallet) SaveInvoice(invoice lightning.Invoice) error {
 	return w.db.SaveInvoice(invoice)
+}
+
+func (w *Wallet) GetInvoice(pr string) *lightning.Invoice {
+	return w.db.GetInvoice(pr)
 }
