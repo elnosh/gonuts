@@ -57,6 +57,23 @@ func (db *BoltDB) GetProofs() cashu.Proofs {
 	return proofs
 }
 
+func (db *BoltDB) SaveProof(proof cashu.Proof) error {
+	jsonProof, err := json.Marshal(proof)
+	if err != nil {
+		return fmt.Errorf("invalid proof format: %v", err)
+	}
+
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
+		key := []byte(proof.Secret)
+		err := proofsb.Put(key, jsonProof)
+		return err
+	}); err != nil {
+		return fmt.Errorf("error saving proof: %v", err)
+	}
+	return nil
+}
+
 func (db *BoltDB) GetKeysets() []crypto.Keyset {
 	keysets := []crypto.Keyset{}
 
@@ -120,6 +137,11 @@ func initWalletBuckets(db *bolt.DB) error {
 		}
 
 		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
 		if err != nil {
 			return err
 		}

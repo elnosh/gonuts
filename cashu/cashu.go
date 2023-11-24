@@ -38,7 +38,7 @@ func CreateBlindedMessages(amount uint64) (BlindedMessages, [][]byte, []*secp256
 	secrets := make([][]byte, splitLen)
 	rs := make([]*secp256k1.PrivateKey, splitLen)
 
-	for _, amt := range splitAmounts {
+	for i, amt := range splitAmounts {
 		// create random secret
 		secret := make([]byte, 32)
 		_, err := rand.Read(secret)
@@ -54,7 +54,9 @@ func CreateBlindedMessages(amount uint64) (BlindedMessages, [][]byte, []*secp256
 
 		B_, r := crypto.BlindMessage(secret, r)
 		blindedMessage := NewBlindedMessage(amt, B_)
-		blindedMessages = append(blindedMessages, blindedMessage)
+		blindedMessages[i] = blindedMessage
+		secrets[i] = secret
+		rs[i] = r
 	}
 
 	return blindedMessages, secrets, rs, nil
@@ -94,8 +96,4 @@ func SignBlindedMessages(blinded BlindedMessages,
 	}
 
 	return blindedSignatures, nil
-}
-
-func UnblindSignature(signature string, r *secp256k1.PrivateKey) string {
-	return ""
 }

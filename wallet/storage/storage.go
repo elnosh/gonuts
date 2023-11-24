@@ -8,6 +8,7 @@ import (
 
 type DB interface {
 	GetProofs() cashu.Proofs
+	SaveProof(cashu.Proof) error
 	GetKeysets() []crypto.Keyset
 	SaveInvoice(lightning.Invoice) error
 	GetInvoice(string) *lightning.Invoice

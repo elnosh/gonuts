@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -50,7 +51,7 @@ func setWalletPath() string {
 }
 
 func InitStorage(path string) (storage.DB, error) {
-	// only bolt db atm
+	// bolt db atm
 	return storage.InitBolt(path)
 }
 
@@ -65,10 +66,10 @@ func LoadWallet() (*Wallet, error) {
 	wallet.keysets = wallet.db.GetKeysets()
 	wallet.proofs = wallet.db.GetProofs()
 
-	wallet.mintURL = os.Getenv(MINT_URL)
-	if wallet.mintURL == "" {
+	wallet.MintURL = os.Getenv(MINT_URL)
+	if wallet.MintURL == "" {
 		// if no mint specified, default to localhost
-		wallet.mintURL = "http://127.0.0.1:3338"
+		wallet.MintURL = "http://127.0.0.1:3338"
 	}
 
 	// keyset, err := getMintCurrentKeyset(wallet.mintURL)
@@ -125,7 +126,7 @@ func (w *Wallet) GetBalance() uint64 {
 func (w *Wallet) RequestMint(amount uint64) (*cashu.RequestMintResponse, error) {
 	amountStr := strconv.FormatUint(amount, 10)
 
-	resp, err := http.Get(w.mintURL + "/mint?amount=" + amountStr)
+	resp, err := http.Get(w.MintURL + "/mint?amount=" + amountStr)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +148,7 @@ func (w *Wallet) MintTokens(hash string, blindedMessages cashu.BlindedMessages) 
 		return nil, fmt.Errorf("error marshaling blinded messages: %v", err)
 	}
 
-	resp, err := http.Post(w.mintURL+"/mint?hash="+hash, "application/json", bytes.NewBuffer(outputs))
+	resp, err := http.Post(w.MintURL+"/mint?hash="+hash, "application/json", bytes.NewBuffer(outputs))
 	if err != nil {
 		return nil, err
 	}
@@ -165,18 +166,19 @@ func (w *Wallet) MintTokens(hash string, blindedMessages cashu.BlindedMessages) 
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 	secrets [][]byte, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
 
-	// check that length of slices match
+	if len(blindedSignatures) != len(secrets) && len(blindedSignatures) != len(rs) {
+		return nil, errors.New("lengths do not match")
+	}
 
 	proofs := make(cashu.Proofs, len(blindedSignatures))
-
 	for i, blindedSignature := range blindedSignatures {
 		C_bytes, err := hex.DecodeString(blindedSignature.C_)
 		if err != nil {
-			return nil, fmt.Errorf("error unblinding signature: %v", err)
+			return nil, err
 		}
 		C_, err := secp256k1.ParsePubKey(C_bytes)
 		if err != nil {
-			return nil, fmt.Errorf("error unblinding signature: %v", err)
+			return nil, err
 		}
 
 		var pubKey []byte
@@ -188,7 +190,7 @@ func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 
 		K, err := secp256k1.ParsePubKey(pubKey)
 		if err != nil {
-			return nil, fmt.Errorf("error unblinding signature: %v", err)
+			return nil, err
 		}
 
 		C := crypto.UnblindSignature(C_, rs[i], K)
@@ -198,10 +200,21 @@ func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 		proof := cashu.Proof{Amount: blindedSignature.Amount,
 			Secret: secret, C: Cstr, Id: blindedSignature.Id}
 
-		proofs = append(proofs, proof)
+		proofs[i] = proof
 	}
 
 	return proofs, nil
+}
+
+func (w *Wallet) StoreProofs(proofs cashu.Proofs) error {
+	for _, proof := range proofs {
+		err := w.db.SaveProof(proof)
+		if err != nil {
+			return err
+		}
+	}
+	w.proofs = append(w.proofs, proofs...)
+	return nil
 }
 
 func (w *Wallet) SaveInvoice(invoice lightning.Invoice) error {

@@ -32,10 +32,6 @@ func main() {
 			balanceCmd,
 			mintCmd,
 		},
-		Action: func(*cli.Context) error {
-			fmt.Println("hey! I'm nutw")
-			return nil
-		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -55,26 +51,38 @@ func getBalance(ctx *cli.Context) error {
 	return nil
 }
 
+const invoiceFlag = "invoice"
+
 var mintCmd = &cli.Command{
 	Name:   "mint",
 	Before: SetupWallet,
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  invoiceFlag,
+			Usage: "Specify paid invoice to mint tokens",
+		},
+	},
 	Action: mint,
 }
 
 func mint(ctx *cli.Context) error {
+	// if paid invoice was passed, request tokens from mint
+	if ctx.IsSet(invoiceFlag) {
+		err := mintTokens(ctx.String(invoiceFlag))
+		if err != nil {
+			printErr(err)
+		}
+		return nil
+	}
+
 	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("specify an amount to mint"))
+	}
 	amountStr := args.First()
 	err := requestMint(amountStr)
 	if err != nil {
-		// handle err
-	}
-
-	// if invoice paid and minting tokens - run mintTokens
-	// check for flag with payment request
-	pr := "lnbcr..."
-	err = mintTokens(pr)
-	if err != nil {
-		// handle err
+		printErr(err)
 	}
 
 	return nil
@@ -83,12 +91,12 @@ func mint(ctx *cli.Context) error {
 func requestMint(amountStr string) error {
 	amount, err := strconv.ParseUint(amountStr, 10, 64)
 	if err != nil {
-		printErr(errors.New("invalid amount"))
+		return errors.New("invalid amount")
 	}
 
 	mintResponse, err := nutw.RequestMint(amount)
 	if err != nil {
-		printErr(err)
+		return err
 	}
 
 	invoice := lightning.Invoice{Id: mintResponse.Hash,
@@ -96,7 +104,7 @@ func requestMint(amountStr string) error {
 
 	err = nutw.SaveInvoice(invoice)
 	if err != nil {
-		printErr(err)
+		return err
 	}
 
 	fmt.Printf("invoice: %v\n", mintResponse.PaymentRequest)
@@ -111,25 +119,32 @@ func mintTokens(paymentRequest string) error {
 
 	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount)
 	if err != nil {
-		// handle err
+		return fmt.Errorf("error creating blinded messages: %v", err)
 	}
 
-	// make post request to mint with outputs payload
 	blindedSignatures, err := nutw.MintTokens(invoice.Id, blindedMessages)
 	if err != nil {
-		// handle err
+		return fmt.Errorf("error minting tokens: %v", err)
 	}
 
 	mintKeyset, err := wallet.GetMintCurrentKeyset(nutw.MintURL)
 	if err != nil {
-		// handle err
+		return err
 	}
 
 	// unblind the signatures from the promises and build the proofs
 	proofs, err := nutw.ConstructProofs(blindedSignatures, secrets, rs, mintKeyset)
+	if err != nil {
+		return fmt.Errorf("error constructing proofs: %v", err)
+	}
 
 	// store proofs in db
+	err = nutw.StoreProofs(proofs)
+	if err != nil {
+		return fmt.Errorf("error storing proofs: %v", err)
+	}
 
+	fmt.Printf("%v tokens minted\n", invoice.Amount)
 	return nil
 }
 
