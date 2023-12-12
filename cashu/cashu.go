@@ -10,6 +10,54 @@ import (
 	"github.com/elnosh/gonuts/crypto"
 )
 
+type BlindedMessage struct {
+	Amount uint64 `json:"amount"`
+	B_     string `json:"B_"`
+	Id     string `json:"id"`
+}
+
+type BlindedMessages []BlindedMessage
+
+type BlindedSignature struct {
+	Amount uint64 `json:"amount"`
+	C_     string `json:"C_"`
+	Id     string `json:"id"`
+}
+
+type BlindedSignatures []BlindedSignature
+
+type PostMintResponse struct {
+	Promises BlindedSignatures `json:"promises"`
+}
+
+type Proof struct {
+	Amount uint64 `json:"amount"`
+	Secret string `json:"secret"`
+	C      string `json:"C"`
+	Id     string `json:"id"`
+}
+
+type Proofs []Proof
+
+type RequestMintResponse struct {
+	PaymentRequest string `json:"pr"`
+	Hash           string `json:"hash"`
+}
+
+type PostMintRequest struct {
+	Outputs BlindedMessages `json:"outputs"`
+}
+
+type Error struct {
+	Detail string `json:"detail"`
+	Code   int    `json:"code"`
+}
+
+var (
+	KeysetsErr     = Error{Detail: "unable to serve keysets", Code: 1001}
+	KeysetNotExist = Error{Detail: "keyset does not exist", Code: 1002}
+)
+
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
 // that can be used to build blinded messages or split operations.
 // from nutshell implementation

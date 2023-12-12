@@ -19,10 +19,10 @@ type Mint struct {
 	db *bolt.DB
 
 	// current keyset
-	Keyset *crypto.Keyset
+	ActiveKeysets []crypto.Keyset
 
-	// list of all keysets
-	Keysets []*crypto.Keyset
+	// list of all keysets (both active and inactive)
+	Keysets []crypto.Keyset
 
 	LightningClient lightning.Client
 }
@@ -35,7 +35,7 @@ func LoadMint(config config.Config) (*Mint, error) {
 	}
 
 	keyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
-	mint := &Mint{db: db, Keyset: keyset}
+	mint := &Mint{db: db, ActiveKeysets: []crypto.Keyset{*keyset}}
 	err = mint.InitKeysetsBucket(*keyset)
 	if err != nil {
 		return nil, fmt.Errorf("error setting keyset: %v", err)

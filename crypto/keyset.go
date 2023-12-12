@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"math"
 	"sort"
@@ -16,6 +15,8 @@ const maxOrder = 64
 type Keyset struct {
 	Id       string
 	MintURL  string
+	Unit     string
+	Active   bool
 	KeyPairs []KeyPair
 }
 
@@ -35,7 +36,7 @@ func GenerateKeyset(seed, derivationPath string) *Keyset {
 		keyPairs[i] = KeyPair{Amount: amount, PrivateKey: privKey.Serialize(), PublicKey: pubKey.SerializeCompressed()}
 	}
 	keysetId := DeriveKeysetId(keyPairs)
-	return &Keyset{Id: keysetId, KeyPairs: keyPairs}
+	return &Keyset{Id: keysetId, Unit: "sat", Active: true, KeyPairs: keyPairs}
 }
 
 func DeriveKeysetId(keys []KeyPair) string {
@@ -49,8 +50,8 @@ func DeriveKeysetId(keys []KeyPair) string {
 	}
 	hash := sha256.New()
 	hash.Write(pubkeys)
-	encoded := base64.StdEncoding.EncodeToString(hash.Sum(nil))
-	return encoded[:12]
+
+	return "00" + hex.EncodeToString(hash.Sum(nil))[:14]
 }
 
 func (ks *Keyset) DerivePublic() map[uint64]string {
