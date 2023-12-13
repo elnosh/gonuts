@@ -11,12 +11,17 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
 	LND_HOST          = "LND_REST_HOST"
 	LND_CERT_PATH     = "LND_CERT_PATH"
 	LND_MACAROON_PATH = "LND_MACAROON_PATH"
+)
+
+const (
+	InvoiceExpiryMins = 10
 )
 
 type LndClient struct {
@@ -64,8 +69,8 @@ func (lnd *LndClient) httpClient() *http.Client {
 	}
 }
 
-func (lnd *LndClient) CreateInvoice(amount int64) (Invoice, error) {
-	body := map[string]any{"value": amount}
+func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
+	body := map[string]any{"value": amount, "expiry": InvoiceExpiryMins * 60}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return Invoice{}, fmt.Errorf("invalid amount: %v", err)
@@ -86,7 +91,9 @@ func (lnd *LndClient) CreateInvoice(amount int64) (Invoice, error) {
 	pr := res["payment_request"].(string)
 	paymentHash := res["r_hash"].(string)
 
-	invoice := Invoice{PaymentRequest: pr, PaymentHash: paymentHash}
+	invoice := Invoice{PaymentRequest: pr, PaymentHash: paymentHash,
+		Amount: amount,
+		Expiry: time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()}
 	return invoice, nil
 }
 

@@ -54,8 +54,20 @@ type Error struct {
 }
 
 var (
-	KeysetsErr     = Error{Detail: "unable to serve keysets", Code: 1001}
-	KeysetNotExist = Error{Detail: "keyset does not exist", Code: 1002}
+	StandardErr               = Error{Detail: "unable to process request", Code: 1000}
+	EmptyBody                 = Error{Detail: "request body cannot be emtpy", Code: 1001}
+	KeysetsErr                = Error{Detail: "unable to serve keysets", Code: 1002}
+	KeysetNotExist            = Error{Detail: "keyset does not exist", Code: 1003}
+	PaymentMethodNotSpecified = Error{Detail: "payment method not specified", Code: 1004}
+	PaymentMethodNotSupported = Error{Detail: "payment method not supported", Code: 1005}
+	UnitNotSupported          = Error{Detail: "unit not supported", Code: 1006}
+	QuoteIdNotSpecified       = Error{Detail: "quote id not specified", Code: 1007}
+	InvoiceNotExist           = Error{Detail: "invoice does not exist", Code: 1008}
+	InvoiceNotPaid            = Error{Detail: "invoice has not been paid", Code: 1009}
+	OutputsOverInvoice        = Error{
+		Detail: "sum of the output amounts is greater than amount of invoice paid",
+		Code:   1010}
+	InvoiceTokensIssued = Error{Detail: "tokens already issued for invoice", Code: 1011}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]

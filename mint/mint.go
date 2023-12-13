@@ -18,7 +18,7 @@ import (
 type Mint struct {
 	db *bolt.DB
 
-	// current keyset
+	// active keysets
 	ActiveKeysets []crypto.Keyset
 
 	// list of all keysets (both active and inactive)
@@ -71,7 +71,7 @@ func (m *Mint) KeysetList() []string {
 }
 
 // creates lightning invoice and saves it in db
-func (m *Mint) RequestInvoice(amount int64) (*lightning.Invoice, error) {
+func (m *Mint) RequestInvoice(amount uint64) (*lightning.Invoice, error) {
 	invoice, err := m.LightningClient.CreateInvoice(amount)
 	if err != nil {
 		return nil, fmt.Errorf("error creating invoice: %v", err)

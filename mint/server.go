@@ -5,11 +5,11 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 	"github.com/elnosh/gonuts/cashu/nuts/nut02"
+	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
@@ -49,8 +49,10 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet)
 	r.HandleFunc("/v1/keysets", ms.getKeysetsList).Methods(http.MethodGet)
 	r.HandleFunc("/v1/keys/{id}", ms.getKeysetById).Methods(http.MethodGet)
-	r.HandleFunc("/mint", ms.requestMint).Methods(http.MethodGet)
-	r.HandleFunc("/mint", ms.postMint).Methods(http.MethodPost)
+	r.HandleFunc("/v1/mint/quote/{method}", ms.requestMint).Methods(http.MethodPost)
+	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.getQuoteState).Methods(http.MethodGet)
+	r.HandleFunc("/v1/mint/{method}", ms.mintTokens).Methods(http.MethodPost)
+	//r.HandleFunc("/mint", ms.postMint).Methods(http.MethodPost)
 
 	server := &http.Server{
 		Addr:    "127.0.0.1:3338",
@@ -121,41 +123,111 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (ms *MintServer) requestMint(rw http.ResponseWriter, req *http.Request) {
-	amount := req.URL.Query().Get("amount")
-	if amount == "" {
-		http.Error(rw, "specify an amount", http.StatusBadRequest)
+	rw.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(req)
+	method, ok := vars["method"]
+	if !ok {
+		writeErr(rw, cashu.PaymentMethodNotSpecified)
 		return
 	}
 
-	satsAmount, err := strconv.ParseInt(amount, 10, 64)
-	if err != nil {
-		http.Error(rw, "invalid amount", http.StatusBadRequest)
+	if method != "bolt11" {
+		writeErr(rw, cashu.PaymentMethodNotSupported)
 		return
 	}
 
-	invoice, err := ms.mint.RequestInvoice(satsAmount)
+	// check for invalid input
+	var mintReq nut04.PostMintQuoteBolt11Request
+	err := json.NewDecoder(req.Body).Decode(&mintReq)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+		writeErr(rw, cashu.StandardErr)
+		return
 	}
 
-	reqMintResponse := cashu.RequestMintResponse{PaymentRequest: invoice.PaymentRequest, Hash: invoice.Id}
+	if mintReq.Unit != "sat" {
+		writeErr(rw, cashu.UnitNotSupported)
+		return
+	}
+
+	invoice, err := ms.mint.RequestInvoice(mintReq.Amount)
+	if err != nil {
+		writeErr(rw, cashu.Error{Detail: err.Error(), Code: 1010})
+		return
+	}
+
+	reqMintResponse := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
+		Request: invoice.PaymentRequest, Paid: invoice.Settled, Expiry: invoice.Expiry}
 	jsonRes, err := json.Marshal(reqMintResponse)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		writeErr(rw, cashu.StandardErr)
 		return
 	}
 
 	rw.Write(jsonRes)
 }
 
-func (ms *MintServer) postMint(rw http.ResponseWriter, req *http.Request) {
-	hash := req.URL.Query().Get("hash")
-	if hash == "" {
-		http.Error(rw, "specify hash", http.StatusBadRequest)
+func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(req)
+	method, ok := vars["method"]
+	if !ok {
+		writeErr(rw, cashu.PaymentMethodNotSpecified)
 		return
 	}
 
-	invoice := ms.mint.GetInvoice(hash)
+	if method != "bolt11" {
+		writeErr(rw, cashu.PaymentMethodNotSupported)
+		return
+	}
+
+	quoteId, ok := vars["quote_id"]
+	if !ok {
+		writeErr(rw, cashu.QuoteIdNotSpecified)
+		return
+	}
+
+	invoice := ms.mint.GetInvoice(quoteId)
+	if invoice == nil {
+		writeErr(rw, cashu.InvoiceNotExist)
+		return
+	}
+
+	invoice.Settled = ms.mint.LightningClient.InvoiceSettled(invoice.PaymentHash)
+	// save invoice
+
+	reqMintResponse := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
+		Request: invoice.PaymentRequest, Paid: invoice.Settled, Expiry: invoice.Expiry}
+	jsonRes, err := json.Marshal(reqMintResponse)
+	if err != nil {
+		writeErr(rw, cashu.StandardErr)
+		return
+	}
+
+	rw.Write(jsonRes)
+}
+
+func (ms *MintServer) mintTokens(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(req)
+	method, ok := vars["method"]
+	if !ok {
+		writeErr(rw, cashu.PaymentMethodNotSpecified)
+		return
+	}
+
+	if method != "bolt11" {
+		writeErr(rw, cashu.PaymentMethodNotSupported)
+		return
+	}
+
+	var mintReq nut04.PostMintBolt11Response
+	err := json.NewDecoder(req.Body).Decode(&mintReq)
+	if err != nil {
+		writeErr(rw, cashu.StandardErr)
+		return
+	}
+
+	invoice := ms.mint.GetInvoice(mintReq.Quote)
 	if invoice == nil {
 		http.Error(rw, "invoice not found", http.StatusNotFound)
 		return
@@ -164,20 +236,23 @@ func (ms *MintServer) postMint(rw http.ResponseWriter, req *http.Request) {
 	if !invoice.Settled {
 		settled := ms.mint.LightningClient.InvoiceSettled(invoice.PaymentHash)
 		if !settled {
-			http.Error(rw, "invoice has not been paid", http.StatusBadRequest)
+			writeErr(rw, cashu.InvoiceNotPaid)
 			return
 		}
 
-		var mintRequest cashu.PostMintRequest
-		err := json.NewDecoder(req.Body).Decode(&mintRequest)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
+		var totalAmount uint64 = 0
+		for _, message := range mintReq.Outputs {
+			totalAmount += message.Amount
+		}
+
+		if totalAmount > invoice.Amount {
+			writeErr(rw, cashu.OutputsOverInvoice)
 			return
 		}
 
-		blindedSignatures, err := cashu.SignBlindedMessages(mintRequest.Outputs, &ms.mint.ActiveKeysets[0])
+		blindedSignatures, err := cashu.SignBlindedMessages(mintReq.Outputs, &ms.mint.ActiveKeysets[0])
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			writeErr(rw, cashu.StandardErr)
 			return
 		}
 		invoice.Settled = true
@@ -185,12 +260,11 @@ func (ms *MintServer) postMint(rw http.ResponseWriter, req *http.Request) {
 		ms.mint.SaveInvoice(*invoice)
 
 		response := cashu.PostMintResponse{Promises: blindedSignatures}
-		rw.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(rw).Encode(response)
 		return
 	} else {
 		if invoice.Redeemed {
-			http.Error(rw, "tokens have already been minted", http.StatusBadRequest)
+			writeErr(rw, cashu.InvoiceTokensIssued)
 			return
 		}
 	}
