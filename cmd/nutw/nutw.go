@@ -75,6 +75,8 @@ func mint(ctx *cli.Context) error {
 		return nil
 	}
 
+	fmt.Println("invoice flag not set")
+
 	args := ctx.Args()
 	if args.Len() < 1 {
 		printErr(errors.New("specify an amount to mint"))
@@ -99,15 +101,16 @@ func requestMint(amountStr string) error {
 		return err
 	}
 
-	invoice := lightning.Invoice{Id: mintResponse.Hash,
-		PaymentRequest: mintResponse.PaymentRequest, Amount: amount}
+	invoice := lightning.Invoice{Id: mintResponse.Quote,
+		PaymentRequest: mintResponse.Request, Amount: amount,
+		Expiry: mintResponse.Expiry}
 
 	err = nutw.SaveInvoice(invoice)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("invoice: %v\n", mintResponse.PaymentRequest)
+	fmt.Printf("invoice: %v\n", invoice.PaymentRequest)
 	return nil
 }
 
@@ -115,6 +118,11 @@ func mintTokens(paymentRequest string) error {
 	invoice := nutw.GetInvoice(paymentRequest)
 	if invoice == nil {
 		return errors.New("invoice not found")
+	}
+
+	invoicePaid := nutw.CheckQuotePaid(invoice.Id)
+	if !invoicePaid {
+		return errors.New("invoice has not been paid")
 	}
 
 	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount)

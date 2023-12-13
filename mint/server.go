@@ -52,7 +52,6 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/mint/quote/{method}", ms.requestMint).Methods(http.MethodPost)
 	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.getQuoteState).Methods(http.MethodGet)
 	r.HandleFunc("/v1/mint/{method}", ms.mintTokens).Methods(http.MethodPost)
-	//r.HandleFunc("/mint", ms.postMint).Methods(http.MethodPost)
 
 	server := &http.Server{
 		Addr:    "127.0.0.1:3338",
@@ -220,7 +219,7 @@ func (ms *MintServer) mintTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var mintReq nut04.PostMintBolt11Response
+	var mintReq nut04.PostMintBolt11Request
 	err := json.NewDecoder(req.Body).Decode(&mintReq)
 	if err != nil {
 		writeErr(rw, cashu.StandardErr)
@@ -259,8 +258,8 @@ func (ms *MintServer) mintTokens(rw http.ResponseWriter, req *http.Request) {
 		invoice.Redeemed = true
 		ms.mint.SaveInvoice(*invoice)
 
-		response := cashu.PostMintResponse{Promises: blindedSignatures}
-		json.NewEncoder(rw).Encode(response)
+		signatures := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
+		json.NewEncoder(rw).Encode(signatures)
 		return
 	} else {
 		if invoice.Redeemed {

@@ -26,10 +26,6 @@ type BlindedSignature struct {
 
 type BlindedSignatures []BlindedSignature
 
-type PostMintResponse struct {
-	Promises BlindedSignatures `json:"promises"`
-}
-
 type Proof struct {
 	Amount uint64 `json:"amount"`
 	Secret string `json:"secret"`
@@ -38,15 +34,6 @@ type Proof struct {
 }
 
 type Proofs []Proof
-
-type RequestMintResponse struct {
-	PaymentRequest string `json:"pr"`
-	Hash           string `json:"hash"`
-}
-
-type PostMintRequest struct {
-	Outputs BlindedMessages `json:"outputs"`
-}
 
 type Error struct {
 	Detail string `json:"detail"`

@@ -14,7 +14,11 @@ type PostMintQuoteBolt11Response struct {
 	Expiry  int64  `json:"expiry"`
 }
 
-type PostMintBolt11Response struct {
+type PostMintBolt11Request struct {
 	Quote   string                `json:"quote"`
 	Outputs cashu.BlindedMessages `json:"outputs"`
+}
+
+type PostMintBolt11Response struct {
+	Signatures cashu.BlindedSignatures `json:"signatures"`
 }
