@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -66,12 +67,23 @@ func (db *BoltDB) SaveProof(proof cashu.Proof) error {
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 		key := []byte(proof.Secret)
-		err := proofsb.Put(key, jsonProof)
-		return err
+		return proofsb.Put(key, jsonProof)
 	}); err != nil {
 		return fmt.Errorf("error saving proof: %v", err)
 	}
 	return nil
+}
+
+func (db *BoltDB) DeleteProof(secret string) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
+		val := proofsb.Get([]byte(secret))
+		if val == nil {
+			return errors.New("proof does not exist")
+		}
+
+		return proofsb.Delete([]byte(secret))
+	})
 }
 
 func (db *BoltDB) GetKeysets() []crypto.Keyset {

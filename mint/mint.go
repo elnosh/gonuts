@@ -36,11 +36,10 @@ func LoadMint(config config.Config) (*Mint, error) {
 
 	keyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
 	mint := &Mint{db: db, ActiveKeysets: []crypto.Keyset{*keyset}}
-	err = mint.InitKeysetsBucket(*keyset)
+	err = mint.initMintBuckets()
 	if err != nil {
-		return nil, fmt.Errorf("error setting keyset: %v", err)
+		return nil, fmt.Errorf("error setting up db: %v", err)
 	}
-	mint.InitInvoiceBucket()
 	mint.Keysets = mint.GetKeysets()
 	mint.LightningClient = lightning.NewLightningClient()
 

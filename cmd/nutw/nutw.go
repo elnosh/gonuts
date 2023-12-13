@@ -31,6 +31,7 @@ func main() {
 		Commands: []*cli.Command{
 			balanceCmd,
 			mintCmd,
+			sendCmd,
 		},
 	}
 
@@ -74,8 +75,6 @@ func mint(ctx *cli.Context) error {
 		}
 		return nil
 	}
-
-	fmt.Println("invoice flag not set")
 
 	args := ctx.Args()
 	if args.Len() < 1 {
@@ -152,7 +151,33 @@ func mintTokens(paymentRequest string) error {
 		return fmt.Errorf("error storing proofs: %v", err)
 	}
 
-	fmt.Printf("%v tokens minted\n", invoice.Amount)
+	fmt.Println("tokens successfully minted")
+	return nil
+}
+
+var sendCmd = &cli.Command{
+	Name:   "send",
+	Before: SetupWallet,
+	Action: send,
+}
+
+func send(ctx *cli.Context) error {
+	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("specify an amount to send"))
+	}
+	amountStr := args.First()
+	sendAmount, err := strconv.ParseUint(amountStr, 10, 64)
+	if err != nil {
+		printErr(err)
+	}
+
+	token, err := nutw.Send(sendAmount)
+	if err != nil {
+		printErr(err)
+	}
+
+	fmt.Printf("%v\n", token.ToString())
 	return nil
 }
 

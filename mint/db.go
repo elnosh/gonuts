@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -12,7 +13,30 @@ import (
 const (
 	keysetsBucket  = "keysets"
 	invoicesBucket = "invoices"
+	// for all redeemed proofs
+	proofsBucket = "proofs"
 )
+
+func (m *Mint) initMintBuckets() error {
+	return m.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(keysetsBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
 
 func (m *Mint) InitKeysetsBucket(keyset crypto.Keyset) error {
 	return m.db.Update(func(tx *bolt.Tx) error {
@@ -53,6 +77,44 @@ func (m *Mint) GetKeysets() []crypto.Keyset {
 	})
 
 	return keysets
+}
+
+func (m *Mint) InitProofsBucket() {
+	m.db.Update(func(tx *bolt.Tx) error {
+		_, _ = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		return nil
+	})
+}
+
+func (m *Mint) GetProof(secret string) *cashu.Proof {
+	var proof *cashu.Proof
+
+	m.db.View(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
+		proofBytes := proofsb.Get([]byte(secret))
+		err := json.Unmarshal(proofBytes, &proof)
+		if err != nil {
+			proof = nil
+		}
+		return nil
+	})
+	return proof
+}
+
+func (m *Mint) SaveProof(proof cashu.Proof) error {
+	jsonProof, err := json.Marshal(proof)
+	if err != nil {
+		return fmt.Errorf("invalid proof format: %v", err)
+	}
+
+	if err := m.db.Update(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
+		key := []byte(proof.Secret)
+		return proofsb.Put(key, jsonProof)
+	}); err != nil {
+		return fmt.Errorf("error saving proof: %v", err)
+	}
+	return nil
 }
 
 func (m *Mint) InitInvoiceBucket() {

@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
+	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -178,6 +180,117 @@ func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessage
 	}
 
 	return mintResponse.Signatures, nil
+}
+
+func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
+	if amount > w.GetBalance() {
+		return nil, errors.New("insufficient funds")
+	}
+
+	walletProofs := w.db.GetProofs()
+
+	selectedProofs := cashu.Proofs{}
+	var currentProofsAmount uint64 = 0
+	for _, proof := range walletProofs {
+		selectedProofs = append(selectedProofs, proof)
+		currentProofsAmount += proof.Amount
+
+		if currentProofsAmount == amount {
+			for _, proof := range selectedProofs {
+				w.db.DeleteProof(proof.Secret)
+			}
+			// stop here and create token with current state of selected proofs
+			token := cashu.NewToken(selectedProofs, w.MintURL, "sat")
+			return &token, nil
+		} else if currentProofsAmount > amount {
+			break
+		}
+	}
+
+	// blinded messages for send amount
+	send, secrets, rs, err := cashu.CreateBlindedMessages(amount)
+	if err != nil {
+		return nil, err
+	}
+
+	// blinded messages for change amount
+	change, changeSecrets, changeRs, err := cashu.CreateBlindedMessages(currentProofsAmount - amount)
+	if err != nil {
+		return nil, err
+	}
+
+	blindedMessages := make(cashu.BlindedMessages, len(send))
+	copy(blindedMessages, send)
+	blindedMessages = append(blindedMessages, change...)
+	secrets = append(secrets, changeSecrets...)
+	rs = append(rs, changeRs...)
+
+	// sort messages, secrets and rs
+	for i := 0; i < len(blindedMessages)-1; i++ {
+		for j := i + 1; j < len(blindedMessages); j++ {
+			if blindedMessages[i].Amount > blindedMessages[j].Amount {
+				// Swap blinded messages
+				blindedMessages[i], blindedMessages[j] = blindedMessages[j], blindedMessages[i]
+
+				// Swap secrets
+				secrets[i], secrets[j] = secrets[j], secrets[i]
+
+				// Swap rs
+				rs[i], rs[j] = rs[j], rs[i]
+			}
+		}
+	}
+
+	swapRequest := nut03.PostSwapRequest{Inputs: selectedProofs, Outputs: blindedMessages}
+	reqBody, err := json.Marshal(swapRequest)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request body: %v", err)
+	}
+
+	resp, err := http.Post(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	for _, proof := range selectedProofs {
+		w.db.DeleteProof(proof.Secret)
+	}
+
+	var swapResponse nut03.PostSwapResponse
+	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding response from mint: %v", err)
+	}
+
+	mintKeyset, err := GetMintCurrentKeyset(w.MintURL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting mint keyset: %v", err)
+	}
+
+	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, mintKeyset)
+	if err != nil {
+		return nil, fmt.Errorf("wallet.ConstructProofs: %v", err)
+	}
+
+	proofsToSend := make(cashu.Proofs, len(send))
+
+	for i, sendmsg := range send {
+		for j, proof := range proofs {
+			if sendmsg.Amount == proof.Amount {
+				proofsToSend[i] = proof
+				slices.Delete(proofs, j, j+1)
+			}
+		}
+	}
+
+	// remaining proofs are change proofs to save to db
+	for _, proof := range proofs {
+		w.db.SaveProof(proof)
+	}
+
+	token := cashu.NewToken(proofsToSend, w.MintURL, "sat")
+	return &token, nil
 }
 
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,

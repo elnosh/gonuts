@@ -1,14 +1,17 @@
 package mint
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"log/slog"
 	"net/http"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 	"github.com/elnosh/gonuts/cashu/nuts/nut02"
+	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
@@ -52,6 +55,7 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/mint/quote/{method}", ms.requestMint).Methods(http.MethodPost)
 	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.getQuoteState).Methods(http.MethodGet)
 	r.HandleFunc("/v1/mint/{method}", ms.mintTokens).Methods(http.MethodPost)
+	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost)
 
 	server := &http.Server{
 		Addr:    "127.0.0.1:3338",
@@ -72,7 +76,6 @@ func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request
 	}
 
 	rw.Write(jsonRes)
-	return
 }
 
 func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) {
@@ -86,7 +89,6 @@ func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) 
 	}
 
 	rw.Write(jsonRes)
-	return
 }
 
 func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
@@ -267,6 +269,71 @@ func (ms *MintServer) mintTokens(rw http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
+}
+
+func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "application/json")
+
+	var swapReq nut03.PostSwapRequest
+	err := json.NewDecoder(req.Body).Decode(&swapReq)
+	if err != nil {
+		writeErr(rw, cashu.StandardErr)
+		return
+	}
+
+	// check that proofs are valid
+	for _, proof := range swapReq.Inputs {
+		dbProof := ms.mint.GetProof(proof.Secret)
+		if dbProof != nil {
+			writeErr(rw, cashu.ProofAlreadyUsed)
+			return
+		}
+		secret, err := hex.DecodeString(proof.Secret)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var privateKey []byte
+		for _, kp := range ms.mint.ActiveKeysets[0].KeyPairs {
+			if kp.Amount == proof.Amount {
+				privateKey = kp.PrivateKey
+			}
+		}
+		k := secp256k1.PrivKeyFromBytes(privateKey)
+
+		Cbytes, err := hex.DecodeString(proof.C)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		C, err := secp256k1.ParsePubKey(Cbytes)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if !crypto.Verify(secret, k, C) {
+			writeErr(rw, cashu.InvalidProof)
+			return
+		}
+	}
+
+	// if verification complete, sign blinded messages and add used proofs to db
+	blindedSignatures, err := cashu.SignBlindedMessages(swapReq.Outputs, &ms.mint.ActiveKeysets[0])
+	if err != nil {
+		writeErr(rw, cashu.StandardErr)
+		return
+	}
+
+	signatures := nut03.PostSwapResponse{Signatures: blindedSignatures}
+
+	for _, proof := range swapReq.Inputs {
+		ms.mint.SaveProof(proof)
+	}
+
+	json.NewEncoder(rw).Encode(signatures)
 }
 
 func buildKeysResponse(keysets []crypto.Keyset) nut01.GetKeysResponse {

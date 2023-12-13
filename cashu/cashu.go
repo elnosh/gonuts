@@ -2,8 +2,11 @@ package cashu
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -30,10 +33,36 @@ type Proof struct {
 	Amount uint64 `json:"amount"`
 	Secret string `json:"secret"`
 	C      string `json:"C"`
-	Id     string `json:"id"`
+	// keyset id
+	Id string `json:"id"`
 }
 
 type Proofs []Proof
+
+type Token struct {
+	Token []TokenProof `json:"token"`
+	Unit  string       `json:"unit"`
+}
+
+type TokenProof struct {
+	Mint   string `json:"mint"`
+	Proofs Proofs `json:"proofs"`
+}
+
+func NewToken(proofs Proofs, mint string, unit string) Token {
+	tokenProof := TokenProof{Mint: mint, Proofs: proofs}
+	return Token{Token: []TokenProof{tokenProof}, Unit: unit}
+}
+
+func (t *Token) ToString() string {
+	jsonBytes, err := json.Marshal(t)
+	if err != nil {
+		panic(err)
+	}
+
+	token := base64.StdEncoding.EncodeToString(jsonBytes)
+	return "cashuA" + strings.ReplaceAll(strings.ReplaceAll(token, "/", "_"), "+", "-")
+}
 
 type Error struct {
 	Detail string `json:"detail"`
@@ -55,6 +84,8 @@ var (
 		Detail: "sum of the output amounts is greater than amount of invoice paid",
 		Code:   1010}
 	InvoiceTokensIssued = Error{Detail: "tokens already issued for invoice", Code: 1011}
+	ProofAlreadyUsed    = Error{Detail: "proofs already used", Code: 1012}
+	InvalidProof        = Error{Detail: "invalid proof", Code: 1013}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
