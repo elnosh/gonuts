@@ -98,6 +98,10 @@ func BuildCashuError(detail string, code CashuErrCode) *Error {
 	return &Error{Detail: detail, Code: code}
 }
 
+func (e Error) Error() string {
+	return e.Detail
+}
+
 const (
 	StandardErrCode CashuErrCode = 1000 + iota
 	KeysetErrCode
@@ -109,20 +113,20 @@ const (
 )
 
 var (
-	StandardErr               = Error{Detail: "unable to process request", Code: StandardErrCode}
-	EmptyBody                 = Error{Detail: "request body cannot be emtpy", Code: StandardErrCode}
-	KeysetNotExist            = Error{Detail: "keyset does not exist", Code: KeysetErrCode}
-	PaymentMethodNotSupported = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
-	UnitNotSupported          = Error{Detail: "unit not supported", Code: UnitErrCode}
-	QuoteIdNotSpecified       = Error{Detail: "quote id not specified", Code: QuoteErrCode}
-	InvoiceNotExist           = Error{Detail: "invoice does not exist", Code: InvoiceErrCode}
-	InvoiceNotPaid            = Error{Detail: "invoice has not been paid", Code: InvoiceErrCode}
-	OutputsOverInvoice        = Error{
+	StandardErr                  = Error{Detail: "unable to process request", Code: StandardErrCode}
+	EmptyBodyErr                 = Error{Detail: "request body cannot be emtpy", Code: StandardErrCode}
+	KeysetNotExistErr            = Error{Detail: "keyset does not exist", Code: KeysetErrCode}
+	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
+	UnitNotSupportedErr          = Error{Detail: "unit not supported", Code: UnitErrCode}
+	QuoteIdNotSpecifiedErr       = Error{Detail: "quote id not specified", Code: QuoteErrCode}
+	InvoiceNotExistErr           = Error{Detail: "invoice does not exist", Code: InvoiceErrCode}
+	InvoiceNotPaidErr            = Error{Detail: "invoice has not been paid", Code: InvoiceErrCode}
+	OutputsOverInvoiceErr        = Error{
 		Detail: "sum of the output amounts is greater than amount of invoice paid",
 		Code:   InvoiceErrCode}
-	InvoiceTokensIssued = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
-	ProofAlreadyUsed    = Error{Detail: "proofs already used", Code: ProofsErrCode}
-	InvalidProof        = Error{Detail: "invalid proof", Code: ProofsErrCode}
+	InvoiceTokensIssuedErr = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
+	ProofAlreadyUsedErr    = Error{Detail: "proofs already used", Code: ProofsErrCode}
+	InvalidProofErr        = Error{Detail: "invalid proof", Code: ProofsErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]

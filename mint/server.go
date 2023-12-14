@@ -1,7 +1,6 @@
 package mint
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 	"github.com/elnosh/gonuts/cashu/nuts/nut02"
@@ -21,13 +19,6 @@ import (
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
 )
-
-func writeErr(rw http.ResponseWriter, err cashu.Error) {
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(400)
-	errRes, _ := json.Marshal(err)
-	rw.Write(errRes)
-}
 
 type MintServer struct {
 	httpServer *http.Server
@@ -59,7 +50,7 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/keys/{id}", ms.getKeysetById).Methods(http.MethodGet)
 	r.HandleFunc("/v1/mint/quote/{method}", ms.mintRequest).Methods(http.MethodPost)
 	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.getQuoteState).Methods(http.MethodGet)
-	r.HandleFunc("/v1/mint/{method}", ms.mintTokens).Methods(http.MethodPost)
+	r.HandleFunc("/v1/mint/{method}", ms.mintTokensRequest).Methods(http.MethodPost)
 	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost)
 
 	server := &http.Server{
@@ -68,6 +59,13 @@ func (ms *MintServer) setupHttpServer() {
 	}
 
 	ms.httpServer = server
+}
+
+func writeErr(rw http.ResponseWriter, err error) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(400)
+	errRes, _ := json.Marshal(err)
+	rw.Write(errRes)
 }
 
 func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request) {
@@ -108,7 +106,7 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if keyset == nil {
-		writeErr(rw, cashu.KeysetNotExist)
+		writeErr(rw, cashu.KeysetNotExistErr)
 		return
 	}
 
@@ -128,19 +126,19 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	method := vars["method"]
 
 	if method != "bolt11" {
-		writeErr(rw, cashu.PaymentMethodNotSupported)
+		writeErr(rw, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
 
 	var mintReq nut04.PostMintQuoteBolt11Request
-	cashuErr := decodeJsonReqBody(req, &mintReq)
-	if cashuErr != nil {
-		writeErr(rw, *cashuErr)
+	err := decodeJsonReqBody(req, &mintReq)
+	if err != nil {
+		writeErr(rw, err)
 		return
 	}
 
 	if mintReq.Unit != "sat" {
-		writeErr(rw, cashu.UnitNotSupported)
+		writeErr(rw, cashu.UnitNotSupportedErr)
 		return
 	}
 
@@ -166,14 +164,14 @@ func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
 	if method != "bolt11" {
-		writeErr(rw, cashu.PaymentMethodNotSupported)
+		writeErr(rw, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
 
 	quoteId := vars["quote_id"]
 	invoice := ms.mint.GetInvoice(quoteId)
 	if invoice == nil {
-		writeErr(rw, cashu.InvoiceNotExist)
+		writeErr(rw, cashu.InvoiceNotExistErr)
 		return
 	}
 
@@ -195,125 +193,47 @@ func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
 	rw.Write(jsonRes)
 }
 
-func (ms *MintServer) mintTokens(rw http.ResponseWriter, req *http.Request) {
+func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
 	if method != "bolt11" {
-		writeErr(rw, cashu.PaymentMethodNotSupported)
+		writeErr(rw, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
 
 	var mintReq nut04.PostMintBolt11Request
-	cashuErr := decodeJsonReqBody(req, &mintReq)
-	if cashuErr != nil {
-		writeErr(rw, *cashuErr)
+	err := decodeJsonReqBody(req, &mintReq)
+	if err != nil {
+		writeErr(rw, err)
 		return
 	}
 
-	invoice := ms.mint.GetInvoice(mintReq.Quote)
-	if invoice == nil {
-		http.Error(rw, "invoice not found", http.StatusNotFound)
+	blindedSignatures, err := ms.mint.MintTokens(mintReq.Quote, mintReq.Outputs)
+	if err != nil {
+		writeErr(rw, err)
 		return
 	}
-
-	if !invoice.Settled {
-		settled := ms.mint.LightningClient.InvoiceSettled(invoice.PaymentHash)
-		if !settled {
-			writeErr(rw, cashu.InvoiceNotPaid)
-			return
-		}
-
-		var totalAmount uint64 = 0
-		for _, message := range mintReq.Outputs {
-			totalAmount += message.Amount
-		}
-
-		if totalAmount > invoice.Amount {
-			writeErr(rw, cashu.OutputsOverInvoice)
-			return
-		}
-
-		blindedSignatures, err := cashu.SignBlindedMessages(mintReq.Outputs, &ms.mint.ActiveKeysets[0])
-		if err != nil {
-			writeErr(rw, cashu.StandardErr)
-			return
-		}
-		invoice.Settled = true
-		invoice.Redeemed = true
-		ms.mint.SaveInvoice(*invoice)
-
-		signatures := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
-		rw.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(rw).Encode(signatures)
-		return
-	} else {
-		if invoice.Redeemed {
-			writeErr(rw, cashu.InvoiceTokensIssued)
-			return
-		}
-	}
+	signaturesRes := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(signaturesRes)
+	return
 }
 
 func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 	var swapReq nut03.PostSwapRequest
-	cashuErr := decodeJsonReqBody(req, &swapReq)
-	if cashuErr != nil {
-		writeErr(rw, *cashuErr)
+	err := decodeJsonReqBody(req, &swapReq)
+	if err != nil {
+		writeErr(rw, err)
 		return
 	}
 
-	// check that proofs are valid
-	for _, proof := range swapReq.Inputs {
-		dbProof := ms.mint.GetProof(proof.Secret)
-		if dbProof != nil {
-			writeErr(rw, cashu.ProofAlreadyUsed)
-			return
-		}
-		secret, err := hex.DecodeString(proof.Secret)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		var privateKey []byte
-		for _, kp := range ms.mint.ActiveKeysets[0].KeyPairs {
-			if kp.Amount == proof.Amount {
-				privateKey = kp.PrivateKey
-			}
-		}
-		k := secp256k1.PrivKeyFromBytes(privateKey)
-
-		Cbytes, err := hex.DecodeString(proof.C)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		C, err := secp256k1.ParsePubKey(Cbytes)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if !crypto.Verify(secret, k, C) {
-			writeErr(rw, cashu.InvalidProof)
-			return
-		}
-	}
-
-	// if verification complete, sign blinded messages and add used proofs to db
-	blindedSignatures, err := cashu.SignBlindedMessages(swapReq.Outputs, &ms.mint.ActiveKeysets[0])
+	blindedSignatures, err := ms.mint.Swap(swapReq.Inputs, swapReq.Outputs)
 	if err != nil {
-		writeErr(rw, cashu.StandardErr)
+		writeErr(rw, err)
 		return
 	}
 
 	signatures := nut03.PostSwapResponse{Signatures: blindedSignatures}
-
-	for _, proof := range swapReq.Inputs {
-		ms.mint.SaveProof(proof)
-	}
-
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(signatures)
 }
@@ -341,7 +261,7 @@ func (ms *MintServer) buildAllKeysetsResponse() nut02.GetKeysetResponse {
 	return keysetsResponse
 }
 
-func decodeJsonReqBody(req *http.Request, dst any) *cashu.Error {
+func decodeJsonReqBody(req *http.Request, dst any) error {
 	ct := req.Header.Get("Content-Type")
 	if ct != "" {
 		mediaType := strings.ToLower(strings.Split(ct, ";")[0])
@@ -371,7 +291,7 @@ func decodeJsonReqBody(req *http.Request, dst any) *cashu.Error {
 			cashuErr = cashu.BuildCashuError(msg, cashu.StandardErrCode)
 
 		case errors.Is(err, io.EOF):
-			return &cashu.EmptyBody
+			return cashu.EmptyBodyErr
 
 		case strings.HasPrefix(err.Error(), "json: unknown field "):
 			invalidField := strings.TrimPrefix(err.Error(), "json: unknown field ")

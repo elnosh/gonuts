@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -92,4 +94,95 @@ func (m *Mint) RequestInvoice(amount uint64) (*lightning.Invoice, error) {
 	}
 
 	return &invoice, nil
+}
+
+// id - quote id to lookup invoice
+func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+	invoice := m.GetInvoice(id)
+	if invoice == nil {
+		return nil, cashu.InvoiceNotExistErr
+	}
+
+	var blindedSignatures cashu.BlindedSignatures
+
+	if invoice.Settled {
+		var totalAmount uint64 = 0
+		for _, message := range blindedMessages {
+			totalAmount += message.Amount
+		}
+
+		if totalAmount > invoice.Amount {
+			return nil, cashu.OutputsOverInvoiceErr
+		}
+
+		var err error
+		blindedSignatures, err = cashu.SignBlindedMessages(blindedMessages, &m.ActiveKeysets[0])
+		if err != nil {
+			return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+		}
+		invoice.Redeemed = true
+		m.SaveInvoice(*invoice)
+	} else {
+		settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
+		if !settled {
+			return nil, cashu.InvoiceNotPaidErr
+		}
+		if invoice.Redeemed {
+			return nil, cashu.InvoiceTokensIssuedErr
+		}
+	}
+
+	return blindedSignatures, nil
+}
+
+func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+
+	for _, proof := range proofs {
+		dbProof := m.GetProof(proof.Secret)
+		if dbProof != nil {
+			return nil, cashu.ProofAlreadyUsedErr
+		}
+		secret, err := hex.DecodeString(proof.Secret)
+		if err != nil {
+			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return nil, cashuErr
+		}
+
+		var privateKey []byte
+		for _, kp := range m.ActiveKeysets[0].KeyPairs {
+			if kp.Amount == proof.Amount {
+				privateKey = kp.PrivateKey
+			}
+		}
+		k := secp256k1.PrivKeyFromBytes(privateKey)
+
+		Cbytes, err := hex.DecodeString(proof.C)
+		if err != nil {
+			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return nil, cashuErr
+		}
+
+		C, err := secp256k1.ParsePubKey(Cbytes)
+		if err != nil {
+			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return nil, cashuErr
+		}
+
+		if !crypto.Verify(secret, k, C) {
+			return nil, cashu.InvalidProofErr
+		}
+	}
+
+	// if verification complete, sign blinded messages and add used proofs to db
+	blindedSignatures, err := cashu.SignBlindedMessages(blindedMessages, &m.ActiveKeysets[0])
+	if err != nil {
+		cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+		return nil, cashuErr
+	}
+
+	for _, proof := range proofs {
+		m.SaveProof(proof)
+	}
+
+	return blindedSignatures, nil
 }
