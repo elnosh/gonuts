@@ -293,6 +293,57 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 	return &token, nil
 }
 
+func (w *Wallet) Receive(token cashu.Token) error {
+	proofsToSwap := make(cashu.Proofs, 0)
+	var proofsAmount uint64 = 0
+
+	for _, TokenProof := range token.Token {
+		for _, proof := range TokenProof.Proofs {
+			proofsAmount += proof.Amount
+			proofsToSwap = append(proofsToSwap, proof)
+		}
+	}
+
+	outputs, secrets, rs, err := cashu.CreateBlindedMessages(proofsAmount)
+	if err != nil {
+		return fmt.Errorf("CreateBlindedMessages: %v", err)
+	}
+
+	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
+	reqBody, err := json.Marshal(swapRequest)
+	if err != nil {
+		return fmt.Errorf("error marshaling request body: %v", err)
+	}
+
+	resp, err := http.Post(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var swapResponse nut03.PostSwapResponse
+	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
+	if err != nil {
+		return fmt.Errorf("error decoding response from mint: %v", err)
+	}
+
+	mintKeyset, err := GetMintCurrentKeyset(w.MintURL)
+	if err != nil {
+		return fmt.Errorf("error getting mint keyset: %v", err)
+	}
+
+	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, mintKeyset)
+	if err != nil {
+		return fmt.Errorf("wallet.ConstructProofs: %v", err)
+	}
+
+	for _, proof := range proofs {
+		w.db.SaveProof(proof)
+	}
+
+	return nil
+}
+
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 	secrets [][]byte, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
 

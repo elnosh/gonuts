@@ -32,12 +32,40 @@ func main() {
 			balanceCmd,
 			mintCmd,
 			sendCmd,
+			receiveCmd,
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+var receiveCmd = &cli.Command{
+	Name:   "receive",
+	Before: SetupWallet,
+	Action: receive,
+}
+
+func receive(ctx *cli.Context) error {
+	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("cashu token not provided"))
+	}
+	serializedToken := args.First()
+
+	token, err := cashu.DecodeToken(serializedToken)
+	if err != nil {
+		printErr(err)
+	}
+
+	err = nutw.Receive(*token)
+	if err != nil {
+		printErr(err)
+	}
+
+	fmt.Println("tokens received")
+	return nil
 }
 
 var balanceCmd = &cli.Command{

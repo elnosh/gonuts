@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -52,6 +54,27 @@ type TokenProof struct {
 func NewToken(proofs Proofs, mint string, unit string) Token {
 	tokenProof := TokenProof{Mint: mint, Proofs: proofs}
 	return Token{Token: []TokenProof{tokenProof}, Unit: unit}
+}
+
+func DecodeToken(tokenstr string) (*Token, error) {
+	prefixVersion := tokenstr[:6]
+	base64Token := tokenstr[6:]
+	if prefixVersion != "cashuA" {
+		return nil, errors.New("invalid token")
+	}
+
+	base64Bytes, err := base64.StdEncoding.DecodeString(base64Token)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding token: %v", err)
+	}
+
+	var token Token
+	err = json.Unmarshal(base64Bytes, &token)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshaling token: %v", err)
+	}
+
+	return &token, nil
 }
 
 func (t *Token) ToString() string {
