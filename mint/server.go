@@ -8,6 +8,8 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/elnosh/gonuts/cashu"
@@ -36,11 +38,35 @@ func SetupMintServer(config config.Config) (*MintServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger := slog.Default()
+
+	logger := getLogger()
 	mintServer := &MintServer{mint: mint, logger: logger}
 	mintServer.setupHttpServer()
 	return mintServer, nil
 }
+
+func getLogger() *slog.Logger {
+	replacer := func(groups []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.SourceKey {
+			source := a.Value.Any().(*slog.Source)
+			source.File = filepath.Base(source.File)
+			source.Function = filepath.Base(source.Function)
+		}
+		return a
+	}
+
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer}))
+}
+
+func (ms *MintServer) LogInfo(format string, v ...any) {
+	msg := fmt.Sprintf(format, v...)
+	ms.logger.Info(msg)
+}
+
+// func (m *Mint) LogError(format string, v ...any) {
+// 	msg := fmt.Sprintf(format, v...)
+// 	m.logger.Error(msg)
+// }
 
 func (ms *MintServer) setupHttpServer() {
 	r := mux.NewRouter()
@@ -61,37 +87,44 @@ func (ms *MintServer) setupHttpServer() {
 	ms.httpServer = server
 }
 
-func writeErr(rw http.ResponseWriter, err error) {
+func (ms *MintServer) writeResponse(rw http.ResponseWriter, req *http.Request,
+	response []byte, logmsg string) {
+	ms.logger.Info(logmsg, slog.Group("request", slog.String("method", req.Method),
+		slog.String("url", req.URL.String()), slog.Int("code", http.StatusOK)))
 	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(400)
+	rw.Write(response)
+}
+
+func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, err error) {
+	code := http.StatusBadRequest
+	ms.logger.Error(err.Error(), slog.Group("request", slog.String("method", req.Method),
+		slog.String("url", req.URL.String()), slog.Int("code", code)))
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(code)
 	errRes, _ := json.Marshal(err)
 	rw.Write(errRes)
 }
 
 func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request) {
-	rw.Header().Set("Content-Type", "application/json")
-
 	getKeysResponse := buildKeysResponse(ms.mint.ActiveKeysets)
 	jsonRes, err := json.Marshal(getKeysResponse)
 	if err != nil {
-		writeErr(rw, cashu.StandardErr)
+		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	rw.Write(jsonRes)
+	ms.writeResponse(rw, req, jsonRes, "returning active keysets")
 }
 
 func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) {
-	rw.Header().Set("Content-Type", "application/json")
-
 	getKeysetsResponse := ms.buildAllKeysetsResponse()
 	jsonRes, err := json.Marshal(getKeysetsResponse)
 	if err != nil {
-		writeErr(rw, cashu.StandardErr)
+		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	rw.Write(jsonRes)
+	ms.writeResponse(rw, req, jsonRes, "returning all keysets")
 }
 
 func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
@@ -106,19 +139,18 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if keyset == nil {
-		writeErr(rw, cashu.KeysetNotExistErr)
+		ms.writeErr(rw, req, cashu.KeysetNotExistErr)
 		return
 	}
 
 	getKeysResponse := buildKeysResponse([]crypto.Keyset{*keyset})
 	jsonRes, err := json.Marshal(getKeysResponse)
 	if err != nil {
-		writeErr(rw, cashu.StandardErr)
+		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Write(jsonRes)
+	ms.writeResponse(rw, req, jsonRes, "returned keyset with id: "+id)
 }
 
 func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
@@ -126,25 +158,25 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	method := vars["method"]
 
 	if method != "bolt11" {
-		writeErr(rw, cashu.PaymentMethodNotSupportedErr)
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
 
 	var mintReq nut04.PostMintQuoteBolt11Request
 	err := decodeJsonReqBody(req, &mintReq)
 	if err != nil {
-		writeErr(rw, err)
+		ms.writeErr(rw, req, err)
 		return
 	}
 
 	if mintReq.Unit != "sat" {
-		writeErr(rw, cashu.UnitNotSupportedErr)
+		ms.writeErr(rw, req, cashu.UnitNotSupportedErr)
 		return
 	}
 
 	invoice, err := ms.mint.RequestInvoice(mintReq.Amount)
 	if err != nil {
-		writeErr(rw, cashu.Error{Detail: err.Error(), Code: cashu.InvoiceErrCode})
+		ms.writeErr(rw, req, cashu.Error{Detail: err.Error(), Code: cashu.InvoiceErrCode})
 		return
 	}
 
@@ -152,26 +184,26 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		Request: invoice.PaymentRequest, Paid: invoice.Settled, Expiry: invoice.Expiry}
 	jsonRes, err := json.Marshal(reqMintResponse)
 	if err != nil {
-		writeErr(rw, cashu.StandardErr)
+		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Write(jsonRes)
+	logmsg := fmt.Sprintf("mint request for %v %v", mintReq.Amount, mintReq.Unit)
+	ms.writeResponse(rw, req, jsonRes, logmsg)
 }
 
 func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
 	if method != "bolt11" {
-		writeErr(rw, cashu.PaymentMethodNotSupportedErr)
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
 
 	quoteId := vars["quote_id"]
 	invoice := ms.mint.GetInvoice(quoteId)
 	if invoice == nil {
-		writeErr(rw, cashu.InvoiceNotExistErr)
+		ms.writeErr(rw, req, cashu.InvoiceNotExistErr)
 		return
 	}
 
@@ -185,57 +217,64 @@ func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
 		Request: invoice.PaymentRequest, Paid: settled, Expiry: invoice.Expiry}
 	jsonRes, err := json.Marshal(reqMintResponse)
 	if err != nil {
-		writeErr(rw, cashu.StandardErr)
+		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Write(jsonRes)
+	ms.writeResponse(rw, req, jsonRes, "")
 }
 
 func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
 	if method != "bolt11" {
-		writeErr(rw, cashu.PaymentMethodNotSupportedErr)
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
 
 	var mintReq nut04.PostMintBolt11Request
 	err := decodeJsonReqBody(req, &mintReq)
 	if err != nil {
-		writeErr(rw, err)
+		ms.writeErr(rw, req, err)
 		return
 	}
 
 	blindedSignatures, err := ms.mint.MintTokens(mintReq.Quote, mintReq.Outputs)
 	if err != nil {
-		writeErr(rw, err)
+		ms.writeErr(rw, req, err)
 		return
 	}
-	signaturesRes := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
-	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(signaturesRes)
-	return
+	signatures := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
+
+	jsonRes, err := json.Marshal(signatures)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+	ms.writeResponse(rw, req, jsonRes, "returned signatures on mint tokens request")
 }
 
 func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 	var swapReq nut03.PostSwapRequest
 	err := decodeJsonReqBody(req, &swapReq)
 	if err != nil {
-		writeErr(rw, err)
+		ms.writeErr(rw, req, err)
 		return
 	}
 
 	blindedSignatures, err := ms.mint.Swap(swapReq.Inputs, swapReq.Outputs)
 	if err != nil {
-		writeErr(rw, err)
+		ms.writeErr(rw, req, err)
 		return
 	}
 
 	signatures := nut03.PostSwapResponse{Signatures: blindedSignatures}
-	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(signatures)
+	jsonRes, err := json.Marshal(signatures)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+	ms.writeResponse(rw, req, jsonRes, "returned signatures on swap request")
 }
 
 func buildKeysResponse(keysets []crypto.Keyset) nut01.GetKeysResponse {

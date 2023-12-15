@@ -152,8 +152,6 @@ func mintTokens(paymentRequest string) error {
 		return errors.New("invoice has not been paid")
 	}
 
-	fmt.Println(invoice.Amount)
-
 	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount)
 	if err != nil {
 		return fmt.Errorf("error creating blinded messages: %v", err)

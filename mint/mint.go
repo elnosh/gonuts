@@ -105,7 +105,12 @@ func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cas
 
 	var blindedSignatures cashu.BlindedSignatures
 
-	if invoice.Settled {
+	settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
+	if settled {
+		if invoice.Redeemed {
+			return nil, cashu.InvoiceTokensIssuedErr
+		}
+
 		var totalAmount uint64 = 0
 		for _, message := range blindedMessages {
 			totalAmount += message.Amount
@@ -120,16 +125,12 @@ func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cas
 		if err != nil {
 			return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
+
+		invoice.Settled = true
 		invoice.Redeemed = true
 		m.SaveInvoice(*invoice)
 	} else {
-		settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
-		if !settled {
-			return nil, cashu.InvoiceNotPaidErr
-		}
-		if invoice.Redeemed {
-			return nil, cashu.InvoiceTokensIssuedErr
-		}
+		return nil, cashu.InvoiceNotPaidErr
 	}
 
 	return blindedSignatures, nil
