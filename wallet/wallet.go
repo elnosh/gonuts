@@ -114,8 +114,9 @@ func GetMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
 
 func (w *Wallet) GetBalance() uint64 {
 	var balance uint64 = 0
+	proofs := w.db.GetProofs()
 
-	for _, proof := range w.proofs {
+	for _, proof := range proofs {
 		balance += proof.Amount
 	}
 
@@ -279,7 +280,8 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 		for j, proof := range proofs {
 			if sendmsg.Amount == proof.Amount {
 				proofsToSend[i] = proof
-				slices.Delete(proofs, j, j+1)
+				proofs = slices.Delete(proofs, j, j+1)
+				break
 			}
 		}
 	}

@@ -138,11 +138,27 @@ func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cas
 
 func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
 
+	var proofsAmount uint64 = 0
+	var blindedMessagesAmount uint64 = 0
+
+	for _, proof := range proofs {
+		proofsAmount += proof.Amount
+	}
+
+	for _, msg := range blindedMessages {
+		blindedMessagesAmount += msg.Amount
+	}
+
+	if proofsAmount != blindedMessagesAmount {
+		return nil, cashu.AmountsDoNotMatch
+	}
+
 	for _, proof := range proofs {
 		dbProof := m.GetProof(proof.Secret)
 		if dbProof != nil {
 			return nil, cashu.ProofAlreadyUsedErr
 		}
+
 		secret, err := hex.DecodeString(proof.Secret)
 		if err != nil {
 			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)

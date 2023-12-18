@@ -127,6 +127,7 @@ var (
 	InvoiceTokensIssuedErr = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
 	ProofAlreadyUsedErr    = Error{Detail: "proofs already used", Code: ProofsErrCode}
 	InvalidProofErr        = Error{Detail: "invalid proof", Code: ProofsErrCode}
+	AmountsDoNotMatch      = Error{Detail: "amounts do not match", Code: ProofsErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
