@@ -91,7 +91,6 @@ func GetMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
 	}
 	defer resp.Body.Close()
 
-	//var keysetRes map[string]string
 	var keysetRes nut01.GetKeysResponse
 	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
 	if err != nil {
@@ -114,9 +113,8 @@ func GetMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
 
 func (w *Wallet) GetBalance() uint64 {
 	var balance uint64 = 0
-	proofs := w.db.GetProofs()
 
-	for _, proof := range proofs {
+	for _, proof := range w.proofs {
 		balance += proof.Amount
 	}
 
@@ -287,9 +285,7 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 	}
 
 	// remaining proofs are change proofs to save to db
-	for _, proof := range proofs {
-		w.db.SaveProof(proof)
-	}
+	w.StoreProofs(proofs)
 
 	token := cashu.NewToken(proofsToSend, w.MintURL, "sat")
 	return &token, nil
@@ -339,10 +335,7 @@ func (w *Wallet) Receive(token cashu.Token) error {
 		return fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
 
-	for _, proof := range proofs {
-		w.db.SaveProof(proof)
-	}
-
+	w.StoreProofs(proofs)
 	return nil
 }
 
