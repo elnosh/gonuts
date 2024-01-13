@@ -4,17 +4,24 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
+)
+
+const (
+	QuoteExpiryMins = 10
 )
 
 type Mint struct {
@@ -85,9 +92,8 @@ func (m *Mint) RequestInvoice(amount uint64) (*lightning.Invoice, error) {
 	}
 
 	hash := sha256.Sum256(randomBytes)
-	hashStr := hex.EncodeToString(hash[:])
 
-	invoice.Id = hashStr
+	invoice.Id = hex.EncodeToString(hash[:])
 	err = m.SaveInvoice(invoice)
 	if err != nil {
 		return nil, fmt.Errorf("error creating invoice: %v", err)
@@ -153,41 +159,9 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		return nil, cashu.AmountsDoNotMatch
 	}
 
-	for _, proof := range proofs {
-		dbProof := m.GetProof(proof.Secret)
-		if dbProof != nil {
-			return nil, cashu.ProofAlreadyUsedErr
-		}
-
-		secret, err := hex.DecodeString(proof.Secret)
-		if err != nil {
-			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			return nil, cashuErr
-		}
-
-		var privateKey []byte
-		for _, kp := range m.ActiveKeysets[0].KeyPairs {
-			if kp.Amount == proof.Amount {
-				privateKey = kp.PrivateKey
-			}
-		}
-		k := secp256k1.PrivKeyFromBytes(privateKey)
-
-		Cbytes, err := hex.DecodeString(proof.C)
-		if err != nil {
-			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			return nil, cashuErr
-		}
-
-		C, err := secp256k1.ParsePubKey(Cbytes)
-		if err != nil {
-			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			return nil, cashuErr
-		}
-
-		if !crypto.Verify(secret, k, C) {
-			return nil, cashu.InvalidProofErr
-		}
+	valid, err := m.VerifyProofs(proofs)
+	if err != nil || !valid {
+		return nil, err
 	}
 
 	// if verification complete, sign blinded messages and add used proofs to db
@@ -202,4 +176,91 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	}
 
 	return blindedSignatures, nil
+}
+
+type MeltQuote struct {
+	Id             string
+	InvoiceRequest string
+	Amount         uint64
+	FeeReserve     uint64
+	Paid           bool
+	Expiry         int64
+}
+
+func (m *Mint) MeltRequest(request *nut05.PostMeltQuoteBolt11Request) (*MeltQuote, error) {
+	if request.Unit != "sat" {
+		return nil, errors.New("unit nut supported")
+	}
+
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return nil, fmt.Errorf("melt request error: %v", err)
+	}
+
+	hash := sha256.Sum256(randomBytes)
+
+	amount, fee, err := m.LightningClient.FeeReserve(request.Request)
+	if err != nil {
+		return nil, fmt.Errorf("error getting fee: %v", err)
+	}
+	expiry := time.Now().Add(time.Minute * QuoteExpiryMins).Unix()
+
+	meltQuote := MeltQuote{
+		Id:             hex.EncodeToString(hash[:]),
+		InvoiceRequest: request.Request,
+		Amount:         amount,
+		FeeReserve:     fee,
+		Paid:           false,
+		Expiry:         expiry,
+	}
+
+	m.SaveMeltQuote(meltQuote)
+	return &meltQuote, nil
+}
+
+// when melting, need to check that proofs being used to peg out
+// are of the unit in the request. Meaning, the keyset id specified in the proof
+// is for unit supported (sats)
+func (m *Mint) Melt() {
+}
+
+func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
+	for _, proof := range proofs {
+		dbProof := m.GetProof(proof.Secret)
+		if dbProof != nil {
+			return false, cashu.ProofAlreadyUsedErr
+		}
+
+		secret, err := hex.DecodeString(proof.Secret)
+		if err != nil {
+			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return false, cashuErr
+		}
+
+		var privateKey []byte
+		for _, kp := range m.ActiveKeysets[0].KeyPairs {
+			if kp.Amount == proof.Amount {
+				privateKey = kp.PrivateKey
+			}
+		}
+		k := secp256k1.PrivKeyFromBytes(privateKey)
+
+		Cbytes, err := hex.DecodeString(proof.C)
+		if err != nil {
+			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return false, cashuErr
+		}
+
+		C, err := secp256k1.ParsePubKey(Cbytes)
+		if err != nil {
+			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return false, cashuErr
+		}
+
+		if !crypto.Verify(secret, k, C) {
+			return false, cashu.InvalidProofErr
+		}
+	}
+	return true, nil
 }

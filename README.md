@@ -1,14 +1,12 @@
-### gonuts
+# gonuts
 
 [Cashu](https://cashu.space/) wallet and mint implementation in Go.
-
-⚠️ **Warning:** This project is work in progress
 
 ## Supported NUTs
 
 Implemented [NUTs](https://github.com/cashubtc/nuts/):
 
-- [ ] [NUT-00](https://github.com/cashubtc/nuts/blob/main/00.md)
+- [x] [NUT-00](https://github.com/cashubtc/nuts/blob/main/00.md)
 - [ ] [NUT-01](https://github.com/cashubtc/nuts/blob/main/01.md)
 - [ ] [NUT-02](https://github.com/cashubtc/nuts/blob/main/02.md)
 - [ ] [NUT-03](https://github.com/cashubtc/nuts/blob/main/03.md)

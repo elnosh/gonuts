@@ -17,6 +17,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut02"
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
@@ -78,6 +79,9 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.getQuoteState).Methods(http.MethodGet)
 	r.HandleFunc("/v1/mint/{method}", ms.mintTokensRequest).Methods(http.MethodPost)
 	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost)
+	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost)
+	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.getMeltQuoteState).Methods(http.MethodGet)
+	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost)
 
 	server := &http.Server{
 		Addr:    "127.0.0.1:3338",
@@ -275,6 +279,130 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	ms.writeResponse(rw, req, jsonRes, "returned signatures on swap request")
+}
+
+func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	method := vars["method"]
+	if method != "bolt11" {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
+
+	var meltRequest nut05.PostMeltQuoteBolt11Request
+	err := decodeJsonReqBody(req, &meltRequest)
+	if err != nil {
+		ms.writeErr(rw, req, err)
+		return
+	}
+
+	meltQuote, err := ms.mint.MeltRequest(&meltRequest)
+	if err != nil {
+		ms.writeErr(rw, req, err)
+	}
+
+	quoteResponse := nut05.PostMeltQuoteBolt11Response{
+		Quote:      meltQuote.Id,
+		Amount:     meltQuote.Amount,
+		FeeReserve: meltQuote.FeeReserve,
+		Paid:       meltQuote.Paid,
+		Expiry:     meltQuote.Expiry,
+	}
+
+	jsonRes, err := json.Marshal(quoteResponse)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+
+	ms.writeResponse(rw, req, jsonRes, "melt quote request")
+}
+
+func (ms *MintServer) getMeltQuoteState(rw http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	method := vars["method"]
+	if method != "bolt11" {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
+
+	quoteId := vars["quote_id"]
+	meltQuote := ms.mint.GetMeltQuote(quoteId)
+	if meltQuote == nil {
+		ms.writeErr(rw, req, cashu.MeltQuoteNotExistErr)
+		return
+	}
+
+	quoteRes := nut05.PostMeltQuoteBolt11Response{
+		Quote:      meltQuote.Id,
+		Amount:     meltQuote.Amount,
+		FeeReserve: meltQuote.FeeReserve,
+		Paid:       meltQuote.Paid,
+		Expiry:     meltQuote.Expiry,
+	}
+
+	jsonRes, err := json.Marshal(quoteRes)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+
+	ms.writeResponse(rw, req, jsonRes, "")
+}
+
+func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	method := vars["method"]
+	if method != "bolt11" {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
+
+	var meltTokensRequest nut05.PostMeltBolt11Request
+	err := decodeJsonReqBody(req, &meltTokensRequest)
+	if err != nil {
+		ms.writeErr(rw, req, err)
+		return
+	}
+
+	meltQuote := ms.mint.GetMeltQuote(meltTokensRequest.Quote)
+	if meltQuote == nil {
+		ms.writeErr(rw, req, cashu.MeltQuoteNotExistErr)
+		return
+	}
+
+	valid, err := ms.mint.VerifyProofs(meltTokensRequest.Inputs)
+	if err != nil || !valid {
+		ms.writeErr(rw, req, err)
+	}
+
+	var inputsAmount uint64 = 0
+	for _, input := range meltTokensRequest.Inputs {
+		inputsAmount += input.Amount
+	}
+
+	if inputsAmount < meltQuote.Amount+meltQuote.FeeReserve {
+		ms.writeErr(rw, req, cashu.InsufficientProofsAmount)
+		return
+	}
+
+	var meltTokenResponse nut05.PostMeltBolt11Response
+	preimage, err := ms.mint.LightningClient.SendPayment(meltQuote.InvoiceRequest)
+	if err != nil {
+		meltTokenResponse.Paid = false
+		jsonRes, _ := json.Marshal(meltTokenResponse)
+		ms.writeResponse(rw, req, jsonRes, "")
+	}
+
+	meltTokenResponse.Paid = true
+	meltTokenResponse.Preimage = preimage
+	jsonRes, _ := json.Marshal(meltTokenResponse)
+
+	for _, proof := range meltTokensRequest.Inputs {
+		ms.mint.SaveProof(proof)
+	}
+
+	ms.writeResponse(rw, req, jsonRes, "")
 }
 
 func buildKeysResponse(keysets []crypto.Keyset) nut01.GetKeysResponse {

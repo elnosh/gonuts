@@ -12,6 +12,8 @@ const (
 type Client interface {
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceSettled(hash string) bool
+	FeeReserve(request string) (uint64, uint64, error)
+	SendPayment(request string) (string, error)
 }
 
 func NewLightningClient() Client {

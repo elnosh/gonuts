@@ -22,6 +22,7 @@ const (
 
 const (
 	InvoiceExpiryMins = 10
+	FeePercent        = 1
 )
 
 type LndClient struct {
@@ -123,4 +124,60 @@ func (lnd *LndClient) InvoiceSettled(hash string) bool {
 	}
 
 	return false
+}
+
+func (lnd *LndClient) FeeReserve(request string) (uint64, uint64, error) {
+	url := lnd.host + "/v1/payreq/" + request
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error getting fee: %v", err)
+	}
+	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
+
+	client := lnd.httpClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error getting fee: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var res map[string]any
+	json.NewDecoder(resp.Body).Decode(&res)
+
+	var satAmount int64
+	if amt, ok := res["num_satoshis"]; !ok {
+		return 0, 0, errors.New("invoice has no amount")
+	} else {
+		satAmount = amt.(int64)
+	}
+
+	return uint64(satAmount), uint64(satAmount * FeePercent / 100), nil
+}
+
+func (lnd *LndClient) SendPayment(request string) (string, error) {
+	url := lnd.host + "/v1/channels/transactions"
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("error making payment: %v", err)
+	}
+	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
+
+	client := lnd.httpClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error making payment: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var res map[string]any
+	json.NewDecoder(resp.Body).Decode(&res)
+
+	if paymentErr, ok := res["payment_error"]; ok && len(paymentErr.(string)) > 0 {
+		return "", fmt.Errorf("error making payment: %v", paymentErr)
+	}
+
+	paymentPreimage := res["payment_preimage"]
+	return paymentPreimage.(string), nil
 }

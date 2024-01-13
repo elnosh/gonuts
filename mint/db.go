@@ -13,8 +13,11 @@ import (
 const (
 	keysetsBucket  = "keysets"
 	invoicesBucket = "invoices"
+
 	// for all redeemed proofs
 	proofsBucket = "proofs"
+
+	quotesBucket = "melts"
 )
 
 func (m *Mint) initMintBuckets() error {
@@ -155,4 +158,37 @@ func (m *Mint) GetInvoice(id string) *lightning.Invoice {
 		return nil
 	})
 	return invoice
+}
+
+func (m *Mint) SaveMeltQuote(quote MeltQuote) error {
+	jsonbytes, err := json.Marshal(quote)
+	if err != nil {
+		return fmt.Errorf("invalid quote: %v", err)
+	}
+
+	if err := m.db.Update(func(tx *bolt.Tx) error {
+		meltQuotesb := tx.Bucket([]byte(quotesBucket))
+		key := []byte(quote.Id)
+		err := meltQuotesb.Put(key, jsonbytes)
+		return err
+	}); err != nil {
+		return fmt.Errorf("error saving quote: %v", err)
+	}
+	return nil
+}
+
+func (m *Mint) GetMeltQuote(quoteId string) *MeltQuote {
+	var quote *MeltQuote
+
+	m.db.View(func(tx *bolt.Tx) error {
+		meltQuotesb := tx.Bucket([]byte(quotesBucket))
+		quoteBytes := meltQuotesb.Get([]byte(quoteId))
+		err := json.Unmarshal(quoteBytes, &quote)
+		if err != nil {
+			quote = nil
+		}
+
+		return nil
+	})
+	return quote
 }

@@ -124,10 +124,12 @@ var (
 	OutputsOverInvoiceErr        = Error{
 		Detail: "sum of the output amounts is greater than amount of invoice paid",
 		Code:   InvoiceErrCode}
-	InvoiceTokensIssuedErr = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
-	ProofAlreadyUsedErr    = Error{Detail: "proofs already used", Code: ProofsErrCode}
-	InvalidProofErr        = Error{Detail: "invalid proof", Code: ProofsErrCode}
-	AmountsDoNotMatch      = Error{Detail: "amounts do not match", Code: ProofsErrCode}
+	InvoiceTokensIssuedErr   = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
+	ProofAlreadyUsedErr      = Error{Detail: "proofs already used", Code: ProofsErrCode}
+	InvalidProofErr          = Error{Detail: "invalid proof", Code: ProofsErrCode}
+	AmountsDoNotMatch        = Error{Detail: "amounts do not match", Code: ProofsErrCode}
+	MeltQuoteNotExistErr     = Error{Detail: "melt quote does not exist", Code: QuoteErrCode}
+	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
