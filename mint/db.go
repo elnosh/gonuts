@@ -87,6 +87,22 @@ func (m *Mint) GetKeysets() []crypto.Keyset {
 	return keysets
 }
 
+func (m *Mint) SaveKeyset(keyset crypto.Keyset) error {
+	jsonKeyset, err := json.Marshal(keyset)
+	if err != nil {
+		return fmt.Errorf("invalid keyset: %v", err)
+	}
+
+	if err := m.db.Update(func(tx *bolt.Tx) error {
+		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		key := []byte(keyset.Id)
+		return keysetsb.Put(key, jsonKeyset)
+	}); err != nil {
+		return fmt.Errorf("error saving keyset: %v", err)
+	}
+	return nil
+}
+
 func (m *Mint) InitProofsBucket() {
 	m.db.Update(func(tx *bolt.Tx) error {
 		_, _ = tx.CreateBucketIfNotExists([]byte(proofsBucket))

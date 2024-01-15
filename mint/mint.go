@@ -43,14 +43,37 @@ func LoadMint(config config.Config) (*Mint, error) {
 		log.Fatalf("error starting mint: %v", err)
 	}
 
-	keyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
-	mint := &Mint{db: db, ActiveKeysets: []crypto.Keyset{*keyset}}
+	activeKeyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
+	mint := &Mint{db: db, ActiveKeysets: []crypto.Keyset{*activeKeyset}}
 	err = mint.initMintBuckets()
 	if err != nil {
 		return nil, fmt.Errorf("error setting up db: %v", err)
 	}
+
 	mint.Keysets = mint.GetKeysets()
 	mint.LightningClient = lightning.NewLightningClient()
+
+	isKeysetNew := true
+	for i, keyset := range mint.Keysets {
+		if keyset.Id != activeKeyset.Id {
+			keyset.Active = false
+			err := mint.SaveKeyset(keyset)
+			if err != nil {
+				return nil, fmt.Errorf("error saving keyset: %v", err)
+			}
+			mint.Keysets[i] = keyset
+		} else if keyset.Id == activeKeyset.Id {
+			isKeysetNew = false
+		}
+	}
+
+	if isKeysetNew {
+		err = mint.SaveKeyset(*activeKeyset)
+		if err != nil {
+			return nil, fmt.Errorf("error saving active keyset: %v", err)
+		}
+		mint.Keysets = append(mint.Keysets, *activeKeyset)
+	}
 
 	return mint, nil
 }
