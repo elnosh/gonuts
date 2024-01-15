@@ -17,6 +17,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet/storage"
@@ -182,8 +183,120 @@ func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessage
 }
 
 func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
-	if amount > w.GetBalance() {
-		return nil, errors.New("insufficient funds")
+	proofsToSend, err := w.getProofsForAmount(amount)
+	if err != nil {
+		return nil, err
+	}
+
+	token := cashu.NewToken(proofsToSend, w.MintURL, "sat")
+	return &token, nil
+}
+
+func (w *Wallet) Receive(token cashu.Token) error {
+	proofsToSwap := make(cashu.Proofs, 0)
+	var proofsAmount uint64 = 0
+
+	for _, TokenProof := range token.Token {
+		for _, proof := range TokenProof.Proofs {
+			proofsAmount += proof.Amount
+			proofsToSwap = append(proofsToSwap, proof)
+		}
+	}
+
+	outputs, secrets, rs, err := cashu.CreateBlindedMessages(proofsAmount)
+	if err != nil {
+		return fmt.Errorf("CreateBlindedMessages: %v", err)
+	}
+
+	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
+	reqBody, err := json.Marshal(swapRequest)
+	if err != nil {
+		return fmt.Errorf("error marshaling request body: %v", err)
+	}
+
+	resp, err := http.Post(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var swapResponse nut03.PostSwapResponse
+	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
+	if err != nil {
+		return fmt.Errorf("error decoding response from mint: %v", err)
+	}
+
+	mintKeyset, err := GetMintCurrentKeyset(w.MintURL)
+	if err != nil {
+		return fmt.Errorf("error getting mint keyset: %v", err)
+	}
+
+	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, mintKeyset)
+	if err != nil {
+		return fmt.Errorf("wallet.ConstructProofs: %v", err)
+	}
+
+	w.StoreProofs(proofs)
+	return nil
+}
+
+func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (nut05.PostMeltBolt11Response, error) {
+	body, err := json.Marshal(meltRequest)
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, fmt.Errorf("json.Marshal: %v", err)
+	}
+
+	resp, err := http.Post(w.MintURL+"/v1/melt/quote/bolt11", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, err
+	}
+	defer resp.Body.Close()
+
+	var meltResponse nut05.PostMeltQuoteBolt11Response
+	err = json.NewDecoder(resp.Body).Decode(&meltResponse)
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, fmt.Errorf("error decoding response from mint: %v", err)
+	}
+
+	amountNeeded := meltResponse.Amount + meltResponse.FeeReserve
+	proofs, err := w.getProofsForAmount(amountNeeded)
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, err
+	}
+
+	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltResponse.Quote, Inputs: proofs}
+	jsonReq, err := json.Marshal(meltBolt11Request)
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, err
+
+	}
+
+	resp, err = http.Post(w.MintURL+"/v1/melt/bolt11", "application/json", bytes.NewBuffer(jsonReq))
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, err
+	}
+	defer resp.Body.Close()
+
+	var meltBolt11Response nut05.PostMeltBolt11Response
+	err = json.NewDecoder(resp.Body).Decode(&meltBolt11Response)
+	if err != nil {
+		return nut05.PostMeltBolt11Response{}, fmt.Errorf("error decoding response from mint: %v", err)
+	}
+
+	// only delete proofs after invoice has been paid
+	if meltBolt11Response.Paid {
+		for _, proof := range proofs {
+			w.db.DeleteProof(proof.Secret)
+		}
+	}
+
+	return meltBolt11Response, nil
+}
+
+func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
+	balance := w.GetBalance()
+	if balance < amount {
+		return nil, errors.New("not enough funds to pay invoice")
 	}
 
 	walletProofs := w.db.GetProofs()
@@ -198,9 +311,6 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 			for _, proof := range selectedProofs {
 				w.db.DeleteProof(proof.Secret)
 			}
-			// stop here and create token with current state of selected proofs
-			token := cashu.NewToken(selectedProofs, w.MintURL, "sat")
-			return &token, nil
 		} else if currentProofsAmount > amount {
 			break
 		}
@@ -286,57 +396,7 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 
 	// remaining proofs are change proofs to save to db
 	w.StoreProofs(proofs)
-
-	token := cashu.NewToken(proofsToSend, w.MintURL, "sat")
-	return &token, nil
-}
-
-func (w *Wallet) Receive(token cashu.Token) error {
-	proofsToSwap := make(cashu.Proofs, 0)
-	var proofsAmount uint64 = 0
-
-	for _, TokenProof := range token.Token {
-		for _, proof := range TokenProof.Proofs {
-			proofsAmount += proof.Amount
-			proofsToSwap = append(proofsToSwap, proof)
-		}
-	}
-
-	outputs, secrets, rs, err := cashu.CreateBlindedMessages(proofsAmount)
-	if err != nil {
-		return fmt.Errorf("CreateBlindedMessages: %v", err)
-	}
-
-	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
-	reqBody, err := json.Marshal(swapRequest)
-	if err != nil {
-		return fmt.Errorf("error marshaling request body: %v", err)
-	}
-
-	resp, err := http.Post(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var swapResponse nut03.PostSwapResponse
-	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
-	if err != nil {
-		return fmt.Errorf("error decoding response from mint: %v", err)
-	}
-
-	mintKeyset, err := GetMintCurrentKeyset(w.MintURL)
-	if err != nil {
-		return fmt.Errorf("error getting mint keyset: %v", err)
-	}
-
-	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, mintKeyset)
-	if err != nil {
-		return fmt.Errorf("wallet.ConstructProofs: %v", err)
-	}
-
-	w.StoreProofs(proofs)
-	return nil
+	return proofsToSend, nil
 }
 
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -119,11 +120,7 @@ func (lnd *LndClient) InvoiceSettled(hash string) bool {
 	json.NewDecoder(resp.Body).Decode(&res)
 	settled := res["state"]
 
-	if settled == "SETTLED" {
-		return true
-	}
-
-	return false
+	return settled == "SETTLED"
 }
 
 func (lnd *LndClient) FeeReserve(request string) (uint64, uint64, error) {
@@ -149,7 +146,11 @@ func (lnd *LndClient) FeeReserve(request string) (uint64, uint64, error) {
 	if amt, ok := res["num_satoshis"]; !ok {
 		return 0, 0, errors.New("invoice has no amount")
 	} else {
-		satAmount = amt.(int64)
+		satAmount, err = strconv.ParseInt(amt.(string), 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid amount: %v", err)
+		}
+
 	}
 
 	return uint64(satAmount), uint64(satAmount * FeePercent / 100), nil
@@ -158,7 +159,13 @@ func (lnd *LndClient) FeeReserve(request string) (uint64, uint64, error) {
 func (lnd *LndClient) SendPayment(request string) (string, error) {
 	url := lnd.host + "/v1/channels/transactions"
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+	body := map[string]any{"payment_request": request}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("invalid amount: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("error making payment: %v", err)
 	}

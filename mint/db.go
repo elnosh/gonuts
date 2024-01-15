@@ -17,7 +17,7 @@ const (
 	// for all redeemed proofs
 	proofsBucket = "proofs"
 
-	quotesBucket = "melts"
+	quotesBucket = "quotes"
 )
 
 func (m *Mint) initMintBuckets() error {
@@ -33,6 +33,11 @@ func (m *Mint) initMintBuckets() error {
 		}
 
 		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(quotesBucket))
 		if err != nil {
 			return err
 		}

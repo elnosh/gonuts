@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/urfave/cli/v2"
@@ -33,6 +34,7 @@ func main() {
 			mintCmd,
 			sendCmd,
 			receiveCmd,
+			payCmd,
 		},
 	}
 
@@ -206,6 +208,29 @@ func send(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("%v\n", token.ToString())
+	return nil
+}
+
+var payCmd = &cli.Command{
+	Name:   "pay",
+	Before: SetupWallet,
+	Action: pay,
+}
+
+func pay(ctx *cli.Context) error {
+	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("specify a lightning invoice to pay"))
+	}
+
+	invoice := args.First()
+	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
+	meltResponse, err := nutw.Melt(meltRequest)
+	if err != nil {
+		printErr(err)
+	}
+
+	fmt.Printf("invoice paid: %v\n", meltResponse.Paid)
 	return nil
 }
 

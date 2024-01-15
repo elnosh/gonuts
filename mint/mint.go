@@ -189,7 +189,7 @@ type MeltQuote struct {
 
 func (m *Mint) MeltRequest(request *nut05.PostMeltQuoteBolt11Request) (*MeltQuote, error) {
 	if request.Unit != "sat" {
-		return nil, errors.New("unit nut supported")
+		return nil, errors.New("unit not supported")
 	}
 
 	randomBytes := make([]byte, 32)
@@ -217,12 +217,6 @@ func (m *Mint) MeltRequest(request *nut05.PostMeltQuoteBolt11Request) (*MeltQuot
 
 	m.SaveMeltQuote(meltQuote)
 	return &meltQuote, nil
-}
-
-// when melting, need to check that proofs being used to peg out
-// are of the unit in the request. Meaning, the keyset id specified in the proof
-// is for unit supported (sats)
-func (m *Mint) Melt() {
 }
 
 func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
