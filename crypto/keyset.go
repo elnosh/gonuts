@@ -12,6 +12,8 @@ import (
 
 const maxOrder = 64
 
+type KeysetsMap map[string]map[string]Keyset
+
 type Keyset struct {
 	Id       string
 	MintURL  string

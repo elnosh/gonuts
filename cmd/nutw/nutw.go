@@ -43,6 +43,18 @@ func main() {
 	}
 }
 
+var balanceCmd = &cli.Command{
+	Name:   "balance",
+	Before: SetupWallet,
+	Action: getBalance,
+}
+
+func getBalance(ctx *cli.Context) error {
+	balance := nutw.GetBalance()
+	fmt.Printf("%v sats\n", balance)
+	return nil
+}
+
 var receiveCmd = &cli.Command{
 	Name:   "receive",
 	Before: SetupWallet,
@@ -67,18 +79,6 @@ func receive(ctx *cli.Context) error {
 	}
 
 	fmt.Println("tokens received")
-	return nil
-}
-
-var balanceCmd = &cli.Command{
-	Name:   "balance",
-	Before: SetupWallet,
-	Action: getBalance,
-}
-
-func getBalance(ctx *cli.Context) error {
-	balance := nutw.GetBalance()
-	fmt.Printf("%v sats\n", balance)
 	return nil
 }
 

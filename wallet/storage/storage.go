@@ -7,10 +7,11 @@ import (
 )
 
 type DB interface {
-	GetProofs() cashu.Proofs
+	GetProofs(ids []string) cashu.Proofs
 	SaveProof(cashu.Proof) error
 	DeleteProof(string) error
-	GetKeysets() []crypto.Keyset
+	SaveKeyset(crypto.Keyset) error
+	GetKeysets() crypto.KeysetsMap
 	SaveInvoice(lightning.Invoice) error
 	GetInvoice(string) *lightning.Invoice
 }

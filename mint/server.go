@@ -417,8 +417,8 @@ func buildKeysResponse(keysets []crypto.Keyset) nut01.GetKeysResponse {
 	return keysResponse
 }
 
-func (ms *MintServer) buildAllKeysetsResponse() nut02.GetKeysetResponse {
-	keysetsResponse := nut02.GetKeysetResponse{}
+func (ms *MintServer) buildAllKeysetsResponse() nut02.GetKeysetsResponse {
+	keysetsResponse := nut02.GetKeysetsResponse{}
 
 	for _, keyset := range ms.mint.Keysets {
 		keysetRes := nut02.Keyset{Id: keyset.Id, Unit: keyset.Unit, Active: keyset.Active}

@@ -1,6 +1,6 @@
 package nut02
 
-type GetKeysetResponse struct {
+type GetKeysetsResponse struct {
 	Keysets []Keyset `json:"keysets"`
 }
 

@@ -36,7 +36,8 @@ func InitBolt(path string) (*BoltDB, error) {
 	return &BoltDB{bolt: db}, nil
 }
 
-func (db *BoltDB) GetProofs() cashu.Proofs {
+// it will return list of all proofs with ids in the list
+func (db *BoltDB) GetProofs(ids []string) cashu.Proofs {
 	proofs := cashu.Proofs{}
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
@@ -48,7 +49,13 @@ func (db *BoltDB) GetProofs() cashu.Proofs {
 			if err := json.Unmarshal(v, &proof); err != nil {
 				return fmt.Errorf("error getting proofs: %v", err)
 			}
-			proofs = append(proofs, proof)
+
+			// only append proofs with keyset ids that are from curent mint
+			for _, id := range ids {
+				if proof.Id == id {
+					proofs = append(proofs, proof)
+				}
+			}
 		}
 		return nil
 	}); err != nil {
@@ -86,23 +93,52 @@ func (db *BoltDB) DeleteProof(secret string) error {
 	})
 }
 
-func (db *BoltDB) GetKeysets() []crypto.Keyset {
-	keysets := []crypto.Keyset{}
+func (db *BoltDB) SaveKeyset(keyset crypto.Keyset) error {
+	jsonKeyset, err := json.Marshal(keyset)
+	if err != nil {
+		return fmt.Errorf("invalid keyset format: %v", err)
+	}
+
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		mintBucket, err := keysetsb.CreateBucketIfNotExists([]byte(keyset.MintURL))
+		if err != nil {
+			return err
+		}
+		return mintBucket.Put([]byte(keyset.Id), jsonKeyset)
+	}); err != nil {
+		return fmt.Errorf("error saving keyset: %v", err)
+	}
+	return nil
+}
+
+func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
+	//keysets := make(map[string]map[string]crypto.Keyset)
+	keysets := make(crypto.KeysetsMap)
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		keysetsb := tx.Bucket([]byte(keysetsBucket))
 
-		c := keysetsb.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var keyset crypto.Keyset
-			if err := json.Unmarshal(v, &keyset); err != nil {
-				return fmt.Errorf("error getting proofs: %v", err)
+		return keysetsb.ForEach(func(mintURL, v []byte) error {
+			mintKeysets := make(map[string]crypto.Keyset)
+
+			mintBucket := keysetsb.Bucket(mintURL)
+			c := mintBucket.Cursor()
+
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				var keyset crypto.Keyset
+				if err := json.Unmarshal(v, &keyset); err != nil {
+					return err
+				}
+
+				mintKeysets[string(k)] = keyset
 			}
-			keysets = append(keysets, keyset)
-		}
-		return nil
+
+			keysets[string(mintURL)] = mintKeysets
+			return nil
+		})
 	}); err != nil {
-		return []crypto.Keyset{}
+		return nil
 	}
 
 	return keysets
