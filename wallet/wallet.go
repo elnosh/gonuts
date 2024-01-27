@@ -34,7 +34,7 @@ type Wallet struct {
 	// current mint url
 	MintURL string
 	// current keyset
-	keyset *crypto.Keyset
+	keyset  *crypto.Keyset
 	keysets crypto.KeysetsMap
 
 	proofs cashu.Proofs
@@ -82,14 +82,15 @@ func LoadWallet() (*Wallet, error) {
 	wallet.keyset = keyset
 
 	// save current keyset if new
-	if mintKeysets, ok := wallet.keysets[keyset.MintURL]; !ok {
+	mintKeysets, ok := wallet.keysets[keyset.MintURL]
+	if !ok {
 		err = db.SaveKeyset(*keyset)
 		if err != nil {
 			return nil, fmt.Errorf("error setting up wallet: %v", err)
 		}
 	} else {
-		if ks, ok := mintKeysets[keyset.Id]; !ok {
-			err = db.SaveKeyset(ks)
+		if _, ok := mintKeysets[keyset.Id]; !ok {
+			err = db.SaveKeyset(*keyset)
 			if err != nil {
 				return nil, fmt.Errorf("error setting up wallet: %v", err)
 			}
@@ -226,7 +227,6 @@ func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessage
 func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 	// when sending, use proofs from inactive keysets first
 	// and select proofs from keysets that are from same mint
-
 	proofsToSend, err := w.getProofsForAmount(amount)
 	if err != nil {
 		return nil, err
@@ -340,7 +340,7 @@ func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (nut05.PostM
 func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 	balance := w.GetBalance()
 	if balance < amount {
-		return nil, errors.New("not enough funds to pay invoice")
+		return nil, errors.New("not enough funds")
 	}
 
 	selectedProofs := cashu.Proofs{}

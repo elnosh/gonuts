@@ -50,6 +50,7 @@ func LoadMint(config config.Config) (*Mint, error) {
 		return nil, fmt.Errorf("error setting up db: %v", err)
 	}
 
+	mint.SaveKeyset(*activeKeyset)
 	mint.Keysets = mint.GetKeysets()
 	mint.LightningClient = lightning.NewLightningClient()
 

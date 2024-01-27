@@ -113,7 +113,6 @@ func (db *BoltDB) SaveKeyset(keyset crypto.Keyset) error {
 }
 
 func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
-	//keysets := make(map[string]map[string]crypto.Keyset)
 	keysets := make(crypto.KeysetsMap)
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {

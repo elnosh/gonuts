@@ -12,6 +12,7 @@ import (
 
 const maxOrder = 64
 
+// mint url to map of keyset id to keyset
 type KeysetsMap map[string]map[string]Keyset
 
 type Keyset struct {
