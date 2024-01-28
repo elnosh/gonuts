@@ -67,8 +67,8 @@ func (m *Mint) InitKeysetsBucket(keyset crypto.Keyset) error {
 	})
 }
 
-func (m *Mint) GetKeysets() []crypto.Keyset {
-	keysets := []crypto.Keyset{}
+func (m *Mint) GetKeysets() map[string]crypto.Keyset {
+	keysets := make(map[string]crypto.Keyset)
 
 	m.db.View(func(tx *bolt.Tx) error {
 		keysetsBucket := tx.Bucket([]byte(keysetsBucket))
@@ -79,7 +79,7 @@ func (m *Mint) GetKeysets() []crypto.Keyset {
 			if err := json.Unmarshal(v, &keyset); err != nil {
 				break
 			}
-			keysets = append(keysets, keyset)
+			keysets[string(k)] = keyset
 		}
 		return nil
 	})

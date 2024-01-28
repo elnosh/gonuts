@@ -30,8 +30,8 @@ type Mint struct {
 	// active keysets
 	ActiveKeysets []crypto.Keyset
 
-	// list of all keysets (both active and inactive)
-	Keysets []crypto.Keyset
+	// map of all keysets (both active and inactive)
+	Keysets map[string]crypto.Keyset
 
 	LightningClient lightning.Client
 }
@@ -73,7 +73,7 @@ func LoadMint(config config.Config) (*Mint, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error saving active keyset: %v", err)
 		}
-		mint.Keysets = append(mint.Keysets, *activeKeyset)
+		mint.Keysets[activeKeyset.Id] = *activeKeyset
 	}
 
 	return mint, nil
@@ -96,8 +96,10 @@ func setMintDBPath() string {
 func (m *Mint) KeysetList() []string {
 	keysetIds := make([]string, len(m.Keysets))
 
-	for i, keyset := range m.Keysets {
-		keysetIds[i] = keyset.Id
+	i := 0
+	for k := range m.Keysets {
+		keysetIds[i] = k
+		i++
 	}
 	return keysetIds
 }
@@ -167,7 +169,6 @@ func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cas
 }
 
 func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
-
 	var proofsAmount uint64 = 0
 	var blindedMessagesAmount uint64 = 0
 
@@ -257,9 +258,14 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 		}
 
 		var privateKey []byte
-		for _, kp := range m.ActiveKeysets[0].KeyPairs {
-			if kp.Amount == proof.Amount {
-				privateKey = kp.PrivateKey
+		keyset, ok := m.Keysets[proof.Id]
+		if !ok {
+			return false, cashu.InvalidKeysetProof
+		} else {
+			for _, kp := range keyset.KeyPairs {
+				if kp.Amount == proof.Amount {
+					privateKey = kp.PrivateKey
+				}
 			}
 		}
 		k := secp256k1.PrivKeyFromBytes(privateKey)

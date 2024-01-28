@@ -130,6 +130,7 @@ var (
 	AmountsDoNotMatch        = Error{Detail: "amounts do not match", Code: ProofsErrCode}
 	MeltQuoteNotExistErr     = Error{Detail: "melt quote does not exist", Code: QuoteErrCode}
 	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}
+	InvalidKeysetProof       = Error{Detail: "proof from an invalid keyset", Code: ProofsErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]

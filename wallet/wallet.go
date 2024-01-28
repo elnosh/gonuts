@@ -33,9 +33,11 @@ type Wallet struct {
 
 	// current mint url
 	MintURL string
-	// current keyset
-	keyset  *crypto.Keyset
-	keysets crypto.KeysetsMap
+
+	// active keysets from current mint
+	activeKeysets []*crypto.Keyset
+	// list of inactive keysets (if any) from current mint
+	inactiveKeysets []*crypto.Keyset
 
 	proofs cashu.Proofs
 }
@@ -67,7 +69,7 @@ func LoadWallet() (*Wallet, error) {
 	}
 
 	wallet := &Wallet{db: db}
-	wallet.keysets = wallet.db.GetKeysets()
+	allKeysets := wallet.db.GetKeysets()
 
 	wallet.MintURL = os.Getenv(MINT_URL)
 	if wallet.MintURL == "" {
@@ -79,10 +81,10 @@ func LoadWallet() (*Wallet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error getting current keyset from mint: %v", err)
 	}
-	wallet.keyset = keyset
+	wallet.activeKeysets = []*crypto.Keyset{keyset}
 
 	// save current keyset if new
-	mintKeysets, ok := wallet.keysets[keyset.MintURL]
+	mintKeysets, ok := allKeysets[keyset.MintURL]
 	if !ok {
 		err = db.SaveKeyset(*keyset)
 		if err != nil {
@@ -97,9 +99,21 @@ func LoadWallet() (*Wallet, error) {
 		}
 	}
 
-	keysetIds, err := GetCurrentMintKeysetIds(keyset.MintURL)
+	inactiveKeysets, err := GetCurrentMintInactiveKeysets(keyset.MintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error setting up wallet: %v", err)
+	}
+	wallet.inactiveKeysets = inactiveKeysets
+
+	keysetIds := make([]string, len(wallet.activeKeysets)+len(wallet.inactiveKeysets))
+	idx := 0
+	for _, ks := range wallet.activeKeysets {
+		keysetIds[idx] = ks.Id
+		idx++
+	}
+	for _, ks := range wallet.inactiveKeysets {
+		keysetIds[idx] = ks.Id
+		idx++
 	}
 	wallet.proofs = wallet.db.GetProofs(keysetIds)
 
@@ -133,7 +147,7 @@ func GetMintCurrentKeyset(mintURL string) (*crypto.Keyset, error) {
 	return keyset, nil
 }
 
-func GetCurrentMintKeysetIds(mintURL string) ([]string, error) {
+func GetCurrentMintInactiveKeysets(mintURL string) ([]*crypto.Keyset, error) {
 	resp, err := http.Get(mintURL + "/v1/keysets")
 	if err != nil {
 		return nil, err
@@ -146,12 +160,19 @@ func GetCurrentMintKeysetIds(mintURL string) ([]string, error) {
 		return nil, fmt.Errorf("json.Decode: %v", err)
 	}
 
-	keysetIds := make([]string, len(keysetsRes.Keysets))
-	for i, keyset := range keysetsRes.Keysets {
-		keysetIds[i] = keyset.Id
+	currentMintKeysets := []*crypto.Keyset{}
+	for _, keysetRes := range keysetsRes.Keysets {
+		if !keysetRes.Active {
+			keyset := crypto.Keyset{
+				Id:      keysetRes.Id,
+				MintURL: mintURL,
+				Unit:    keysetRes.Unit,
+				Active:  keysetRes.Active,
+			}
+			currentMintKeysets = append(currentMintKeysets, &keyset)
+		}
 	}
-
-	return keysetIds, nil
+	return currentMintKeysets, nil
 }
 
 func (w *Wallet) GetBalance() uint64 {
@@ -225,8 +246,6 @@ func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessage
 }
 
 func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
-	// when sending, use proofs from inactive keysets first
-	// and select proofs from keysets that are from same mint
 	proofsToSend, err := w.getProofsForAmount(amount)
 	if err != nil {
 		return nil, err
@@ -343,9 +362,28 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 		return nil, errors.New("not enough funds")
 	}
 
+	// use proofs from inactive keysets first
+	activeKeysetProofs := cashu.Proofs{}
+	inactiveKeysetProofs := cashu.Proofs{}
+	for _, proof := range w.proofs {
+		isInactive := false
+		for _, inactiveKeyset := range w.inactiveKeysets {
+			if proof.Id == inactiveKeyset.Id {
+				isInactive = true
+				break
+			}
+		}
+
+		if isInactive {
+			inactiveKeysetProofs = append(inactiveKeysetProofs, proof)
+		} else {
+			activeKeysetProofs = append(activeKeysetProofs, proof)
+		}
+	}
+
 	selectedProofs := cashu.Proofs{}
 	var currentProofsAmount uint64 = 0
-	for _, proof := range w.proofs {
+	for _, proof := range inactiveKeysetProofs {
 		selectedProofs = append(selectedProofs, proof)
 		currentProofsAmount += proof.Amount
 
@@ -355,6 +393,21 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 			}
 		} else if currentProofsAmount > amount {
 			break
+		}
+	}
+
+	if currentProofsAmount < amount {
+		for _, proof := range activeKeysetProofs {
+			selectedProofs = append(selectedProofs, proof)
+			currentProofsAmount += proof.Amount
+
+			if currentProofsAmount == amount {
+				for _, proof := range selectedProofs {
+					w.db.DeleteProof(proof.Secret)
+				}
+			} else if currentProofsAmount > amount {
+				break
+			}
 		}
 	}
 
@@ -425,7 +478,6 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 	}
 
 	proofsToSend := make(cashu.Proofs, len(send))
-
 	for i, sendmsg := range send {
 		for j, proof := range proofs {
 			if sendmsg.Amount == proof.Amount {
