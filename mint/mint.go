@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -29,7 +30,7 @@ type Mint struct {
 	db *bolt.DB
 
 	// active keysets
-	ActiveKeysets []crypto.Keyset
+	ActiveKeysets map[string]crypto.Keyset
 
 	// map of all keysets (both active and inactive)
 	Keysets map[string]crypto.Keyset
@@ -45,7 +46,7 @@ func LoadMint(config config.Config) (*Mint, error) {
 	}
 
 	activeKeyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
-	mint := &Mint{db: db, ActiveKeysets: []crypto.Keyset{*activeKeyset}}
+	mint := &Mint{db: db, ActiveKeysets: map[string]crypto.Keyset{activeKeyset.Id: *activeKeyset}}
 	err = mint.initMintBuckets()
 	if err != nil {
 		return nil, fmt.Errorf("error setting up db: %v", err)
@@ -179,7 +180,7 @@ func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cas
 		}
 
 		var err error
-		blindedSignatures, err = cashu.SignBlindedMessages(blindedMessages, &m.ActiveKeysets[0])
+		blindedSignatures, err = m.signBlindedMessages(blindedMessages)
 		if err != nil {
 			return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
@@ -216,7 +217,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	}
 
 	// if verification complete, sign blinded messages and add used proofs to db
-	blindedSignatures, err := cashu.SignBlindedMessages(blindedMessages, &m.ActiveKeysets[0])
+	blindedSignatures, err := m.signBlindedMessages(blindedMessages)
 	if err != nil {
 		cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		return nil, cashuErr
@@ -313,6 +314,44 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+	blindedSignatures := make(cashu.BlindedSignatures, len(blindedMessages))
+
+	for i, msg := range blindedMessages {
+		keyset, ok := m.ActiveKeysets[msg.Id]
+		if !ok {
+			return nil, cashu.InvalidSignatureRequest
+		}
+
+		var privateKey []byte
+		for _, kp := range keyset.KeyPairs {
+			if kp.Amount == msg.Amount {
+				privateKey = kp.PrivateKey
+			}
+		}
+		privKey := secp256k1.PrivKeyFromBytes(privateKey)
+
+		B_bytes, err := hex.DecodeString(msg.B_)
+		if err != nil {
+			log.Fatal(err)
+		}
+		B_, err := btcec.ParsePubKey(B_bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		C_ := crypto.SignBlindedMessage(B_, privKey)
+		C_hex := hex.EncodeToString(C_.SerializeCompressed())
+
+		blindedSignature := cashu.BlindedSignature{Amount: msg.Amount,
+			C_: C_hex, Id: keyset.Id}
+
+		blindedSignatures[i] = blindedSignature
+	}
+
+	return blindedSignatures, nil
 }
 
 // creates lightning invoice

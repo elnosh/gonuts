@@ -147,7 +147,7 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	getKeysResponse := buildKeysResponse([]crypto.Keyset{*keyset})
+	getKeysResponse := buildKeysResponse(map[string]crypto.Keyset{keyset.Id: *keyset})
 	jsonRes, err := json.Marshal(getKeysResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
@@ -380,7 +380,7 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	ms.writeResponse(rw, req, jsonRes, "")
 }
 
-func buildKeysResponse(keysets []crypto.Keyset) nut01.GetKeysResponse {
+func buildKeysResponse(keysets map[string]crypto.Keyset) nut01.GetKeysResponse {
 	keysResponse := nut01.GetKeysResponse{}
 
 	for _, keyset := range keysets {

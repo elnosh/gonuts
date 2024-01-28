@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/crypto"
 )
@@ -131,6 +129,7 @@ var (
 	MeltQuoteNotExistErr     = Error{Detail: "melt quote does not exist", Code: QuoteErrCode}
 	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}
 	InvalidKeysetProof       = Error{Detail: "proof from an invalid keyset", Code: ProofsErrCode}
+	InvalidSignatureRequest  = Error{Detail: "requested signature from non-active keyset", Code: KeysetErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
@@ -147,13 +146,13 @@ func AmountSplit(amount uint64) []uint64 {
 	return rv
 }
 
-func NewBlindedMessage(amount uint64, B_ *secp256k1.PublicKey) BlindedMessage {
+func NewBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) BlindedMessage {
 	B_str := hex.EncodeToString(B_.SerializeCompressed())
-	return BlindedMessage{Amount: amount, B_: B_str}
+	return BlindedMessage{Amount: amount, B_: B_str, Id: id}
 }
 
 // returns Blinded messages, secrets - [][]byte, and list of r
-func CreateBlindedMessages(amount uint64) (BlindedMessages, [][]byte, []*secp256k1.PrivateKey, error) {
+func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages, [][]byte, []*secp256k1.PrivateKey, error) {
 	splitAmounts := AmountSplit(amount)
 	splitLen := len(splitAmounts)
 
@@ -176,47 +175,11 @@ func CreateBlindedMessages(amount uint64) (BlindedMessages, [][]byte, []*secp256
 		}
 
 		B_, r := crypto.BlindMessage(secret, r)
-		blindedMessage := NewBlindedMessage(amt, B_)
+		blindedMessage := NewBlindedMessage(keyset.Id, amt, B_)
 		blindedMessages[i] = blindedMessage
 		secrets[i] = secret
 		rs[i] = r
 	}
 
 	return blindedMessages, secrets, rs, nil
-}
-
-func SignBlindedMessages(blinded BlindedMessages,
-	keyset *crypto.Keyset) (BlindedSignatures, error) {
-
-	blindedSignatures := BlindedSignatures{}
-
-	for _, msg := range blinded {
-		var privateKey []byte
-		for _, kp := range keyset.KeyPairs {
-			if kp.Amount == msg.Amount {
-				privateKey = kp.PrivateKey
-			}
-		}
-
-		privKey := secp256k1.PrivKeyFromBytes(privateKey)
-
-		B_bytes, err := hex.DecodeString(msg.B_)
-		if err != nil {
-			log.Fatal(err)
-		}
-		B_, err := btcec.ParsePubKey(B_bytes)
-		if err != nil {
-			return nil, err
-		}
-
-		C_ := crypto.SignBlindedMessage(B_, privKey)
-		C_hex := hex.EncodeToString(C_.SerializeCompressed())
-
-		blindedSignature := BlindedSignature{Amount: msg.Amount,
-			C_: C_hex, Id: keyset.Id}
-
-		blindedSignatures = append(blindedSignatures, blindedSignature)
-	}
-
-	return blindedSignatures, nil
 }

@@ -154,7 +154,9 @@ func mintTokens(paymentRequest string) error {
 		return errors.New("invoice has not been paid")
 	}
 
-	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount)
+
+	activeKeyset := nutw.GetActiveSatKeyset()
+	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount, activeKeyset)
 	if err != nil {
 		return fmt.Errorf("error creating blinded messages: %v", err)
 	}
@@ -164,13 +166,8 @@ func mintTokens(paymentRequest string) error {
 		return fmt.Errorf("error minting tokens: %v", err)
 	}
 
-	mintKeyset, err := wallet.GetMintCurrentKeyset(nutw.MintURL)
-	if err != nil {
-		return err
-	}
-
 	// unblind the signatures from the promises and build the proofs
-	proofs, err := nutw.ConstructProofs(blindedSignatures, secrets, rs, mintKeyset)
+	proofs, err := nutw.ConstructProofs(blindedSignatures, secrets, rs, &activeKeyset)
 	if err != nil {
 		return fmt.Errorf("error constructing proofs: %v", err)
 	}
