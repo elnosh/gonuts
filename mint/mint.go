@@ -13,6 +13,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
@@ -104,28 +105,53 @@ func (m *Mint) KeysetList() []string {
 	return keysetIds
 }
 
-// creates lightning invoice and saves it in db
-func (m *Mint) RequestInvoice(amount uint64) (*lightning.Invoice, error) {
-	invoice, err := m.LightningClient.CreateInvoice(amount)
-	if err != nil {
-		return nil, fmt.Errorf("error creating invoice: %v", err)
+func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut04.PostMintQuoteBolt11Response, error) {
+	if method != "bolt11" {
+		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
+	}
+	if unit != "sat" {
+		return nut04.PostMintQuoteBolt11Response{}, cashu.UnitNotSupportedErr
 	}
 
-	randomBytes := make([]byte, 32)
-	_, err = rand.Read(randomBytes)
+	invoice, err := m.requestInvoice(amount)
 	if err != nil {
-		return nil, fmt.Errorf("error creating invoice: %v", err)
+		return nut04.PostMintQuoteBolt11Response{}, err
 	}
 
-	hash := sha256.Sum256(randomBytes)
-
-	invoice.Id = hex.EncodeToString(hash[:])
-	err = m.SaveInvoice(invoice)
+	err = m.SaveInvoice(*invoice)
 	if err != nil {
-		return nil, fmt.Errorf("error creating invoice: %v", err)
+		return nut04.PostMintQuoteBolt11Response{}, err
 	}
 
-	return &invoice, nil
+	reqMintQuoteResponse := nut04.PostMintQuoteBolt11Response{
+		Quote:   invoice.Id,
+		Request: invoice.PaymentRequest,
+		Paid:    invoice.Settled,
+		Expiry:  invoice.Expiry,
+	}
+
+	return reqMintQuoteResponse, nil
+}
+
+func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBolt11Response, error) {
+	if method != "bolt11" {
+		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
+	}
+
+	invoice := m.GetInvoice(quoteId)
+	if invoice == nil {
+		return nut04.PostMintQuoteBolt11Response{}, cashu.InvoiceNotExistErr
+	}
+
+	settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
+	if settled != invoice.Settled {
+		invoice.Settled = settled
+		m.SaveInvoice(*invoice)
+	}
+
+	quoteState := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
+		Request: invoice.PaymentRequest, Paid: settled, Expiry: invoice.Expiry}
+	return quoteState, nil
 }
 
 // id - quote id to lookup invoice
@@ -287,4 +313,22 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// creates lightning invoice
+func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
+	invoice, err := m.LightningClient.CreateInvoice(amount)
+	if err != nil {
+		return nil, fmt.Errorf("error creating invoice: %v", err)
+	}
+
+	randomBytes := make([]byte, 32)
+	_, err = rand.Read(randomBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error creating invoice: %v", err)
+	}
+	hash := sha256.Sum256(randomBytes)
+	invoice.Id = hex.EncodeToString(hash[:])
+
+	return &invoice, nil
 }

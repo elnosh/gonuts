@@ -161,11 +161,6 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
 
-	if method != "bolt11" {
-		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
-		return
-	}
-
 	var mintReq nut04.PostMintQuoteBolt11Request
 	err := decodeJsonReqBody(req, &mintReq)
 	if err != nil {
@@ -173,19 +168,12 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if mintReq.Unit != "sat" {
-		ms.writeErr(rw, req, cashu.UnitNotSupportedErr)
-		return
-	}
-
-	invoice, err := ms.mint.RequestInvoice(mintReq.Amount)
+	reqMintResponse, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
 	if err != nil {
-		ms.writeErr(rw, req, cashu.Error{Detail: err.Error(), Code: cashu.InvoiceErrCode})
+		ms.writeErr(rw, req, cashu.BuildCashuError(err.Error(), cashu.InvoiceErrCode))
 		return
 	}
 
-	reqMintResponse := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
-		Request: invoice.PaymentRequest, Paid: invoice.Settled, Expiry: invoice.Expiry}
 	jsonRes, err := json.Marshal(reqMintResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
@@ -199,27 +187,14 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != "bolt11" {
-		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
-		return
-	}
-
 	quoteId := vars["quote_id"]
-	invoice := ms.mint.GetInvoice(quoteId)
-	if invoice == nil {
-		ms.writeErr(rw, req, cashu.InvoiceNotExistErr)
+
+	mintQuoteStateResponse, err := ms.mint.GetMintQuoteState(method, quoteId)
+	if err != nil {
+		ms.writeErr(rw, req, err)
 		return
 	}
-
-	settled := ms.mint.LightningClient.InvoiceSettled(invoice.PaymentHash)
-	if settled != invoice.Settled {
-		invoice.Settled = settled
-		ms.mint.SaveInvoice(*invoice)
-	}
-
-	reqMintResponse := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
-		Request: invoice.PaymentRequest, Paid: settled, Expiry: invoice.Expiry}
-	jsonRes, err := json.Marshal(reqMintResponse)
+	jsonRes, err := json.Marshal(mintQuoteStateResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
