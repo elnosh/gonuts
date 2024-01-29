@@ -136,9 +136,9 @@ func GetMintActiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 	}
 
 	var activeKeysets []crypto.Keyset
-	for _, keyset := range keysetRes.Keysets {
+	for i, keyset := range keysetRes.Keysets {
 		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit}
-		for amount, pubkey := range keysetRes.Keysets[0].Keys {
+		for amount, pubkey := range keysetRes.Keysets[i].Keys {
 			pubkeyBytes, err := hex.DecodeString(pubkey)
 			if err != nil {
 				return nil, err
