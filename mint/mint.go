@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
-	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -156,7 +154,11 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 }
 
 // id - quote id to lookup invoice
-func (m *Mint) MintTokens(id string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+	if method != "bolt11" {
+		return nil, cashu.PaymentMethodNotSupportedErr
+	}
+
 	invoice := m.GetInvoice(id)
 	if invoice == nil {
 		return nil, cashu.InvoiceNotExistErr
@@ -237,38 +239,93 @@ type MeltQuote struct {
 	FeeReserve     uint64
 	Paid           bool
 	Expiry         int64
+	Preimage       string
 }
 
-func (m *Mint) MeltRequest(request *nut05.PostMeltQuoteBolt11Request) (*MeltQuote, error) {
-	if request.Unit != "sat" {
-		return nil, errors.New("unit not supported")
+func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
+	if method != "bolt11" {
+		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
+	}
+	if unit != "sat" {
+		return MeltQuote{}, cashu.UnitNotSupportedErr
 	}
 
 	randomBytes := make([]byte, 32)
 	_, err := rand.Read(randomBytes)
 	if err != nil {
-		return nil, fmt.Errorf("melt request error: %v", err)
+		return MeltQuote{}, fmt.Errorf("melt request error: %v", err)
 	}
 
 	hash := sha256.Sum256(randomBytes)
 
-	amount, fee, err := m.LightningClient.FeeReserve(request.Request)
+	amount, fee, err := m.LightningClient.FeeReserve(request)
 	if err != nil {
-		return nil, fmt.Errorf("error getting fee: %v", err)
+		return MeltQuote{}, fmt.Errorf("error getting fee: %v", err)
 	}
 	expiry := time.Now().Add(time.Minute * QuoteExpiryMins).Unix()
 
 	meltQuote := MeltQuote{
 		Id:             hex.EncodeToString(hash[:]),
-		InvoiceRequest: request.Request,
+		InvoiceRequest: request,
 		Amount:         amount,
 		FeeReserve:     fee,
 		Paid:           false,
 		Expiry:         expiry,
 	}
-
 	m.SaveMeltQuote(meltQuote)
-	return &meltQuote, nil
+
+	return meltQuote, nil
+}
+
+func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
+	if method != "bolt11" {
+		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
+	}
+
+	meltQuote := m.GetMeltQuote(quoteId)
+	if meltQuote == nil {
+		return MeltQuote{}, cashu.MeltQuoteNotExistErr
+	}
+
+	return *meltQuote, nil
+}
+
+func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuote, error) {
+	if method != "bolt11" {
+		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
+	}
+
+	meltQuote := m.GetMeltQuote(quoteId)
+	if meltQuote == nil {
+		return MeltQuote{}, cashu.MeltQuoteNotExistErr
+	}
+
+	valid, err := m.VerifyProofs(proofs)
+	if err != nil || !valid {
+		return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+	}
+
+	var inputsAmount uint64 = 0
+	for _, input := range proofs {
+		inputsAmount += input.Amount
+	}
+
+	if inputsAmount < meltQuote.Amount+meltQuote.FeeReserve {
+		return MeltQuote{}, cashu.InsufficientProofsAmount
+	}
+
+	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest)
+	if err != nil {
+		return *meltQuote, nil
+	}
+	meltQuote.Paid = true
+	meltQuote.Preimage = preimage
+
+	for _, proof := range proofs {
+		m.SaveProof(proof)
+	}
+
+	return *meltQuote, nil
 }
 
 func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
@@ -280,8 +337,7 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 
 		secret, err := hex.DecodeString(proof.Secret)
 		if err != nil {
-			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			return false, cashuErr
+			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
 		var privateKey []byte
@@ -299,14 +355,12 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 
 		Cbytes, err := hex.DecodeString(proof.C)
 		if err != nil {
-			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			return false, cashuErr
+			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
 		C, err := secp256k1.ParsePubKey(Cbytes)
 		if err != nil {
-			cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			return false, cashuErr
+			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
 		if !crypto.Verify(secret, k, C) {

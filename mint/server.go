@@ -76,11 +76,11 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/keysets", ms.getKeysetsList).Methods(http.MethodGet)
 	r.HandleFunc("/v1/keys/{id}", ms.getKeysetById).Methods(http.MethodGet)
 	r.HandleFunc("/v1/mint/quote/{method}", ms.mintRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.getQuoteState).Methods(http.MethodGet)
+	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.mintQuoteState).Methods(http.MethodGet)
 	r.HandleFunc("/v1/mint/{method}", ms.mintTokensRequest).Methods(http.MethodPost)
 	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost)
 	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.getMeltQuoteState).Methods(http.MethodGet)
+	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet)
 	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost)
 
 	server := &http.Server{
@@ -184,7 +184,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	ms.writeResponse(rw, req, jsonRes, logmsg)
 }
 
-func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
+func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
 	quoteId := vars["quote_id"]
@@ -206,10 +206,6 @@ func (ms *MintServer) getQuoteState(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != "bolt11" {
-		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
-		return
-	}
 
 	var mintReq nut04.PostMintBolt11Request
 	err := decodeJsonReqBody(req, &mintReq)
@@ -218,7 +214,7 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	blindedSignatures, err := ms.mint.MintTokens(mintReq.Quote, mintReq.Outputs)
+	blindedSignatures, err := ms.mint.MintTokens(method, mintReq.Quote, mintReq.Outputs)
 	if err != nil {
 		ms.writeErr(rw, req, err)
 		return
@@ -259,10 +255,6 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != "bolt11" {
-		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
-		return
-	}
 
 	var meltRequest nut05.PostMeltQuoteBolt11Request
 	err := decodeJsonReqBody(req, &meltRequest)
@@ -271,9 +263,10 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	meltQuote, err := ms.mint.MeltRequest(&meltRequest)
+	meltQuote, err := ms.mint.MeltRequest(method, meltRequest.Request, meltRequest.Unit)
 	if err != nil {
 		ms.writeErr(rw, req, err)
+		return
 	}
 
 	quoteResponse := nut05.PostMeltQuoteBolt11Response{
@@ -293,22 +286,18 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 	ms.writeResponse(rw, req, jsonRes, "melt quote request")
 }
 
-func (ms *MintServer) getMeltQuoteState(rw http.ResponseWriter, req *http.Request) {
+func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != "bolt11" {
-		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
-		return
-	}
-
 	quoteId := vars["quote_id"]
-	meltQuote := ms.mint.GetMeltQuote(quoteId)
-	if meltQuote == nil {
-		ms.writeErr(rw, req, cashu.MeltQuoteNotExistErr)
+
+	meltQuote, err := ms.mint.GetMeltQuoteState(method, quoteId)
+	if err != nil {
+		ms.writeErr(rw, req, err)
 		return
 	}
 
-	quoteRes := nut05.PostMeltQuoteBolt11Response{
+	quoteState := nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
@@ -316,7 +305,7 @@ func (ms *MintServer) getMeltQuoteState(rw http.ResponseWriter, req *http.Reques
 		Expiry:     meltQuote.Expiry,
 	}
 
-	jsonRes, err := json.Marshal(quoteRes)
+	jsonRes, err := json.Marshal(quoteState)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -328,10 +317,6 @@ func (ms *MintServer) getMeltQuoteState(rw http.ResponseWriter, req *http.Reques
 func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != "bolt11" {
-		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
-		return
-	}
 
 	var meltTokensRequest nut05.PostMeltBolt11Request
 	err := decodeJsonReqBody(req, &meltTokensRequest)
@@ -340,43 +325,22 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	meltQuote := ms.mint.GetMeltQuote(meltTokensRequest.Quote)
-	if meltQuote == nil {
-		ms.writeErr(rw, req, cashu.MeltQuoteNotExistErr)
-		return
-	}
-
-	valid, err := ms.mint.VerifyProofs(meltTokensRequest.Inputs)
-	if err != nil || !valid {
-		ms.writeErr(rw, req, err)
-	}
-
-	var inputsAmount uint64 = 0
-	for _, input := range meltTokensRequest.Inputs {
-		inputsAmount += input.Amount
-	}
-
-	if inputsAmount < meltQuote.Amount+meltQuote.FeeReserve {
-		ms.writeErr(rw, req, cashu.InsufficientProofsAmount)
-		return
-	}
-
-	var meltTokenResponse nut05.PostMeltBolt11Response
-	preimage, err := ms.mint.LightningClient.SendPayment(meltQuote.InvoiceRequest)
+	meltQuote, err := ms.mint.MeltTokens(method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
 	if err != nil {
-		meltTokenResponse.Paid = false
-		jsonRes, _ := json.Marshal(meltTokenResponse)
-		ms.writeResponse(rw, req, jsonRes, "")
+		ms.writeErr(rw, req, err)
+		return
 	}
 
-	meltTokenResponse.Paid = true
-	meltTokenResponse.Preimage = preimage
-	jsonRes, _ := json.Marshal(meltTokenResponse)
-
-	for _, proof := range meltTokensRequest.Inputs {
-		ms.mint.SaveProof(proof)
+	meltTokenResponse := nut05.PostMeltBolt11Response{
+		Paid:     meltQuote.Paid,
+		Preimage: meltQuote.Preimage,
 	}
 
+	jsonRes, err := json.Marshal(meltTokenResponse)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
 	ms.writeResponse(rw, req, jsonRes, "")
 }
 
