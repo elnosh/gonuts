@@ -11,6 +11,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet"
+	"github.com/joho/godotenv"
 	"github.com/urfave/cli/v2"
 )
 
@@ -18,6 +19,11 @@ var nutw *wallet.Wallet
 
 func SetupWallet(ctx *cli.Context) error {
 	var err error
+	err = godotenv.Load()
+	if err != nil {
+		log.Fatal("error loading .env file")
+	}
+
 	nutw, err = wallet.LoadWallet()
 	if err != nil {
 		printErr(err)
@@ -154,7 +160,6 @@ func mintTokens(paymentRequest string) error {
 		return errors.New("invoice has not been paid")
 	}
 
-
 	activeKeyset := nutw.GetActiveSatKeyset()
 	blindedMessages, secrets, rs, err := cashu.CreateBlindedMessages(invoice.Amount, activeKeyset)
 	if err != nil {
@@ -163,7 +168,7 @@ func mintTokens(paymentRequest string) error {
 
 	blindedSignatures, err := nutw.MintTokens(invoice.Id, blindedMessages)
 	if err != nil {
-		return fmt.Errorf("error minting tokens: %v", err)
+		return err
 	}
 
 	// unblind the signatures from the promises and build the proofs

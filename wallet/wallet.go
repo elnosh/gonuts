@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,10 +23,6 @@ import (
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet/storage"
-)
-
-const (
-	MINT_URL = "MINT_URL"
 )
 
 type Wallet struct {
@@ -71,11 +68,17 @@ func LoadWallet() (*Wallet, error) {
 	wallet := &Wallet{db: db}
 	allKeysets := wallet.db.GetKeysets()
 
-	wallet.MintURL = os.Getenv(MINT_URL)
-	if wallet.MintURL == "" {
-		// if no mint specified, default to localhost
+	mintHost := os.Getenv("MINT_HOST")
+	mintPort := os.Getenv("MINT_PORT")
+	if len(mintHost) == 0 || len(mintPort) == 0 {
 		wallet.MintURL = "http://127.0.0.1:3338"
 	}
+
+	url := &url.URL{
+		Scheme: "http",
+		Host:   mintHost + ":" + mintPort,
+	}
+	wallet.MintURL = url.String()
 
 	activeKeysets, err := GetMintActiveKeysets(wallet.MintURL)
 	if err != nil {
@@ -166,7 +169,7 @@ func GetCurrentMintInactiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 		return nil, fmt.Errorf("json.Decode: %v", err)
 	}
 
-	currentMintKeysets := []crypto.Keyset{}
+	inactiveKeysets := []crypto.Keyset{}
 	for _, keysetRes := range keysetsRes.Keysets {
 		if !keysetRes.Active {
 			keyset := crypto.Keyset{
@@ -175,10 +178,10 @@ func GetCurrentMintInactiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 				Unit:    keysetRes.Unit,
 				Active:  keysetRes.Active,
 			}
-			currentMintKeysets = append(currentMintKeysets, keyset)
+			inactiveKeysets = append(inactiveKeysets, keyset)
 		}
 	}
-	return currentMintKeysets, nil
+	return inactiveKeysets, nil
 }
 
 func (w *Wallet) GetBalance() uint64 {
@@ -191,26 +194,26 @@ func (w *Wallet) GetBalance() uint64 {
 	return balance
 }
 
-func (w *Wallet) RequestMint(amount uint64) (nut04.PostMintQuoteBolt11Response, error) {
+func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
 	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: "sat"}
 	body, err := json.Marshal(mintRequest)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, fmt.Errorf("json.Marshal: %v", err)
+		return nil, fmt.Errorf("json.Marshal: %v", err)
 	}
 
-	resp, err := http.Post(w.MintURL+"/v1/mint/quote/bolt11", "application/json", bytes.NewBuffer(body))
+	resp, err := httpPost(w.MintURL+"/v1/mint/quote/bolt11", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var reqMintResponse nut04.PostMintQuoteBolt11Response
 	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, fmt.Errorf("json.Decode: %v", err)
+		return nil, fmt.Errorf("json.Decode: %v", err)
 	}
 
-	return reqMintResponse, nil
+	return &reqMintResponse, nil
 }
 
 func (w *Wallet) CheckQuotePaid(quoteId string) bool {
@@ -236,7 +239,7 @@ func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessage
 		return nil, fmt.Errorf("error marshaling blinded messages: %v", err)
 	}
 
-	resp, err := http.Post(w.MintURL+"/v1/mint/bolt11", "application/json", bytes.NewBuffer(outputs))
+	resp, err := httpPost(w.MintURL+"/v1/mint/bolt11", "application/json", bytes.NewBuffer(outputs))
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +286,7 @@ func (w *Wallet) Receive(token cashu.Token) error {
 		return fmt.Errorf("error marshaling request body: %v", err)
 	}
 
-	resp, err := http.Post(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	resp, err := httpPost(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return err
 	}
@@ -305,47 +308,47 @@ func (w *Wallet) Receive(token cashu.Token) error {
 	return nil
 }
 
-func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (nut05.PostMeltBolt11Response, error) {
+func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (*nut05.PostMeltBolt11Response, error) {
 	body, err := json.Marshal(meltRequest)
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, fmt.Errorf("json.Marshal: %v", err)
+		return nil, fmt.Errorf("json.Marshal: %v", err)
 	}
 
-	resp, err := http.Post(w.MintURL+"/v1/melt/quote/bolt11", "application/json", bytes.NewBuffer(body))
+	resp, err := httpPost(w.MintURL+"/v1/melt/quote/bolt11", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var meltResponse nut05.PostMeltQuoteBolt11Response
 	err = json.NewDecoder(resp.Body).Decode(&meltResponse)
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, fmt.Errorf("error decoding response from mint: %v", err)
+		return nil, fmt.Errorf("error decoding response from mint: %v", err)
 	}
 
 	amountNeeded := meltResponse.Amount + meltResponse.FeeReserve
 	proofs, err := w.getProofsForAmount(amountNeeded)
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, err
+		return nil, err
 	}
 
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltResponse.Quote, Inputs: proofs}
 	jsonReq, err := json.Marshal(meltBolt11Request)
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, err
+		return nil, err
 
 	}
 
-	resp, err = http.Post(w.MintURL+"/v1/melt/bolt11", "application/json", bytes.NewBuffer(jsonReq))
+	resp, err = httpPost(w.MintURL+"/v1/melt/bolt11", "application/json", bytes.NewBuffer(jsonReq))
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var meltBolt11Response nut05.PostMeltBolt11Response
 	err = json.NewDecoder(resp.Body).Decode(&meltBolt11Response)
 	if err != nil {
-		return nut05.PostMeltBolt11Response{}, fmt.Errorf("error decoding response from mint: %v", err)
+		return nil, fmt.Errorf("error decoding response from mint: %v", err)
 	}
 
 	// only delete proofs after invoice has been paid
@@ -355,7 +358,7 @@ func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (nut05.PostM
 		}
 	}
 
-	return meltBolt11Response, nil
+	return &meltBolt11Response, nil
 }
 
 func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
@@ -454,7 +457,7 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 		return nil, fmt.Errorf("error marshaling request body: %v", err)
 	}
 
-	resp, err := http.Post(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	resp, err := httpPost(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, err
 	}
