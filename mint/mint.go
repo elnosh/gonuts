@@ -52,28 +52,15 @@ func LoadMint(config config.Config) (*Mint, error) {
 
 	mint.SaveKeyset(*activeKeyset)
 	mint.Keysets = mint.GetKeysets()
+	mint.Keysets[activeKeyset.Id] = *activeKeyset
 	mint.LightningClient = lightning.NewLightningClient()
 
-	isKeysetNew := true
 	for i, keyset := range mint.Keysets {
-		if keyset.Id != activeKeyset.Id {
+		if keyset.Id != activeKeyset.Id && keyset.Active {
 			keyset.Active = false
-			err := mint.SaveKeyset(keyset)
-			if err != nil {
-				return nil, fmt.Errorf("error saving keyset: %v", err)
-			}
+			mint.SaveKeyset(keyset)
 			mint.Keysets[i] = keyset
-		} else if keyset.Id == activeKeyset.Id {
-			isKeysetNew = false
 		}
-	}
-
-	if isKeysetNew {
-		err = mint.SaveKeyset(*activeKeyset)
-		if err != nil {
-			return nil, fmt.Errorf("error saving active keyset: %v", err)
-		}
-		mint.Keysets[activeKeyset.Id] = *activeKeyset
 	}
 
 	return mint, nil
