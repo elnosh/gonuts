@@ -14,7 +14,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
-	"github.com/elnosh/gonuts/config"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -36,7 +35,7 @@ type Mint struct {
 	LightningClient lightning.Client
 }
 
-func LoadMint(config config.Config) (*Mint, error) {
+func LoadMint(config Config) (*Mint, error) {
 	path := setMintDBPath()
 	db, err := bolt.Open(filepath.Join(path, "mint.db"), 0600, nil)
 	if err != nil {
