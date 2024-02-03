@@ -388,33 +388,26 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 
 	selectedProofs := cashu.Proofs{}
 	var currentProofsAmount uint64 = 0
-	for _, proof := range inactiveKeysetProofs {
-		selectedProofs = append(selectedProofs, proof)
-		currentProofsAmount += proof.Amount
+	addKeysetProofs := func(proofs cashu.Proofs) {
+		if currentProofsAmount < amount {
+			for _, proof := range proofs {
+				selectedProofs = append(selectedProofs, proof)
+				currentProofsAmount += proof.Amount
 
-		if currentProofsAmount == amount {
-			for _, proof := range selectedProofs {
-				w.db.DeleteProof(proof.Secret)
-			}
-		} else if currentProofsAmount > amount {
-			break
-		}
-	}
-
-	if currentProofsAmount < amount {
-		for _, proof := range activeKeysetProofs {
-			selectedProofs = append(selectedProofs, proof)
-			currentProofsAmount += proof.Amount
-
-			if currentProofsAmount == amount {
-				for _, proof := range selectedProofs {
-					w.db.DeleteProof(proof.Secret)
+				if currentProofsAmount == amount {
+					for _, proof := range selectedProofs {
+						w.db.DeleteProof(proof.Secret)
+					}
+				} else if currentProofsAmount > amount {
+					break
 				}
-			} else if currentProofsAmount > amount {
-				break
+
 			}
 		}
 	}
+
+	addKeysetProofs(inactiveKeysetProofs)
+	addKeysetProofs(activeKeysetProofs)
 
 	activeSatKeyset := w.GetActiveSatKeyset()
 	// blinded messages for send amount
