@@ -32,9 +32,9 @@ type Wallet struct {
 	MintURL string
 
 	// active keysets from current mint
-	ActiveKeysets []crypto.Keyset
+	ActiveKeysets map[string]crypto.Keyset
 	// list of inactive keysets (if any) from current mint
-	InactiveKeysets []crypto.Keyset
+	InactiveKeysets map[string]crypto.Keyset
 
 	proofs cashu.Proofs
 }
@@ -125,7 +125,7 @@ func LoadWallet() (*Wallet, error) {
 	return wallet, nil
 }
 
-func GetMintActiveKeysets(mintURL string) ([]crypto.Keyset, error) {
+func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 	resp, err := http.Get(mintURL + "/v1/keys")
 	if err != nil {
 		return nil, err
@@ -138,7 +138,8 @@ func GetMintActiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 		return nil, fmt.Errorf("json.Decode: %v", err)
 	}
 
-	var activeKeysets []crypto.Keyset
+	activeKeysets := make(map[string]crypto.Keyset)
+
 	for i, keyset := range keysetRes.Keysets {
 		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit}
 		for amount, pubkey := range keysetRes.Keysets[i].Keys {
@@ -149,14 +150,15 @@ func GetMintActiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 			kp := crypto.KeyPair{Amount: amount, PublicKey: pubkeyBytes}
 			activeKeyset.KeyPairs = append(activeKeyset.KeyPairs, kp)
 		}
-		activeKeyset.Id = crypto.DeriveKeysetId(activeKeyset.KeyPairs)
-		activeKeysets = append(activeKeysets, activeKeyset)
+		id := crypto.DeriveKeysetId(activeKeyset.KeyPairs)
+		activeKeyset.Id = id
+		activeKeysets[id] = activeKeyset
 	}
 
 	return activeKeysets, nil
 }
 
-func GetCurrentMintInactiveKeysets(mintURL string) ([]crypto.Keyset, error) {
+func GetCurrentMintInactiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 	resp, err := http.Get(mintURL + "/v1/keysets")
 	if err != nil {
 		return nil, err
@@ -169,7 +171,8 @@ func GetCurrentMintInactiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 		return nil, fmt.Errorf("json.Decode: %v", err)
 	}
 
-	inactiveKeysets := []crypto.Keyset{}
+	inactiveKeysets := make(map[string]crypto.Keyset)
+
 	for _, keysetRes := range keysetsRes.Keysets {
 		if !keysetRes.Active {
 			keyset := crypto.Keyset{
@@ -178,7 +181,7 @@ func GetCurrentMintInactiveKeysets(mintURL string) ([]crypto.Keyset, error) {
 				Unit:    keysetRes.Unit,
 				Active:  keysetRes.Active,
 			}
-			inactiveKeysets = append(inactiveKeysets, keyset)
+			inactiveKeysets[keyset.Id] = keyset
 		}
 	}
 	return inactiveKeysets, nil
