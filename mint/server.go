@@ -81,6 +81,7 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost)
 	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet)
 	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost)
+	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet)
 
 	server := &http.Server{
 		Addr:    "127.0.0.1:3338",
@@ -341,6 +342,15 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	ms.writeResponse(rw, req, jsonRes, "")
+}
+
+func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
+	jsonRes, err := json.Marshal(ms.mint.MintInfo)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+	ms.writeResponse(rw, req, jsonRes, "returning mint info")
 }
 
 func buildKeysResponse(keysets map[string]crypto.Keyset) nut01.GetKeysResponse {

@@ -14,6 +14,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -33,6 +34,7 @@ type Mint struct {
 	Keysets map[string]crypto.Keyset
 
 	LightningClient lightning.Client
+	MintInfo        *nut06.MintInfo
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -53,6 +55,10 @@ func LoadMint(config Config) (*Mint, error) {
 	mint.Keysets = mint.GetKeysets()
 	mint.Keysets[activeKeyset.Id] = *activeKeyset
 	mint.LightningClient = lightning.NewLightningClient()
+	mint.MintInfo, err = getMintInfo()
+	if err != nil {
+		return nil, err
+	}
 
 	for i, keyset := range mint.Keysets {
 		if keyset.Id != activeKeyset.Id && keyset.Active {
