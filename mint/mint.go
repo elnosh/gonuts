@@ -321,11 +321,6 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 			return false, cashu.ProofAlreadyUsedErr
 		}
 
-		secret, err := hex.DecodeString(proof.Secret)
-		if err != nil {
-			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-		}
-
 		var privateKey []byte
 		keyset, ok := m.Keysets[proof.Id]
 		if !ok {
@@ -349,7 +344,7 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
-		if !crypto.Verify(secret, k, C) {
+		if !crypto.Verify(proof.Secret, k, C) {
 			return false, cashu.InvalidProofErr
 		}
 	}

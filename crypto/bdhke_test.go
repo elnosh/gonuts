@@ -37,15 +37,15 @@ func TestHashToCurve(t *testing.T) {
 
 func TestBlindMessage(t *testing.T) {
 	tests := []struct {
-		secret         []byte
+		secret         string
 		blindingFactor string
 		expected       string
 	}{
-		{secret: []byte("test_message"),
+		{secret: "test_message",
 			blindingFactor: "0000000000000000000000000000000000000000000000000000000000000001",
 			expected:       "02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2",
 		},
-		{secret: []byte("hello"),
+		{secret: "hello",
 			blindingFactor: "6d7e0abffc83267de28ed8ecc8760f17697e51252e13333ba69b4ddad1f95d05",
 			expected:       "0249eb5dbb4fac2750991cf18083388c6ef76cde9537a6ac6f3e6679d35cdf4b0c",
 		},
@@ -68,17 +68,17 @@ func TestBlindMessage(t *testing.T) {
 
 func TestSignBlindedMessage(t *testing.T) {
 	tests := []struct {
-		secret         []byte
+		secret         string
 		blindingFactor string
 		mintPrivKey    string
 		expected       string
 	}{
-		{secret: []byte("test_message"),
+		{secret: "test_message",
 			blindingFactor: "0000000000000000000000000000000000000000000000000000000000000001",
 			mintPrivKey:    "0000000000000000000000000000000000000000000000000000000000000001",
 			expected:       "02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2",
 		},
-		{secret: []byte("test_message"),
+		{secret: "test_message",
 			blindingFactor: "0000000000000000000000000000000000000000000000000000000000000001",
 			mintPrivKey:    "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
 			expected:       "0398bc70ce8184d27ba89834d19f5199c84443c31131e48d3c1214db24247d005d",
@@ -134,7 +134,7 @@ func TestUnblindSignature(t *testing.T) {
 }
 
 func TestVerify(t *testing.T) {
-	secret := []byte("test_message")
+	secret := "test_message"
 	rhex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000002")
 	r := secp256k1.PrivKeyFromBytes(rhex)
 

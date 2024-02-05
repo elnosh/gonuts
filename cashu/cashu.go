@@ -167,6 +167,7 @@ func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		secretStr := hex.EncodeToString(secret)
 
 		// generate new private key r
 		r, err := secp256k1.GeneratePrivateKey()
@@ -174,7 +175,7 @@ func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages
 			return nil, nil, nil, err
 		}
 
-		B_, r := crypto.BlindMessage(secret, r)
+		B_, r := crypto.BlindMessage(secretStr, r)
 		blindedMessage := NewBlindedMessage(keyset.Id, amt, B_)
 		blindedMessages[i] = blindedMessage
 		secrets[i] = secret

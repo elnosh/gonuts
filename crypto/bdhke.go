@@ -19,10 +19,10 @@ func HashToCurve(message []byte) *secp256k1.PublicKey {
 }
 
 // B_ = Y + rG
-func BlindMessage(secret []byte, r *secp256k1.PrivateKey) (*secp256k1.PublicKey, *secp256k1.PrivateKey) {
+func BlindMessage(secret string, r *secp256k1.PrivateKey) (*secp256k1.PublicKey, *secp256k1.PrivateKey) {
 	var ypoint, rpoint, blindedMessage secp256k1.JacobianPoint
 
-	Y := HashToCurve(secret)
+	Y := HashToCurve([]byte(secret))
 	Y.AsJacobian(&ypoint)
 
 	rpub := r.PubKey()
@@ -71,9 +71,9 @@ func UnblindSignature(C_ *secp256k1.PublicKey, r *secp256k1.PrivateKey,
 }
 
 // k * HashToCurve(secret) == C
-func Verify(secret []byte, k *secp256k1.PrivateKey, C *secp256k1.PublicKey) bool {
+func Verify(secret string, k *secp256k1.PrivateKey, C *secp256k1.PublicKey) bool {
 	var Ypoint, result secp256k1.JacobianPoint
-	Y := HashToCurve(secret)
+	Y := HashToCurve([]byte(secret))
 	Y.AsJacobian(&Ypoint)
 
 	secp256k1.ScalarMultNonConst(&k.Key, &Ypoint, &result)
