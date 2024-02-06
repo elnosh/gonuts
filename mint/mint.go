@@ -51,7 +51,7 @@ func LoadMint(config Config) (*Mint, error) {
 		return nil, fmt.Errorf("error setting up db: %v", err)
 	}
 
-	mint.SaveKeyset(*activeKeyset)
+	mint.SaveKeyset(activeKeyset)
 	mint.Keysets = mint.GetKeysets()
 	mint.Keysets[activeKeyset.Id] = *activeKeyset
 	mint.LightningClient = lightning.NewLightningClient()
@@ -63,7 +63,7 @@ func LoadMint(config Config) (*Mint, error) {
 	for i, keyset := range mint.Keysets {
 		if keyset.Id != activeKeyset.Id && keyset.Active {
 			keyset.Active = false
-			mint.SaveKeyset(keyset)
+			mint.SaveKeyset(&keyset)
 			mint.Keysets[i] = keyset
 		}
 	}

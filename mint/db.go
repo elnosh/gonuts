@@ -46,28 +46,6 @@ func (m *Mint) initMintBuckets() error {
 	})
 }
 
-func (m *Mint) InitKeysetsBucket(keyset crypto.Keyset) error {
-	return m.db.Update(func(tx *bolt.Tx) error {
-		keysets, err := tx.CreateBucketIfNotExists([]byte(keysetsBucket))
-		if err != nil {
-			return err
-		}
-
-		jsonKeyset, err := json.Marshal(keyset)
-		if err != nil {
-			return err
-		}
-
-		err = keysets.Put([]byte(keyset.Id), jsonKeyset)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-}
-
-// TODO: properly load and get keysets back
 func (m *Mint) GetKeysets() map[string]crypto.Keyset {
 	keysets := make(map[string]crypto.Keyset)
 
@@ -88,7 +66,7 @@ func (m *Mint) GetKeysets() map[string]crypto.Keyset {
 	return keysets
 }
 
-func (m *Mint) SaveKeyset(keyset crypto.Keyset) error {
+func (m *Mint) SaveKeyset(keyset *crypto.Keyset) error {
 	jsonKeyset, err := json.Marshal(keyset)
 	if err != nil {
 		return fmt.Errorf("invalid keyset: %v", err)

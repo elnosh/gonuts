@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"math"
 	"sort"
 	"strconv"
@@ -74,4 +75,86 @@ func (ks *Keyset) DerivePublic() map[uint64]string {
 		pubkeys[amount] = pubkey
 	}
 	return pubkeys
+}
+
+type KeysetTemp struct {
+	Id      string
+	MintURL string
+	Unit    string
+	Active  bool
+	Keys    map[uint64]json.RawMessage
+}
+
+func (ks *Keyset) MarshalJSON() ([]byte, error) {
+	temp := &KeysetTemp{
+		Id: ks.Id,
+		MintURL: ks.MintURL,
+		Unit: ks.Unit,
+		Active: ks.Active,
+		Keys: func() map[uint64]json.RawMessage {
+			m := make(map[uint64]json.RawMessage)
+			for k, v := range ks.Keys {
+				b, _ := json.Marshal(&v)
+				m[k] = b
+			}
+			return m
+		}(),
+	}
+
+	return json.Marshal(temp)
+}
+
+func (ks *Keyset) UnmarshalJSON(data []byte) error {
+	temp := &KeysetTemp{}
+
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	ks.Id = temp.Id
+	ks.MintURL = temp.MintURL
+	ks.Unit = temp.Unit
+	ks.Active = temp.Active
+
+	ks.Keys = make(map[uint64]KeyPair)
+	for k, v := range temp.Keys {
+		var kp KeyPair
+		err := json.Unmarshal(v, &kp)
+		if err != nil {
+			return err
+		}
+		ks.Keys[k] = kp
+	}
+	
+	return nil
+}
+
+type KeyPairTemp struct {
+	PrivateKey []byte `json:"private_key"`
+	PublicKey []byte `json:"public_key"`
+}
+
+func (kp *KeyPair) MarshalJSON() ([]byte, error) {
+	res := KeyPairTemp{
+		PrivateKey: kp.PrivateKey.Serialize(),
+		PublicKey: kp.PublicKey.SerializeCompressed(),
+	}
+	return json.Marshal(res)
+}
+
+func (kp *KeyPair) UnmarshalJSON(data []byte) error {
+	aux := &KeyPairTemp{}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	kp.PrivateKey = secp256k1.PrivKeyFromBytes(aux.PrivateKey)
+
+	var err error
+	kp.PublicKey, err = secp256k1.ParsePubKey(aux.PublicKey)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
