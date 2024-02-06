@@ -135,19 +135,13 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 
-	var keyset *crypto.Keyset
-	for _, ks := range ms.mint.Keysets {
-		if ks.Id == id {
-			keyset = &ks
-		}
-	}
-
-	if keyset == nil {
+	ks, ok := ms.mint.Keysets[id]
+	if !ok {
 		ms.writeErr(rw, req, cashu.KeysetNotExistErr)
 		return
 	}
 
-	getKeysResponse := buildKeysResponse(map[string]crypto.Keyset{keyset.Id: *keyset})
+	getKeysResponse := buildKeysResponse(map[string]crypto.Keyset{ks.Id: ks})
 	jsonRes, err := json.Marshal(getKeysResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
