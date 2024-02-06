@@ -31,10 +31,9 @@ type BlindedSignatures []BlindedSignature
 
 type Proof struct {
 	Amount uint64 `json:"amount"`
+	Id     string `json:"id"`
 	Secret string `json:"secret"`
 	C      string `json:"C"`
-	// keyset id
-	Id string `json:"id"`
 }
 
 type Proofs []Proof
@@ -42,6 +41,7 @@ type Proofs []Proof
 type Token struct {
 	Token []TokenProof `json:"token"`
 	Unit  string       `json:"unit"`
+	Memo  string       `json:"memo,omitempty"`
 }
 
 type TokenProof struct {

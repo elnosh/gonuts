@@ -87,10 +87,10 @@ type KeysetTemp struct {
 
 func (ks *Keyset) MarshalJSON() ([]byte, error) {
 	temp := &KeysetTemp{
-		Id: ks.Id,
+		Id:      ks.Id,
 		MintURL: ks.MintURL,
-		Unit: ks.Unit,
-		Active: ks.Active,
+		Unit:    ks.Unit,
+		Active:  ks.Active,
 		Keys: func() map[uint64]json.RawMessage {
 			m := make(map[uint64]json.RawMessage)
 			for k, v := range ks.Keys {
@@ -125,19 +125,19 @@ func (ks *Keyset) UnmarshalJSON(data []byte) error {
 		}
 		ks.Keys[k] = kp
 	}
-	
+
 	return nil
 }
 
 type KeyPairTemp struct {
 	PrivateKey []byte `json:"private_key"`
-	PublicKey []byte `json:"public_key"`
+	PublicKey  []byte `json:"public_key"`
 }
 
 func (kp *KeyPair) MarshalJSON() ([]byte, error) {
 	res := KeyPairTemp{
 		PrivateKey: kp.PrivateKey.Serialize(),
-		PublicKey: kp.PublicKey.SerializeCompressed(),
+		PublicKey:  kp.PublicKey.SerializeCompressed(),
 	}
 	return json.Marshal(res)
 }
