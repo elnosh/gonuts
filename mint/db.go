@@ -67,6 +67,7 @@ func (m *Mint) InitKeysetsBucket(keyset crypto.Keyset) error {
 	})
 }
 
+// TODO: properly load and get keysets back
 func (m *Mint) GetKeysets() map[string]crypto.Keyset {
 	keysets := make(map[string]crypto.Keyset)
 

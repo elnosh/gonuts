@@ -116,6 +116,7 @@ var (
 	KeysetNotExistErr            = Error{Detail: "keyset does not exist", Code: KeysetErrCode}
 	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
 	UnitNotSupportedErr          = Error{Detail: "unit not supported", Code: UnitErrCode}
+	InvalidBlindedMessageAmount  = Error{Detail: "invalid amount in blinded message", Code: KeysetErrCode}
 	QuoteIdNotSpecifiedErr       = Error{Detail: "quote id not specified", Code: QuoteErrCode}
 	InvoiceNotExistErr           = Error{Detail: "invoice does not exist", Code: InvoiceErrCode}
 	InvoiceNotPaidErr            = Error{Detail: "invoice has not been paid", Code: InvoiceErrCode}

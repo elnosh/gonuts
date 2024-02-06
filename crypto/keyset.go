@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 const maxOrder = 64
@@ -16,53 +17,61 @@ const maxOrder = 64
 type KeysetsMap map[string]map[string]Keyset
 
 type Keyset struct {
-	Id       string
-	MintURL  string
-	Unit     string
-	Active   bool
-	KeyPairs []KeyPair
+	Id      string
+	MintURL string
+	Unit    string
+	Active  bool
+	Keys    map[uint64]KeyPair
 }
 
 type KeyPair struct {
-	Amount     uint64
-	PrivateKey []byte
-	PublicKey  []byte
+	PrivateKey *secp256k1.PrivateKey
+	PublicKey  *secp256k1.PublicKey
 }
 
 func GenerateKeyset(seed, derivationPath string) *Keyset {
-	keyPairs := make([]KeyPair, maxOrder)
+	keys := make(map[uint64]KeyPair, maxOrder)
 
 	for i := 0; i < maxOrder; i++ {
 		amount := uint64(math.Pow(2, float64(i)))
 		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
 		privKey, pubKey := btcec.PrivKeyFromBytes(hash[:])
-		keyPairs[i] = KeyPair{Amount: amount, PrivateKey: privKey.Serialize(), PublicKey: pubKey.SerializeCompressed()}
+		keys[amount] = KeyPair{PrivateKey: privKey, PublicKey: pubKey}
 	}
-	keysetId := DeriveKeysetId(keyPairs)
-	return &Keyset{Id: keysetId, Unit: "sat", Active: true, KeyPairs: keyPairs}
+	keysetId := DeriveKeysetId(keys)
+	return &Keyset{Id: keysetId, Unit: "sat", Active: true, Keys: keys}
 }
 
-func DeriveKeysetId(keys []KeyPair) string {
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i].Amount < keys[j].Amount
+func DeriveKeysetId(keyset map[uint64]KeyPair) string {
+	type pubkey struct {
+		amount uint64
+		pk     *secp256k1.PublicKey
+	}
+	pubkeys := make([]pubkey, len(keyset))
+	i := 0
+	for amount, key := range keyset {
+		pubkeys[i] = pubkey{amount, key.PublicKey}
+		i++
+	}
+	sort.Slice(pubkeys, func(i, j int) bool {
+		return pubkeys[i].amount < pubkeys[j].amount
 	})
 
-	pubkeys := make([]byte, 0)
-	for _, key := range keys {
-		pubkeys = append(pubkeys, key.PublicKey...)
+	keys := make([]byte, 0)
+	for _, key := range pubkeys {
+		keys = append(keys, key.pk.SerializeCompressed()...)
 	}
 	hash := sha256.New()
-	hash.Write(pubkeys)
+	hash.Write(keys)
 
 	return "00" + hex.EncodeToString(hash.Sum(nil))[:14]
 }
 
 func (ks *Keyset) DerivePublic() map[uint64]string {
-	pubKeys := make(map[uint64]string)
-	for _, key := range ks.KeyPairs {
-		pubkey := hex.EncodeToString(key.PublicKey)
-		pubKeys[key.Amount] = pubkey
+	pubkeys := make(map[uint64]string)
+	for amount, key := range ks.Keys {
+		pubkey := hex.EncodeToString(key.PublicKey.SerializeCompressed())
+		pubkeys[amount] = pubkey
 	}
-
-	return pubKeys
+	return pubkeys
 }

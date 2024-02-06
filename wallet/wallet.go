@@ -139,18 +139,22 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 	}
 
 	activeKeysets := make(map[string]crypto.Keyset)
-
 	for i, keyset := range keysetRes.Keysets {
 		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit}
-		for amount, pubkey := range keysetRes.Keysets[i].Keys {
-			pubkeyBytes, err := hex.DecodeString(pubkey)
+		keys := make(map[uint64]crypto.KeyPair)
+		for amount, key := range keysetRes.Keysets[i].Keys {
+			pkbytes, err := hex.DecodeString(key)
 			if err != nil {
 				return nil, err
 			}
-			kp := crypto.KeyPair{Amount: amount, PublicKey: pubkeyBytes}
-			activeKeyset.KeyPairs = append(activeKeyset.KeyPairs, kp)
+			pubkey, err := secp256k1.ParsePubKey(pkbytes)
+			if err != nil {
+				return nil, err
+			}
+			keys[amount] = crypto.KeyPair{PublicKey: pubkey}
 		}
-		id := crypto.DeriveKeysetId(activeKeyset.KeyPairs)
+		activeKeyset.Keys = keys
+		id := crypto.DeriveKeysetId(activeKeyset.Keys)
 		activeKeyset.Id = id
 		activeKeysets[id] = activeKeyset
 	}
@@ -508,18 +512,7 @@ func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 			return nil, err
 		}
 
-		var pubKey []byte
-		for _, kp := range keyset.KeyPairs {
-			if kp.Amount == blindedSignature.Amount {
-				pubKey = kp.PublicKey
-			}
-		}
-
-		K, err := secp256k1.ParsePubKey(pubKey)
-		if err != nil {
-			return nil, err
-		}
-
+		K := keyset.Keys[blindedSignature.Amount].PublicKey
 		C := crypto.UnblindSignature(C_, rs[i], K)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 

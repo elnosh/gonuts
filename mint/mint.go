@@ -327,18 +327,16 @@ func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 			return false, cashu.ProofAlreadyUsedErr
 		}
 
-		var privateKey []byte
-		keyset, ok := m.Keysets[proof.Id]
-		if !ok {
+		var k *secp256k1.PrivateKey
+		if keyset, ok := m.Keysets[proof.Id]; !ok {
 			return false, cashu.InvalidKeysetProof
 		} else {
-			for _, kp := range keyset.KeyPairs {
-				if kp.Amount == proof.Amount {
-					privateKey = kp.PrivateKey
-				}
+			if key, ok := keyset.Keys[proof.Amount]; ok {
+				k = key.PrivateKey
+			} else {
+				return false, cashu.InvalidProofErr
 			}
 		}
-		k := secp256k1.PrivKeyFromBytes(privateKey)
 
 		Cbytes, err := hex.DecodeString(proof.C)
 		if err != nil {
@@ -361,18 +359,17 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 	blindedSignatures := make(cashu.BlindedSignatures, len(blindedMessages))
 
 	for i, msg := range blindedMessages {
+		var k *secp256k1.PrivateKey
 		keyset, ok := m.ActiveKeysets[msg.Id]
 		if !ok {
 			return nil, cashu.InvalidSignatureRequest
-		}
-
-		var privateKey []byte
-		for _, kp := range keyset.KeyPairs {
-			if kp.Amount == msg.Amount {
-				privateKey = kp.PrivateKey
+		} else {
+			if key, ok := keyset.Keys[msg.Amount]; ok {
+				k = key.PrivateKey
+			} else {
+				return nil, cashu.InvalidBlindedMessageAmount
 			}
 		}
-		privKey := secp256k1.PrivKeyFromBytes(privateKey)
 
 		B_bytes, err := hex.DecodeString(msg.B_)
 		if err != nil {
@@ -383,7 +380,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 			return nil, err
 		}
 
-		C_ := crypto.SignBlindedMessage(B_, privKey)
+		C_ := crypto.SignBlindedMessage(B_, k)
 		C_hex := hex.EncodeToString(C_.SerializeCompressed())
 
 		blindedSignature := cashu.BlindedSignature{Amount: msg.Amount,
