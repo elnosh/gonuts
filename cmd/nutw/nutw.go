@@ -145,7 +145,8 @@ func requestMint(amountStr string) error {
 		return err
 	}
 
-	fmt.Printf("invoice: %v\n", invoice.PaymentRequest)
+	fmt.Printf("invoice: %v\n\n", invoice.PaymentRequest)
+	fmt.Println("after paying the invoice you can redeem the ecash using the --invoice flag")
 	return nil
 }
 
