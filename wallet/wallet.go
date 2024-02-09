@@ -67,18 +67,7 @@ func LoadWallet() (*Wallet, error) {
 
 	wallet := &Wallet{db: db}
 	allKeysets := wallet.db.GetKeysets()
-
-	mintHost := os.Getenv("MINT_HOST")
-	mintPort := os.Getenv("MINT_PORT")
-	if len(mintHost) == 0 || len(mintPort) == 0 {
-		wallet.MintURL = "http://127.0.0.1:3338"
-	}
-
-	url := &url.URL{
-		Scheme: "http",
-		Host:   mintHost + ":" + mintPort,
-	}
-	wallet.MintURL = url.String()
+	wallet.MintURL = getMintURL()
 
 	activeKeysets, err := GetMintActiveKeysets(wallet.MintURL)
 	if err != nil {
@@ -123,6 +112,26 @@ func LoadWallet() (*Wallet, error) {
 	wallet.proofs = wallet.db.GetProofs(keysetIds)
 
 	return wallet, nil
+}
+
+func getMintURL() string {
+	mintUrl := os.Getenv("MINT_URL")
+	if len(mintUrl) > 0 {
+		return mintUrl
+	} else {
+		mintHost := os.Getenv("MINT_HOST")
+		mintPort := os.Getenv("MINT_PORT")
+		if len(mintHost) == 0 || len(mintPort) == 0 {
+			return "http://127.0.0.1:3338"
+		}
+
+		url := &url.URL{
+			Scheme: "http",
+			Host:   mintHost + ":" + mintPort,
+		}
+		mintUrl = url.String()
+	}
+	return mintUrl
 }
 
 func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {

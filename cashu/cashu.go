@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/crypto"
@@ -61,13 +60,18 @@ func DecodeToken(tokenstr string) (*Token, error) {
 		return nil, errors.New("invalid token")
 	}
 
-	base64Bytes, err := base64.StdEncoding.DecodeString(base64Token)
+	var tokenBytes []byte
+	var err error
+	tokenBytes, err = base64.URLEncoding.DecodeString(base64Token)
 	if err != nil {
-		return nil, fmt.Errorf("error decoding token: %v", err)
+		tokenBytes, err = base64.RawURLEncoding.DecodeString(base64Token)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding token: %v", err)
+		}
 	}
 
 	var token Token
-	err = json.Unmarshal(base64Bytes, &token)
+	err = json.Unmarshal(tokenBytes, &token)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshaling token: %v", err)
 	}
@@ -81,8 +85,8 @@ func (t *Token) ToString() string {
 		panic(err)
 	}
 
-	token := base64.StdEncoding.EncodeToString(jsonBytes)
-	return "cashuA" + strings.ReplaceAll(strings.ReplaceAll(token, "/", "_"), "+", "-")
+	token := base64.URLEncoding.EncodeToString(jsonBytes)
+	return "cashuA" + token
 }
 
 type CashuErrCode int
