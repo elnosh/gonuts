@@ -73,7 +73,6 @@ func receive(ctx *cli.Context) error {
 		printErr(errors.New("cashu token not provided"))
 	}
 	serializedToken := args.First()
-	//fmt.Printf("serialized token: \n%v\n", serializedToken)
 
 	token, err := cashu.DecodeToken(serializedToken)
 	if err != nil {
