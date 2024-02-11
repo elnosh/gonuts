@@ -1,10 +1,12 @@
 _Disclaimer: The author is NOT a cryptographer and this work has not been reviewed. This means that there is very likely a fatal flaw somewhere. Cashu is still experimental and not production-ready._
 
+_DO NOT USE WITH REAL SATS YET. UNLESS YOU WANT TO LOSE THEM._
+
 # gonuts
 
-[Cashu](https://cashu.space/) wallet and mint implementation in Go.
+Cashu wallet and mint implementation in Go.
 
-Cashu is a free and open-source Chaumian ecash system built for Bitcoin.
+Cashu is a free and open-source Chaumian ecash system built for Bitcoin. You can read more about it [here](https://cashu.space/).
 
 ## Supported NUTs
 
