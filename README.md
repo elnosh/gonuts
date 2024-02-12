@@ -48,7 +48,7 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 - `cd cmd/nutw`
 - `cp .env.example .env`
 
-fill the values in .env file with the mint to connect to
+   fill the values in .env file with the mint to connect to
 
 - `go build -v -o nutw nutw.go`
 
