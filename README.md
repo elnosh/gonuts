@@ -46,8 +46,9 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 ### wallet
 
 - `cd cmd/nutw`
+- `cp .env.example .env`
 
-fill the values in .env file with the mint to connect to
+   fill the values in .env file with the mint to connect to
 
 - `go build -v -o nutw nutw.go`
 
@@ -78,6 +79,10 @@ invoice: lnbcrt100n1pjuvtdpp...
 ### receive tokens
 
 `./nutw receive cashuAeyJ0b2tlbiI6W3...`
+
+### pay an invoice
+
+`./nutw pay lnbc100n1pju35fedqqsp52xt3...`
 
 ## Contribute
 
