@@ -82,7 +82,7 @@ invoice: lnbcrt100n1pjuvtdpp...
 
 ### pay an invoice
 
-'./nutw pay lnbc100n1pju35fedqqsp52xt3...`
+`./nutw pay lnbc100n1pju35fedqqsp52xt3...`
 
 ## Contribute
 
