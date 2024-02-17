@@ -17,7 +17,6 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -25,7 +24,7 @@ const (
 )
 
 type Mint struct {
-	db *bolt.DB
+	db *BoltDB
 
 	// active keysets
 	ActiveKeysets map[string]crypto.Keyset
@@ -39,20 +38,16 @@ type Mint struct {
 
 func LoadMint(config Config) (*Mint, error) {
 	path := setMintDBPath()
-	db, err := bolt.Open(filepath.Join(path, "mint.db"), 0600, nil)
+	db, err := InitBolt(path)
 	if err != nil {
 		log.Fatalf("error starting mint: %v", err)
 	}
 
 	activeKeyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
 	mint := &Mint{db: db, ActiveKeysets: map[string]crypto.Keyset{activeKeyset.Id: *activeKeyset}}
-	err = mint.initMintBuckets()
-	if err != nil {
-		return nil, fmt.Errorf("error setting up db: %v", err)
-	}
 
-	mint.SaveKeyset(activeKeyset)
-	mint.Keysets = mint.GetKeysets()
+	mint.db.SaveKeyset(activeKeyset)
+	mint.Keysets = mint.db.GetKeysets()
 	mint.Keysets[activeKeyset.Id] = *activeKeyset
 	mint.LightningClient = lightning.NewLightningClient()
 	mint.MintInfo, err = getMintInfo()
@@ -63,7 +58,7 @@ func LoadMint(config Config) (*Mint, error) {
 	for i, keyset := range mint.Keysets {
 		if keyset.Id != activeKeyset.Id && keyset.Active {
 			keyset.Active = false
-			mint.SaveKeyset(&keyset)
+			mint.db.SaveKeyset(&keyset)
 			mint.Keysets[i] = keyset
 		}
 	}
@@ -109,7 +104,7 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut0
 		return nut04.PostMintQuoteBolt11Response{}, err
 	}
 
-	err = m.SaveInvoice(*invoice)
+	err = m.db.SaveInvoice(*invoice)
 	if err != nil {
 		return nut04.PostMintQuoteBolt11Response{}, err
 	}
@@ -129,7 +124,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
 	}
 
-	invoice := m.GetInvoice(quoteId)
+	invoice := m.db.GetInvoice(quoteId)
 	if invoice == nil {
 		return nut04.PostMintQuoteBolt11Response{}, cashu.InvoiceNotExistErr
 	}
@@ -137,7 +132,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 	settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
 	if settled != invoice.Settled {
 		invoice.Settled = settled
-		m.SaveInvoice(*invoice)
+		m.db.SaveInvoice(*invoice)
 	}
 
 	quoteState := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
@@ -151,7 +146,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 		return nil, cashu.PaymentMethodNotSupportedErr
 	}
 
-	invoice := m.GetInvoice(id)
+	invoice := m.db.GetInvoice(id)
 	if invoice == nil {
 		return nil, cashu.InvoiceNotExistErr
 	}
@@ -181,7 +176,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 		invoice.Settled = true
 		invoice.Redeemed = true
-		m.SaveInvoice(*invoice)
+		m.db.SaveInvoice(*invoice)
 	} else {
 		return nil, cashu.InvoiceNotPaidErr
 	}
@@ -218,7 +213,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	}
 
 	for _, proof := range proofs {
-		m.SaveProof(proof)
+		m.db.SaveProof(proof)
 	}
 
 	return blindedSignatures, nil
@@ -264,7 +259,7 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 		Paid:           false,
 		Expiry:         expiry,
 	}
-	m.SaveMeltQuote(meltQuote)
+	m.db.SaveMeltQuote(meltQuote)
 
 	return meltQuote, nil
 }
@@ -274,7 +269,7 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
 
-	meltQuote := m.GetMeltQuote(quoteId)
+	meltQuote := m.db.GetMeltQuote(quoteId)
 	if meltQuote == nil {
 		return MeltQuote{}, cashu.MeltQuoteNotExistErr
 	}
@@ -287,7 +282,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
 
-	meltQuote := m.GetMeltQuote(quoteId)
+	meltQuote := m.db.GetMeltQuote(quoteId)
 	if meltQuote == nil {
 		return MeltQuote{}, cashu.MeltQuoteNotExistErr
 	}
@@ -314,7 +309,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 	meltQuote.Preimage = preimage
 
 	for _, proof := range proofs {
-		m.SaveProof(proof)
+		m.db.SaveProof(proof)
 	}
 
 	return *meltQuote, nil
@@ -322,7 +317,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 
 func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
 	for _, proof := range proofs {
-		dbProof := m.GetProof(proof.Secret)
+		dbProof := m.db.GetProof(proof.Secret)
 		if dbProof != nil {
 			return false, cashu.ProofAlreadyUsedErr
 		}

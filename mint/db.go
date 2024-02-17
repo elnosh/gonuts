@@ -3,6 +3,7 @@ package mint
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
@@ -20,8 +21,27 @@ const (
 	quotesBucket = "quotes"
 )
 
-func (m *Mint) initMintBuckets() error {
-	return m.db.Update(func(tx *bolt.Tx) error {
+type BoltDB struct {
+	bolt *bolt.DB
+}
+
+func InitBolt(path string) (*BoltDB, error) {
+	db, err := bolt.Open(filepath.Join(path, "mint.db"), 0600, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error setting bolt db: %v", err)
+	}
+
+	boltdb := &BoltDB{bolt: db}
+	err = boltdb.initMintBuckets()
+	if err != nil {
+		return nil, fmt.Errorf("error setting bolt db: %v", err)
+	}
+
+	return boltdb, nil
+}
+
+func (db *BoltDB) initMintBuckets() error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(keysetsBucket))
 		if err != nil {
 			return err
@@ -46,10 +66,10 @@ func (m *Mint) initMintBuckets() error {
 	})
 }
 
-func (m *Mint) GetKeysets() map[string]crypto.Keyset {
+func (db *BoltDB) GetKeysets() map[string]crypto.Keyset {
 	keysets := make(map[string]crypto.Keyset)
 
-	m.db.View(func(tx *bolt.Tx) error {
+	db.bolt.View(func(tx *bolt.Tx) error {
 		keysetsBucket := tx.Bucket([]byte(keysetsBucket))
 
 		c := keysetsBucket.Cursor()
@@ -66,13 +86,13 @@ func (m *Mint) GetKeysets() map[string]crypto.Keyset {
 	return keysets
 }
 
-func (m *Mint) SaveKeyset(keyset *crypto.Keyset) error {
+func (db *BoltDB) SaveKeyset(keyset *crypto.Keyset) error {
 	jsonKeyset, err := json.Marshal(keyset)
 	if err != nil {
 		return fmt.Errorf("invalid keyset: %v", err)
 	}
 
-	if err := m.db.Update(func(tx *bolt.Tx) error {
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		keysetsb := tx.Bucket([]byte(keysetsBucket))
 		key := []byte(keyset.Id)
 		return keysetsb.Put(key, jsonKeyset)
@@ -82,17 +102,10 @@ func (m *Mint) SaveKeyset(keyset *crypto.Keyset) error {
 	return nil
 }
 
-func (m *Mint) InitProofsBucket() {
-	m.db.Update(func(tx *bolt.Tx) error {
-		_, _ = tx.CreateBucketIfNotExists([]byte(proofsBucket))
-		return nil
-	})
-}
-
-func (m *Mint) GetProof(secret string) *cashu.Proof {
+func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 	var proof *cashu.Proof
 
-	m.db.View(func(tx *bolt.Tx) error {
+	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 		proofBytes := proofsb.Get([]byte(secret))
 		err := json.Unmarshal(proofBytes, &proof)
@@ -104,13 +117,13 @@ func (m *Mint) GetProof(secret string) *cashu.Proof {
 	return proof
 }
 
-func (m *Mint) SaveProof(proof cashu.Proof) error {
+func (b *BoltDB) SaveProof(proof cashu.Proof) error {
 	jsonProof, err := json.Marshal(proof)
 	if err != nil {
 		return fmt.Errorf("invalid proof format: %v", err)
 	}
 
-	if err := m.db.Update(func(tx *bolt.Tx) error {
+	if err := b.bolt.Update(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 		key := []byte(proof.Secret)
 		return proofsb.Put(key, jsonProof)
@@ -120,20 +133,13 @@ func (m *Mint) SaveProof(proof cashu.Proof) error {
 	return nil
 }
 
-func (m *Mint) InitInvoiceBucket() {
-	m.db.Update(func(tx *bolt.Tx) error {
-		_, _ = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
-		return nil
-	})
-}
-
-func (m *Mint) SaveInvoice(invoice lightning.Invoice) error {
+func (b *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 	jsonbytes, err := json.Marshal(invoice)
 	if err != nil {
 		return fmt.Errorf("invalid invoice: %v", err)
 	}
 
-	if err := m.db.Update(func(tx *bolt.Tx) error {
+	if err := b.bolt.Update(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
 		key := []byte(invoice.Id)
 		err := invoicesb.Put(key, jsonbytes)
@@ -144,10 +150,10 @@ func (m *Mint) SaveInvoice(invoice lightning.Invoice) error {
 	return nil
 }
 
-func (m *Mint) GetInvoice(id string) *lightning.Invoice {
+func (b *BoltDB) GetInvoice(id string) *lightning.Invoice {
 	var invoice *lightning.Invoice
 
-	m.db.View(func(tx *bolt.Tx) error {
+	b.bolt.View(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
 		invoiceBytes := invoicesb.Get([]byte(id))
 		err := json.Unmarshal(invoiceBytes, &invoice)
@@ -160,13 +166,13 @@ func (m *Mint) GetInvoice(id string) *lightning.Invoice {
 	return invoice
 }
 
-func (m *Mint) SaveMeltQuote(quote MeltQuote) error {
+func (b *BoltDB) SaveMeltQuote(quote MeltQuote) error {
 	jsonbytes, err := json.Marshal(quote)
 	if err != nil {
 		return fmt.Errorf("invalid quote: %v", err)
 	}
 
-	if err := m.db.Update(func(tx *bolt.Tx) error {
+	if err := b.bolt.Update(func(tx *bolt.Tx) error {
 		meltQuotesb := tx.Bucket([]byte(quotesBucket))
 		key := []byte(quote.Id)
 		err := meltQuotesb.Put(key, jsonbytes)
@@ -177,10 +183,10 @@ func (m *Mint) SaveMeltQuote(quote MeltQuote) error {
 	return nil
 }
 
-func (m *Mint) GetMeltQuote(quoteId string) *MeltQuote {
+func (b *BoltDB) GetMeltQuote(quoteId string) *MeltQuote {
 	var quote *MeltQuote
 
-	m.db.View(func(tx *bolt.Tx) error {
+	b.bolt.View(func(tx *bolt.Tx) error {
 		meltQuotesb := tx.Bucket([]byte(quotesBucket))
 		quoteBytes := meltQuotesb.Get([]byte(quoteId))
 		err := json.Unmarshal(quoteBytes, &quote)

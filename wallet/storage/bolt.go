@@ -28,12 +28,34 @@ func InitBolt(path string) (*BoltDB, error) {
 		return nil, fmt.Errorf("error setting bolt db: %v", err)
 	}
 
-	err = initWalletBuckets(db)
+	boltdb := &BoltDB{bolt: db}
+	err = boltdb.initWalletBuckets()
 	if err != nil {
 		return nil, fmt.Errorf("error setting bolt db: %v", err)
 	}
 
-	return &BoltDB{bolt: db}, nil
+	return boltdb, nil
+}
+
+func (db *BoltDB) initWalletBuckets() error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(keysetsBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
 }
 
 // it will return list of all proofs with ids in the list
@@ -174,25 +196,4 @@ func (db *BoltDB) GetInvoice(pr string) *lightning.Invoice {
 		return nil
 	})
 	return invoice
-}
-
-func initWalletBuckets(db *bolt.DB) error {
-	return db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(keysetsBucket))
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
 }
