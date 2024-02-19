@@ -285,13 +285,14 @@ func (w *Wallet) Receive(token cashu.Token) error {
 	var proofsAmount uint64 = 0
 
 	for _, TokenProof := range token.Token {
+		proofsToSwap = append(proofsToSwap, TokenProof.Proofs...)
 		for _, proof := range TokenProof.Proofs {
 			proofsAmount += proof.Amount
-			proofsToSwap = append(proofsToSwap, proof)
 		}
 	}
 
-	outputs, secrets, rs, err := cashu.CreateBlindedMessages(proofsAmount, w.GetActiveSatKeyset())
+	activeSatKeyset := w.GetActiveSatKeyset()
+	outputs, secrets, rs, err := cashu.CreateBlindedMessages(proofsAmount, activeSatKeyset)
 	if err != nil {
 		return fmt.Errorf("CreateBlindedMessages: %v", err)
 	}
@@ -314,8 +315,7 @@ func (w *Wallet) Receive(token cashu.Token) error {
 		return fmt.Errorf("error decoding response from mint: %v", err)
 	}
 
-	mintKeyset := w.GetActiveSatKeyset()
-	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &mintKeyset)
+	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
 	if err != nil {
 		return fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
@@ -504,7 +504,7 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 }
 
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
-	secrets [][]byte, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
+	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
 
 	if len(blindedSignatures) != len(secrets) && len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
@@ -525,9 +525,8 @@ func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 		C := crypto.UnblindSignature(C_, rs[i], K)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 
-		secret := hex.EncodeToString(secrets[i])
 		proof := cashu.Proof{Amount: blindedSignature.Amount,
-			Secret: secret, C: Cstr, Id: blindedSignature.Id}
+			Secret: secrets[i], C: Cstr, Id: blindedSignature.Id}
 
 		proofs[i] = proof
 	}

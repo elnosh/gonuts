@@ -157,22 +157,22 @@ func NewBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) Blinde
 }
 
 // returns Blinded messages, secrets - [][]byte, and list of r
-func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages, [][]byte, []*secp256k1.PrivateKey, error) {
+func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
 	splitAmounts := AmountSplit(amount)
 	splitLen := len(splitAmounts)
 
 	blindedMessages := make(BlindedMessages, splitLen)
-	secrets := make([][]byte, splitLen)
+	secrets := make([]string, splitLen)
 	rs := make([]*secp256k1.PrivateKey, splitLen)
 
 	for i, amt := range splitAmounts {
 		// create random secret
-		secret := make([]byte, 32)
-		_, err := rand.Read(secret)
+		secretBytes := make([]byte, 32)
+		_, err := rand.Read(secretBytes)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		secretStr := hex.EncodeToString(secret)
+		secret := hex.EncodeToString(secretBytes)
 
 		// generate new private key r
 		r, err := secp256k1.GeneratePrivateKey()
@@ -180,7 +180,7 @@ func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages
 			return nil, nil, nil, err
 		}
 
-		B_, r := crypto.BlindMessage(secretStr, r)
+		B_, r := crypto.BlindMessage(secret, r)
 		blindedMessage := NewBlindedMessage(keyset.Id, amt, B_)
 		blindedMessages[i] = blindedMessage
 		secrets[i] = secret
