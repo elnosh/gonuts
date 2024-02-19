@@ -282,17 +282,13 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 
 func (w *Wallet) Receive(token cashu.Token) error {
 	proofsToSwap := make(cashu.Proofs, 0)
-	var proofsAmount uint64 = 0
 
-	for _, TokenProof := range token.Token {
-		proofsToSwap = append(proofsToSwap, TokenProof.Proofs...)
-		for _, proof := range TokenProof.Proofs {
-			proofsAmount += proof.Amount
-		}
+	for _, tokenProof := range token.Token {
+		proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
 	}
 
 	activeSatKeyset := w.GetActiveSatKeyset()
-	outputs, secrets, rs, err := cashu.CreateBlindedMessages(proofsAmount, activeSatKeyset)
+	outputs, secrets, rs, err := cashu.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
 	if err != nil {
 		return fmt.Errorf("CreateBlindedMessages: %v", err)
 	}

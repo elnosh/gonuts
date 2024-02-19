@@ -89,6 +89,16 @@ func (t *Token) ToString() string {
 	return "cashuA" + token
 }
 
+func (t *Token) TotalAmount() uint64 {
+	var totalAmount uint64 = 0
+	for _, tokenProof := range t.Token {
+		for _, proof := range tokenProof.Proofs {
+			totalAmount += proof.Amount
+		}
+	}
+	return totalAmount
+}
+
 type CashuErrCode int
 
 type Error struct {

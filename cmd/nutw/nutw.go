@@ -84,7 +84,7 @@ func receive(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	fmt.Println("tokens received")
+	fmt.Printf("%v sats received\n", token.TotalAmount())
 	return nil
 }
 
