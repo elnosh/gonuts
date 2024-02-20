@@ -6,11 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"slices"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -39,35 +36,24 @@ type Wallet struct {
 	proofs cashu.Proofs
 }
 
-func setWalletPath() string {
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	path := filepath.Join(homedir, ".gonuts", "wallet")
-	err = os.MkdirAll(path, 0700)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return path
-}
-
 func InitStorage(path string) (storage.DB, error) {
 	// bolt db atm
 	return storage.InitBolt(path)
 }
 
-func LoadWallet() (*Wallet, error) {
-	path := setWalletPath()
-	db, err := InitStorage(path)
+func LoadWallet(config Config) (*Wallet, error) {
+	db, err := InitStorage(config.WalletPath)
 	if err != nil {
 		return nil, fmt.Errorf("InitStorage: %v", err)
 	}
 
 	wallet := &Wallet{db: db}
 	allKeysets := wallet.db.GetKeysets()
-	wallet.MintURL = getMintURL()
+	mintURL, err := url.Parse(config.CurrentMintURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mint url: %v\n", err)
+	}
+	wallet.MintURL = mintURL.String()
 
 	activeKeysets, err := GetMintActiveKeysets(wallet.MintURL)
 	if err != nil {
@@ -112,26 +98,6 @@ func LoadWallet() (*Wallet, error) {
 	wallet.proofs = wallet.db.GetProofs(keysetIds)
 
 	return wallet, nil
-}
-
-func getMintURL() string {
-	mintUrl := os.Getenv("MINT_URL")
-	if len(mintUrl) > 0 {
-		return mintUrl
-	} else {
-		mintHost := os.Getenv("MINT_HOST")
-		mintPort := os.Getenv("MINT_PORT")
-		if len(mintHost) == 0 || len(mintPort) == 0 {
-			return "http://127.0.0.1:3338"
-		}
-
-		url := &url.URL{
-			Scheme: "http",
-			Host:   mintHost + ":" + mintPort,
-		}
-		mintUrl = url.String()
-	}
-	return mintUrl
 }
 
 func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {

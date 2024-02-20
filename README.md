@@ -1,6 +1,6 @@
 _Disclaimer: The author is NOT a cryptographer and this work has not been reviewed. This means that there is very likely a fatal flaw somewhere. Cashu is still experimental and not production-ready._
 
-_**Don't be reckless:** This project is in early development, it does however work with real sats! Always use amounts you don't mind loosing._
+_**Don't be reckless:** This project is in early development, it does however work with real sats! Always use amounts you don't mind losing._
 
 # gonuts
 

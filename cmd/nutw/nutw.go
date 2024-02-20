@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/elnosh/gonuts/cashu"
@@ -17,14 +19,70 @@ import (
 
 var nutw *wallet.Wallet
 
-func SetupWallet(ctx *cli.Context) error {
-	var err error
-	err = godotenv.Load()
-	if err != nil {
-		log.Fatal("error loading .env file")
+func walletConfig() wallet.Config {
+	path := setWalletPath()
+	// default config
+	config := wallet.Config{WalletPath: path, CurrentMintURL: "https://8333.space:3338"}
+
+	envPath := filepath.Join(path, ".env")
+	if _, err := os.Stat(envPath); err != nil {
+		wd, err := os.Getwd()
+		if err != nil {
+			envPath = ""
+		} else {
+			envPath = filepath.Join(wd, ".env")
+		}
 	}
 
-	nutw, err = wallet.LoadWallet()
+	if len(envPath) > 0 {
+		err := godotenv.Load(envPath)
+		if err == nil {
+			config.CurrentMintURL = getMintURL()
+		}
+	}
+
+	return config
+}
+
+func setWalletPath() string {
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	path := filepath.Join(homedir, ".gonuts", "wallet")
+	err = os.MkdirAll(path, 0700)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return path
+}
+
+func getMintURL() string {
+	mintUrl := os.Getenv("MINT_URL")
+	if len(mintUrl) > 0 {
+		return mintUrl
+	} else {
+		mintHost := os.Getenv("MINT_HOST")
+		mintPort := os.Getenv("MINT_PORT")
+		if len(mintHost) == 0 || len(mintPort) == 0 {
+			return "http://127.0.0.1:3338"
+		}
+
+		url := &url.URL{
+			Scheme: "http",
+			Host:   mintHost + ":" + mintPort,
+		}
+		mintUrl = url.String()
+	}
+	return mintUrl
+}
+
+func setupWallet(ctx *cli.Context) error {
+	config := walletConfig()
+
+	var err error
+	nutw, err = wallet.LoadWallet(config)
 	if err != nil {
 		printErr(err)
 	}
@@ -51,7 +109,7 @@ func main() {
 
 var balanceCmd = &cli.Command{
 	Name:   "balance",
-	Before: SetupWallet,
+	Before: setupWallet,
 	Action: getBalance,
 }
 
@@ -63,7 +121,7 @@ func getBalance(ctx *cli.Context) error {
 
 var receiveCmd = &cli.Command{
 	Name:   "receive",
-	Before: SetupWallet,
+	Before: setupWallet,
 	Action: receive,
 }
 
@@ -92,7 +150,7 @@ const invoiceFlag = "invoice"
 
 var mintCmd = &cli.Command{
 	Name:   "mint",
-	Before: SetupWallet,
+	Before: setupWallet,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  invoiceFlag,
@@ -190,7 +248,7 @@ func mintTokens(paymentRequest string) error {
 
 var sendCmd = &cli.Command{
 	Name:   "send",
-	Before: SetupWallet,
+	Before: setupWallet,
 	Action: send,
 }
 
@@ -216,7 +274,7 @@ func send(ctx *cli.Context) error {
 
 var payCmd = &cli.Command{
 	Name:   "pay",
-	Before: SetupWallet,
+	Before: setupWallet,
 	Action: pay,
 }
 
