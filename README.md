@@ -1,6 +1,6 @@
 _Disclaimer: The author is NOT a cryptographer and this work has not been reviewed. This means that there is very likely a fatal flaw somewhere. Cashu is still experimental and not production-ready._
 
-_DO NOT USE WITH REAL SATS YET. UNLESS YOU WANT TO LOSE THEM._
+_**Don't be reckless:** This project is in early development, it does however work with real sats! Always use amounts you don't mind loosing._
 
 # gonuts
 
@@ -48,7 +48,7 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 - `cd cmd/nutw`
 - `cp .env.example .env`
 
-   fill the values in .env file with the mint to connect to
+  fill the values in .env file with the mint to connect to
 
 - `go build -v -o nutw nutw.go`
 
