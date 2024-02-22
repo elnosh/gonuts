@@ -35,6 +35,36 @@ func TestHashToCurve(t *testing.T) {
 	}
 }
 
+func TestHashToCurveDomainSeparated(t *testing.T) {
+	tests := []struct {
+		message  string
+		expected string
+	}{
+
+		{message: "0000000000000000000000000000000000000000000000000000000000000000",
+			expected: "024cce997d3b518f739663b757deaec95bcd9473c30a14ac2fd04023a739d1a725"},
+		{message: "0000000000000000000000000000000000000000000000000000000000000001",
+			expected: "022e7158e11c9506f1aa4248bf531298daa7febd6194f003edcd9b93ade6253acf"},
+	}
+
+	for _, test := range tests {
+		msgBytes, err := hex.DecodeString(test.message)
+		if err != nil {
+			t.Errorf("error decoding msg: %v", err)
+		}
+
+		pk, err := HashToCurveDomainSeparated(msgBytes)
+		if err != nil {
+			t.Fatalf("HashToCurveDomainSeparated err: %v", err)
+		}
+
+		hexStr := hex.EncodeToString(pk.SerializeCompressed())
+		if hexStr != test.expected {
+			t.Errorf("expected '%v' but got '%v' instead\n", test.expected, hexStr)
+		}
+	}
+}
+
 func TestBlindMessage(t *testing.T) {
 	tests := []struct {
 		secret         string
