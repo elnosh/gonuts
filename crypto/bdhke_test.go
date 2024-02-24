@@ -96,6 +96,33 @@ func TestBlindMessage(t *testing.T) {
 	}
 }
 
+func TestBlindMessageDomainSeparated(t *testing.T) {
+	tests := []struct {
+		secret         string
+		blindingFactor string
+		expected       string
+	}{
+		{secret: "test_message",
+			blindingFactor: "0000000000000000000000000000000000000000000000000000000000000001",
+			expected:       "025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b",
+		},
+	}
+
+	for _, test := range tests {
+		rbytes, err := hex.DecodeString(test.blindingFactor)
+		if err != nil {
+			t.Errorf("error decoding blinding factor: %v", err)
+		}
+		r := secp256k1.PrivKeyFromBytes(rbytes)
+
+		B_, _, _ := BlindMessageDomainSeparated(test.secret, r)
+		B_Hex := hex.EncodeToString(B_.SerializeCompressed())
+		if B_Hex != test.expected {
+			t.Errorf("expected '%v' but got '%v' instead\n", test.expected, B_Hex)
+		}
+	}
+}
+
 func TestSignBlindedMessage(t *testing.T) {
 	tests := []struct {
 		secret         string
@@ -139,27 +166,88 @@ func TestSignBlindedMessage(t *testing.T) {
 	}
 }
 
+func TestSignBlindedMessageDomainSeparated(t *testing.T) {
+	tests := []struct {
+		secret         string
+		blindingFactor string
+		mintPrivKey    string
+		expected       string
+	}{
+		{secret: "test_message",
+			blindingFactor: "0000000000000000000000000000000000000000000000000000000000000001",
+			mintPrivKey:    "0000000000000000000000000000000000000000000000000000000000000001",
+			expected:       "025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b",
+		},
+	}
+
+	for _, test := range tests {
+		rbytes, err := hex.DecodeString(test.blindingFactor)
+		if err != nil {
+			t.Errorf("error decoding blinding factor: %v", err)
+		}
+		r := secp256k1.PrivKeyFromBytes(rbytes)
+
+		B_, _, _ := BlindMessageDomainSeparated(test.secret, r)
+
+		mintKeyBytes, err := hex.DecodeString(test.mintPrivKey)
+		if err != nil {
+			t.Errorf("error decoding mint private key: %v", err)
+		}
+
+		k, _ := btcec.PrivKeyFromBytes(mintKeyBytes)
+
+		blindedSignature := SignBlindedMessage(B_, k)
+		blindedHex := hex.EncodeToString(blindedSignature.SerializeCompressed())
+		if blindedHex != test.expected {
+			t.Errorf("expected '%v' but got '%v' instead\n", test.expected, blindedHex)
+		}
+	}
+}
+
 func TestUnblindSignature(t *testing.T) {
-	dst, _ := hex.DecodeString("02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2")
-	C_, err := secp256k1.ParsePubKey(dst)
-	if err != nil {
-		t.Error(err)
+	tests := []struct {
+		C_str    string
+		kstr     string
+		rstr     string
+		expected string
+	}{
+		{
+			C_str:    "02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2",
+			kstr:     "020000000000000000000000000000000000000000000000000000000000000001",
+			rstr:     "0000000000000000000000000000000000000000000000000000000000000001",
+			expected: "03c724d7e6a5443b39ac8acf11f40420adc4f99a02e7cc1b57703d9391f6d129cd",
+		},
+		{
+			C_str:    "025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b",
+			kstr:     "020000000000000000000000000000000000000000000000000000000000000001",
+			rstr:     "0000000000000000000000000000000000000000000000000000000000000001",
+			expected: "0271bf0d702dbad86cbe0af3ab2bfba70a0338f22728e412d88a830ed0580b9de4",
+		},
 	}
 
-	kdst, _ := hex.DecodeString("020000000000000000000000000000000000000000000000000000000000000001")
-	K, err := secp256k1.ParsePubKey(kdst)
-	if err != nil {
-		t.Error(err)
-	}
+	for _, test := range tests {
+		dst, _ := hex.DecodeString(test.C_str)
+		C_, err := secp256k1.ParsePubKey(dst)
+		if err != nil {
+			t.Error(err)
+		}
 
-	rhex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
-	r := secp256k1.PrivKeyFromBytes(rhex)
+		kdst, _ := hex.DecodeString(test.kstr)
+		K, err := secp256k1.ParsePubKey(kdst)
+		if err != nil {
+			t.Error(err)
+		}
 
-	C := UnblindSignature(C_, r, K)
-	CHex := hex.EncodeToString(C.SerializeCompressed())
-	expected := "03c724d7e6a5443b39ac8acf11f40420adc4f99a02e7cc1b57703d9391f6d129cd"
-	if CHex != expected {
-		t.Errorf("expected '%v' but got '%v' instead\n", expected, CHex)
+		rhex, _ := hex.DecodeString(test.rstr)
+		r := secp256k1.PrivKeyFromBytes(rhex)
+
+		C := UnblindSignature(C_, r, K)
+		CHex := hex.EncodeToString(C.SerializeCompressed())
+		//expected := "03c724d7e6a5443b39ac8acf11f40420adc4f99a02e7cc1b57703d9391f6d129cd"
+		if CHex != test.expected {
+			t.Errorf("expected '%v' but got '%v' instead\n", test.expected, CHex)
+		}
+
 	}
 }
 
