@@ -33,8 +33,8 @@ func HashToCurve(message []byte) *secp256k1.PublicKey {
 //     is 2**16. If no valid point is found after 2**16 iterations, a ValueError is raised (this should
 //     never happen in practice).
 
-//     The domain separator is b"Secp256k1_HashToCurve_Cashu_" or
-//     bytes.fromhex("536563703235366b315f48617368546f43757276655f43617368755f").
+// The domain separator is b"Secp256k1_HashToCurve_Cashu_" or
+// bytes.fromhex("536563703235366b315f48617368546f43757276655f43617368755f").
 func HashToCurveDomainSeparated(message []byte) (*secp256k1.PublicKey, error) {
 	msgToHash := sha256.Sum256(append([]byte(DomainSeparator), message...))
 	var counter uint32 = 0
@@ -75,6 +75,27 @@ func BlindMessage(secret string, r *secp256k1.PrivateKey) (*secp256k1.PublicKey,
 	return B_, r
 }
 
+func BlindMessageDomainSeparated(secret string, r *secp256k1.PrivateKey) (*secp256k1.PublicKey,
+	*secp256k1.PrivateKey, error) {
+
+	var ypoint, rpoint, blindedMessage secp256k1.JacobianPoint
+	Y, err := HashToCurveDomainSeparated([]byte(secret))
+	if err != nil {
+		return nil, nil, err
+	}
+	Y.AsJacobian(&ypoint)
+
+	rpub := r.PubKey()
+	rpub.AsJacobian(&rpoint)
+
+	// blindedMessage = Y + rG
+	secp256k1.AddNonConst(&ypoint, &rpoint, &blindedMessage)
+	blindedMessage.ToAffine()
+	B_ := secp256k1.NewPublicKey(&blindedMessage.X, &blindedMessage.Y)
+
+	return B_, r, nil
+}
+
 // C_ = kB_
 func SignBlindedMessage(B_ *secp256k1.PublicKey, k *secp256k1.PrivateKey) *secp256k1.PublicKey {
 	var bpoint, result secp256k1.JacobianPoint
@@ -111,8 +132,21 @@ func UnblindSignature(C_ *secp256k1.PublicKey, r *secp256k1.PrivateKey,
 
 // k * HashToCurve(secret) == C
 func Verify(secret string, k *secp256k1.PrivateKey, C *secp256k1.PublicKey) bool {
+	Y, err := HashToCurveDomainSeparated([]byte(secret))
+	if err != nil {
+		return false
+	}
+	valid := verify(Y, k, C)
+	if !valid {
+		Y := HashToCurve([]byte(secret))
+		valid = verify(Y, k, C)
+	}
+
+	return valid
+}
+
+func verify(Y *secp256k1.PublicKey, k *secp256k1.PrivateKey, C *secp256k1.PublicKey) bool {
 	var Ypoint, result secp256k1.JacobianPoint
-	Y := HashToCurve([]byte(secret))
 	Y.AsJacobian(&Ypoint)
 
 	secp256k1.ScalarMultNonConst(&k.Key, &Ypoint, &result)

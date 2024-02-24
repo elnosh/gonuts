@@ -102,12 +102,21 @@ func (db *BoltDB) SaveKeyset(keyset *crypto.Keyset) error {
 	return nil
 }
 
+type dbproof struct {
+	Y      []byte
+	Amount uint64 `json:"amount"`
+	Id     string `json:"id"`
+	Secret string `json:"secret"`
+	C      string `json:"C"`
+}
+
 func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 	var proof *cashu.Proof
+	Y := crypto.HashToCurve([]byte(secret))
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
-		proofBytes := proofsb.Get([]byte(secret))
+		proofBytes := proofsb.Get(Y.SerializeCompressed())
 		err := json.Unmarshal(proofBytes, &proof)
 		if err != nil {
 			proof = nil
@@ -118,15 +127,23 @@ func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 }
 
 func (b *BoltDB) SaveProof(proof cashu.Proof) error {
-	jsonProof, err := json.Marshal(proof)
+	Y := crypto.HashToCurve([]byte(proof.Secret))
+
+	dbproof := dbproof{
+		Y:      Y.SerializeCompressed(),
+		Amount: proof.Amount,
+		Id:     proof.Id,
+		Secret: proof.Secret,
+		C:      proof.C,
+	}
+	jsonProof, err := json.Marshal(dbproof)
 	if err != nil {
 		return fmt.Errorf("invalid proof format: %v", err)
 	}
 
 	if err := b.bolt.Update(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
-		key := []byte(proof.Secret)
-		return proofsb.Put(key, jsonProof)
+		return proofsb.Put(Y.SerializeCompressed(), jsonProof)
 	}); err != nil {
 		return fmt.Errorf("error saving proof: %v", err)
 	}

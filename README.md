@@ -65,12 +65,12 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 this will get an invoice from the mint
 
 ```
-invoice: lnbcrt100n1pjuvtdpp...
+invoice: lnbc100n1pja0w9pdqqx...
 ```
 
 ### redeem the ecash after paying the invoice
 
-`./nutw mint --invoice lnbcrt100n1pjuvtdpp...`
+`./nutw mint --invoice lnbc100n1pja0w9pdqqx...`
 
 ### send tokens
 
