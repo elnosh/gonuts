@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -33,7 +34,8 @@ type Wallet struct {
 	// list of inactive keysets (if any) from current mint
 	InactiveKeysets map[string]crypto.Keyset
 
-	proofs cashu.Proofs
+	proofs           cashu.Proofs
+	domainSeparation bool
 }
 
 func InitStorage(path string) (storage.DB, error) {
@@ -96,6 +98,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		idx++
 	}
 	wallet.proofs = wallet.db.GetProofs(keysetIds)
+	wallet.domainSeparation = config.DomainSeparation
 
 	return wallet, nil
 }
@@ -254,7 +257,7 @@ func (w *Wallet) Receive(token cashu.Token) error {
 	}
 
 	activeSatKeyset := w.GetActiveSatKeyset()
-	outputs, secrets, rs, err := cashu.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
+	outputs, secrets, rs, err := w.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
 	if err != nil {
 		return fmt.Errorf("CreateBlindedMessages: %v", err)
 	}
@@ -389,13 +392,13 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 
 	activeSatKeyset := w.GetActiveSatKeyset()
 	// blinded messages for send amount
-	send, secrets, rs, err := cashu.CreateBlindedMessages(amount, activeSatKeyset)
+	send, secrets, rs, err := w.CreateBlindedMessages(amount, activeSatKeyset)
 	if err != nil {
 		return nil, err
 	}
 
 	// blinded messages for change amount
-	change, changeSecrets, changeRs, err := cashu.CreateBlindedMessages(currentProofsAmount-amount, activeSatKeyset)
+	change, changeSecrets, changeRs, err := w.CreateBlindedMessages(currentProofsAmount-amount, activeSatKeyset)
 	if err != nil {
 		return nil, err
 	}
@@ -463,6 +466,53 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 	// remaining proofs are change proofs to save to db
 	w.StoreProofs(proofs)
 	return proofsToSend, nil
+}
+
+func NewBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.BlindedMessage {
+	B_str := hex.EncodeToString(B_.SerializeCompressed())
+	return cashu.BlindedMessage{Amount: amount, B_: B_str, Id: id}
+}
+
+// returns Blinded messages, secrets - [][]byte, and list of r
+func (w *Wallet) CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
+	splitAmounts := cashu.AmountSplit(amount)
+	splitLen := len(splitAmounts)
+
+	blindedMessages := make(cashu.BlindedMessages, splitLen)
+	secrets := make([]string, splitLen)
+	rs := make([]*secp256k1.PrivateKey, splitLen)
+
+	for i, amt := range splitAmounts {
+		// create random secret
+		secretBytes := make([]byte, 32)
+		_, err := rand.Read(secretBytes)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		secret := hex.EncodeToString(secretBytes)
+
+		// generate new private key r
+		r, err := secp256k1.GeneratePrivateKey()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		var B_ *secp256k1.PublicKey
+		if w.domainSeparation {
+			B_, r, err = crypto.BlindMessageDomainSeparated(secret, r)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		} else {
+			B_, r = crypto.BlindMessage(secret, r)
+		}
+		blindedMessage := NewBlindedMessage(keyset.Id, amt, B_)
+		blindedMessages[i] = blindedMessage
+		secrets[i] = secret
+		rs[i] = r
+	}
+
+	return blindedMessages, secrets, rs, nil
 }
 
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,

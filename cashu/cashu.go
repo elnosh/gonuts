@@ -1,15 +1,10 @@
 package cashu
 
 import (
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/elnosh/gonuts/crypto"
 )
 
 type BlindedMessage struct {
@@ -159,43 +154,4 @@ func AmountSplit(amount uint64) []uint64 {
 		amount >>= 1
 	}
 	return rv
-}
-
-func NewBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) BlindedMessage {
-	B_str := hex.EncodeToString(B_.SerializeCompressed())
-	return BlindedMessage{Amount: amount, B_: B_str, Id: id}
-}
-
-// returns Blinded messages, secrets - [][]byte, and list of r
-func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
-	splitAmounts := AmountSplit(amount)
-	splitLen := len(splitAmounts)
-
-	blindedMessages := make(BlindedMessages, splitLen)
-	secrets := make([]string, splitLen)
-	rs := make([]*secp256k1.PrivateKey, splitLen)
-
-	for i, amt := range splitAmounts {
-		// create random secret
-		secretBytes := make([]byte, 32)
-		_, err := rand.Read(secretBytes)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		secret := hex.EncodeToString(secretBytes)
-
-		// generate new private key r
-		r, err := secp256k1.GeneratePrivateKey()
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		B_, r := crypto.BlindMessage(secret, r)
-		blindedMessage := NewBlindedMessage(keyset.Id, amt, B_)
-		blindedMessages[i] = blindedMessage
-		secrets[i] = secret
-		rs[i] = r
-	}
-
-	return blindedMessages, secrets, rs, nil
 }
