@@ -8,7 +8,7 @@ Cashu wallet and mint implementation in Go.
 
 Cashu is a free and open-source Chaumian ecash system built for Bitcoin. You can read more about it [here](https://cashu.space/).
 
-## Supported NUTs
+# Supported NUTs
 
 Implemented [NUTs](https://github.com/cashubtc/nuts/):
 
@@ -25,64 +25,90 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 - [ ] [NUT-11](https://github.com/cashubtc/nuts/blob/main/11.md)
 - [ ] [NUT-12](https://github.com/cashubtc/nuts/blob/main/12.md)
 
-# Development
+# Installation
 
-## requirements
+With [Go](https://go.dev/doc/install) installed, you can run the following command to install the wallet:
 
-- go
+```
+go install github.com/elnosh/gonuts/cmd/nutw@latest
+```
 
-### run mint
+**_Warning_: By default, the wallet will be setup with the mint `https://8333.space:3338`. That is a public test mint for demonstration purposes and could vanish at any moment.**
 
-- `cd cmd/mint`
+To setup the wallet with a different mint create a `.env` file at ~/.gonuts/wallet/.env and setup your preferred mint.
 
-- `cp .env.example .env`
+## Using the wallet
 
-  you'll need to setup a lightning regtest environment with something like [Polar](https://lightningpolar.com/) and fill in the values in the .env file
+### Check balance
 
-- `go build -v -o mint mint.go`
+```
+nutw balance
+```
 
-- `./mint`
+### Create a Lightning invoice to receive ecash
 
-### wallet
+```
+nutw mint 100
+```
 
-- `cd cmd/nutw`
-- `cp .env.example .env`
-
-  fill the values in .env file with the mint to connect to
-
-- `go build -v -o nutw nutw.go`
-
-# using the wallet
-
-### check balance
-
-`./nutw balance`
-
-### create a lightning invoice to receive ecash
-
-`./nutw mint 100`
-
-this will get an invoice from the mint
+This will get an invoice from the mint which you can then pay and use to mint new ecash.
 
 ```
 invoice: lnbc100n1pja0w9pdqqx...
 ```
 
-### redeem the ecash after paying the invoice
+### Redeem the ecash after paying the invoice
 
-`./nutw mint --invoice lnbc100n1pja0w9pdqqx...`
+```
+nutw mint --invoice lnbc100n1pja0w9pdqqx...
+```
 
-### send tokens
+### Send tokens
 
-`./nutw send 21`
+```
+nutw send 21
+```
 
-### receive tokens
+This will generate a Cashu token that looks like this:
 
-`./nutw receive cashuAeyJ0b2tlbiI6W3...`
+```
+cashuAeyJ0b2tlbiI6W3sibW...
+```
 
-### pay an invoice
+This is the ecash that you can then send to anyone.
 
-`./nutw pay lnbc100n1pju35fedqqsp52xt3...`
+### Receive tokens
+
+```
+nutw receive cashuAeyJ0b2tlbiI6W3...
+```
+
+### Request the mint to pay a Lightning invoice
+
+```
+nutw pay lnbc100n1pju35fedqqsp52xt3...
+```
+
+# Development
+
+## Requirements
+
+- [Go](https://go.dev/doc/install)
+
+### Wallet
+
+- `cd cmd/nutw`
+- create `.env` file and fill in the values
+- `go build -v -o nutw nutw.go`
+
+### Run mint
+
+- `cd cmd/mint`
+- you'll need to setup a lightning regtest environment with something like [Polar](https://lightningpolar.com/) and fill in the values in the .env file
+
+- `go build -v -o mint mint.go`
+
+- `./mint`
 
 ## Contribute
 
