@@ -139,7 +139,7 @@ func receive(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	err = nutw.Receive(*token)
+	err = nutw.Receive(*token, false)
 	if err != nil {
 		printErr(err)
 	}
@@ -239,7 +239,7 @@ func mintTokens(paymentRequest string) error {
 	}
 
 	// store proofs in db
-	err = nutw.StoreProofs(proofs)
+	err = nutw.SaveProofs(proofs)
 	if err != nil {
 		return fmt.Errorf("error storing proofs: %v", err)
 	}
