@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -13,8 +12,6 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/cashu/nuts/nut01"
-	"github.com/elnosh/gonuts/cashu/nuts/nut02"
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
@@ -53,7 +50,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 	allKeysets := wallet.db.GetKeysets()
 	mintURL, err := url.Parse(config.CurrentMintURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid mint url: %v\n", err)
+		return nil, fmt.Errorf("invalid mint url: %v", err)
 	}
 	wallet.MintURL = mintURL.String()
 
@@ -104,23 +101,16 @@ func LoadWallet(config Config) (*Wallet, error) {
 }
 
 func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
-	resp, err := http.Get(mintURL + "/v1/keys")
+	keysetsResponse, err := GetActiveKeysets(mintURL)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var keysetRes nut01.GetKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, fmt.Errorf("error getting active keyset from mint: %v", err)
 	}
 
 	activeKeysets := make(map[string]crypto.Keyset)
-	for i, keyset := range keysetRes.Keysets {
+	for i, keyset := range keysetsResponse.Keysets {
 		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit}
 		keys := make(map[uint64]crypto.KeyPair)
-		for amount, key := range keysetRes.Keysets[i].Keys {
+		for amount, key := range keysetsResponse.Keysets[i].Keys {
 			pkbytes, err := hex.DecodeString(key)
 			if err != nil {
 				return nil, err
@@ -141,21 +131,14 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 }
 
 func GetCurrentMintInactiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
-	resp, err := http.Get(mintURL + "/v1/keysets")
+	keysetsResponse, err := GetAllKeysets(mintURL)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var keysetsRes nut02.GetKeysetsResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetsRes)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 	}
 
 	inactiveKeysets := make(map[string]crypto.Keyset)
 
-	for _, keysetRes := range keysetsRes.Keysets {
+	for _, keysetRes := range keysetsResponse.Keysets {
 		if !keysetRes.Active {
 			keyset := crypto.Keyset{
 				Id:      keysetRes.Id,
@@ -181,24 +164,7 @@ func (w *Wallet) GetBalance() uint64 {
 
 func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
 	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: "sat"}
-	body, err := json.Marshal(mintRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(w.MintURL+"/v1/mint/quote/bolt11", "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var reqMintResponse nut04.PostMintQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return &reqMintResponse, nil
+	return PostMintQuoteBolt11(w.MintURL, mintRequest)
 }
 
 func (w *Wallet) CheckQuotePaid(quoteId string) bool {
@@ -219,23 +185,10 @@ func (w *Wallet) CheckQuotePaid(quoteId string) bool {
 
 func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
 	postMintRequest := nut04.PostMintBolt11Request{Quote: quoteId, Outputs: blindedMessages}
-	outputs, err := json.Marshal(postMintRequest)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling blinded messages: %v", err)
-	}
-
-	resp, err := httpPost(w.MintURL+"/v1/mint/bolt11", "application/json", bytes.NewBuffer(outputs))
+	mintResponse, err := PostMintBolt11(w.MintURL, postMintRequest)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	var mintResponse nut04.PostMintBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&mintResponse)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding response from mint: %v", err)
-	}
-
 	return mintResponse.Signatures, nil
 }
 
@@ -263,21 +216,9 @@ func (w *Wallet) Receive(token cashu.Token) error {
 	}
 
 	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
-	reqBody, err := json.Marshal(swapRequest)
-	if err != nil {
-		return fmt.Errorf("error marshaling request body: %v", err)
-	}
-
-	resp, err := httpPost(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	swapResponse, err := PostSwap(w.MintURL, swapRequest)
 	if err != nil {
 		return err
-	}
-	defer resp.Body.Close()
-
-	var swapResponse nut03.PostSwapResponse
-	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
-	if err != nil {
-		return fmt.Errorf("error decoding response from mint: %v", err)
 	}
 
 	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
@@ -289,47 +230,23 @@ func (w *Wallet) Receive(token cashu.Token) error {
 	return nil
 }
 
-func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (*nut05.PostMeltBolt11Response, error) {
-	body, err := json.Marshal(meltRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(w.MintURL+"/v1/melt/quote/bolt11", "application/json", bytes.NewBuffer(body))
+func (w *Wallet) Melt(invoice string) (*nut05.PostMeltBolt11Response, error) {
+	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
+	meltQuoteResponse, err := PostMeltQuoteBolt11(w.MintURL, meltRequest)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	var meltResponse nut05.PostMeltQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&meltResponse)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding response from mint: %v", err)
-	}
-
-	amountNeeded := meltResponse.Amount + meltResponse.FeeReserve
+	amountNeeded := meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve
 	proofs, err := w.getProofsForAmount(amountNeeded)
 	if err != nil {
 		return nil, err
 	}
 
-	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltResponse.Quote, Inputs: proofs}
-	jsonReq, err := json.Marshal(meltBolt11Request)
+	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
+	meltBolt11Response, err := PostMeltBolt11(w.MintURL, meltBolt11Request)
 	if err != nil {
 		return nil, err
-
-	}
-
-	resp, err = httpPost(w.MintURL+"/v1/melt/bolt11", "application/json", bytes.NewBuffer(jsonReq))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var meltBolt11Response nut05.PostMeltBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&meltBolt11Response)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding response from mint: %v", err)
 	}
 
 	// only delete proofs after invoice has been paid
@@ -339,7 +256,7 @@ func (w *Wallet) Melt(meltRequest nut05.PostMeltQuoteBolt11Request) (*nut05.Post
 		}
 	}
 
-	return &meltBolt11Response, nil
+	return meltBolt11Response, nil
 }
 
 func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
@@ -426,25 +343,13 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 	}
 
 	swapRequest := nut03.PostSwapRequest{Inputs: selectedProofs, Outputs: blindedMessages}
-	reqBody, err := json.Marshal(swapRequest)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling request body: %v", err)
-	}
-
-	resp, err := httpPost(w.MintURL+"/v1/swap", "application/json", bytes.NewBuffer(reqBody))
+	swapResponse, err := PostSwap(w.MintURL, swapRequest)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	for _, proof := range selectedProofs {
 		w.db.DeleteProof(proof.Secret)
-	}
-
-	var swapResponse nut03.PostSwapResponse
-	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding response from mint: %v", err)
 	}
 
 	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
