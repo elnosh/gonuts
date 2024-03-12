@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -147,10 +149,33 @@ func receive(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	// check here if token comes from trusted mint and ask.
-	// Pass bool based on response to receive method
+	swap := true
+	trustedMints := nutw.TrustedMints()
+	mintURL := token.Token[0].Mint
+	_, ok := trustedMints[mintURL]
+	if !ok {
+		fmt.Printf("token received comes from an untrusted mint: %v. Do you wish to trust this mint? (y/n)", mintURL)
 
-	err = nutw.Receive(*token, false)
+		reader := bufio.NewReader(os.Stdin)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal("error reading input, please try again")
+		}
+
+		input = strings.ToLower(strings.TrimSpace(input))
+		if input == "y" || input == "yes" {
+			fmt.Println("token from unknown mint will be added")
+			swap = false
+		} else {
+			fmt.Println("token will be swapped to your default trusted mint")
+		}
+	} else {
+		// if it comes from an already trusted mint, do not swap 
+		swap = false
+	}
+
+
+	err = nutw.Receive(*token, swap)
 	if err != nil {
 		printErr(err)
 	}

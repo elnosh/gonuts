@@ -257,6 +257,7 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 
 	tokenMintURL := token.Token[0].Mint
 	proofsAmount := token.TotalAmount()
+	var invoice lightning.Invoice
 
 	if swap {
 		invoicePct := 0.99
@@ -269,7 +270,7 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 				return err
 			}
 
-			invoice := lightning.Invoice{Id: mintResponse.Quote,
+			invoice = lightning.Invoice{Id: mintResponse.Quote,
 				PaymentRequest: mintResponse.Request, Amount: uint64(amount),
 				Expiry: mintResponse.Expiry}
 
@@ -305,7 +306,7 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 				return fmt.Errorf("error creating blinded messages: %v", err)
 			}
 
-			blindedSignatures, err := w.MintTokens(meltBolt11Request.Quote, blindedMessages)
+			blindedSignatures, err := w.MintTokens(invoice.Id, blindedMessages)
 			if err != nil {
 				return err
 			}
@@ -610,6 +611,10 @@ func (w *Wallet) getWalletMints() map[string]walletMint {
 	}
 
 	return walletMints
+}
+
+func (w *Wallet) TrustedMints() map[string]walletMint {
+	return w.mints
 }
 
 func (w *Wallet) SaveProofs(proofs cashu.Proofs) error {
