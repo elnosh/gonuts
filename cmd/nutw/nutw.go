@@ -116,8 +116,16 @@ var balanceCmd = &cli.Command{
 }
 
 func getBalance(ctx *cli.Context) error {
-	balance := nutw.GetBalance()
-	fmt.Printf("%v sats\n", balance)
+	balanceByMints := nutw.GetBalanceByMints()
+	fmt.Printf("balance in %v mints\n", len(balanceByMints))
+	totalBalance := uint64(0)
+
+	for mint, balance := range balanceByMints {
+		fmt.Printf("mint: %v ---- balance: %v\n", mint, balance)
+		totalBalance += balance
+	}
+
+	fmt.Printf("total balance: %v\n", totalBalance)
 	return nil
 }
 
@@ -138,6 +146,9 @@ func receive(ctx *cli.Context) error {
 	if err != nil {
 		printErr(err)
 	}
+
+	// check here if token comes from trusted mint and ask.
+	// Pass bool based on response to receive method
 
 	err = nutw.Receive(*token, false)
 	if err != nil {

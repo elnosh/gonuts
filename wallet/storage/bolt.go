@@ -79,34 +79,30 @@ func (db *BoltDB) GetProofs() cashu.Proofs {
 	return proofs
 }
 
-// it will return list of all proofs with ids in the list
-// func (db *BoltDB) GetProofs(ids []string) cashu.Proofs {
-// 	proofs := cashu.Proofs{}
+func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
+	proofs := cashu.Proofs{}
 
-// 	if err := db.bolt.View(func(tx *bolt.Tx) error {
-// 		proofsb := tx.Bucket([]byte(proofsBucket))
+	if err := db.bolt.View(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
 
-// 		c := proofsb.Cursor()
-// 		for k, v := c.First(); k != nil; k, v = c.Next() {
-// 			var proof cashu.Proof
-// 			if err := json.Unmarshal(v, &proof); err != nil {
-// 				return fmt.Errorf("error getting proofs: %v", err)
-// 			}
+		c := proofsb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var proof cashu.Proof
+			if err := json.Unmarshal(v, &proof); err != nil {
+				return fmt.Errorf("error getting proofs: %v", err)
+			}
 
-// 			// only append proofs with keyset ids that are from curent mint
-// 			for _, id := range ids {
-// 				if proof.Id == id {
-// 					proofs = append(proofs, proof)
-// 				}
-// 			}
-// 		}
-// 		return nil
-// 	}); err != nil {
-// 		return cashu.Proofs{}
-// 	}
+			if proof.Id == id {
+				proofs = append(proofs, proof)
+			}
+		}
+		return nil
+	}); err != nil {
+		return cashu.Proofs{}
+	}
 
-// 	return proofs
-// }
+	return proofs
+}
 
 func (db *BoltDB) SaveProof(proof cashu.Proof) error {
 	jsonProof, err := json.Marshal(proof)
@@ -136,7 +132,7 @@ func (db *BoltDB) DeleteProof(secret string) error {
 	})
 }
 
-func (db *BoltDB) SaveKeyset(keyset crypto.Keyset) error {
+func (db *BoltDB) SaveKeyset(keyset *crypto.Keyset) error {
 	jsonKeyset, err := json.Marshal(keyset)
 	if err != nil {
 		return fmt.Errorf("invalid keyset format: %v", err)
@@ -158,7 +154,7 @@ func (db *BoltDB) SaveKeyset(keyset crypto.Keyset) error {
 func (db *BoltDB) GetKeysetsByMint(mintURL string) ([]crypto.Keyset, error) {
 	keysets := make([]crypto.Keyset, 0)
 
-	if err := db.bolt.View(func (tx *bolt.Tx) error {
+	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		keysetsb := tx.Bucket([]byte(keysetsBucket))
 		mintBucket := keysetsb.Bucket([]byte(mintURL))
 		if mintBucket == nil {
@@ -176,7 +172,7 @@ func (db *BoltDB) GetKeysetsByMint(mintURL string) ([]crypto.Keyset, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, err 
+		return nil, err
 	}
 
 	return keysets, nil

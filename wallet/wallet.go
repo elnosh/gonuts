@@ -40,19 +40,42 @@ type walletMint struct {
 	inactiveKeysets map[string]crypto.Keyset
 }
 
-// get mint info and save keysets to db
+// get mint keysets
 func mintInfo(mintURL string) (*walletMint, error) {
 	activeKeysets, err := GetMintActiveKeysets(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting current keyset from mint: %v", err)
+		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
 	}
 
 	inactiveKeysets, err := GetMintInactiveKeysets(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error setting up wallet: %v", err)
+		return nil, fmt.Errorf("error getting inactive keysets from mint: %v", err)
 	}
 
 	return &walletMint{mintURL, activeKeysets, inactiveKeysets}, nil
+}
+
+func (w *Wallet) addMint(mint string) (*walletMint, error) {
+	url, err := url.Parse(mint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mint url: %v", err)
+	}
+	mintURL := url.String()
+
+	mintInfo, err := mintInfo(mintURL)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, keyset := range mintInfo.activeKeysets {
+		w.db.SaveKeyset(&keyset)
+	}
+	for _, keyset := range mintInfo.inactiveKeysets {
+		w.db.SaveKeyset(&keyset)
+	}
+	w.mints[mintURL] = *mintInfo
+
+	return mintInfo, nil
 }
 
 func InitStorage(path string) (storage.DB, error) {
@@ -67,28 +90,29 @@ func LoadWallet(config Config) (*Wallet, error) {
 	}
 
 	wallet := &Wallet{db: db}
-	//allKeysets := wallet.db.GetKeysets()
 	wallet.mints = wallet.getWalletMints()
-	mintURL, err := url.Parse(config.CurrentMintURL)
+	url, err := url.Parse(config.CurrentMintURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid mint url: %v", err)
 	}
+	mintURL := url.String()
 
-	currentMint, err := mintInfo(mintURL.String())
+	currentMint, err := mintInfo(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 	}
 	wallet.currentMint = currentMint
 
-	_, ok := wallet.mints[mintURL.String()]
+	_, ok := wallet.mints[mintURL]
 	if !ok {
 		for _, keyset := range currentMint.activeKeysets {
-			db.SaveKeyset(keyset)
+			db.SaveKeyset(&keyset)
 		}
 		for _, keyset := range currentMint.inactiveKeysets {
-			db.SaveKeyset(keyset)
+			db.SaveKeyset(&keyset)
 		}
 	}
+	wallet.mints[mintURL] = *currentMint
 
 	wallet.proofs = wallet.db.GetProofs()
 	wallet.domainSeparation = config.DomainSeparation
@@ -104,7 +128,7 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 
 	activeKeysets := make(map[string]crypto.Keyset)
 	for i, keyset := range keysetsResponse.Keysets {
-		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit}
+		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
 		keys := make(map[uint64]crypto.KeyPair)
 		for amount, key := range keysetsResponse.Keysets[i].Keys {
 			pkbytes, err := hex.DecodeString(key)
@@ -148,14 +172,37 @@ func GetMintInactiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 	return inactiveKeysets, nil
 }
 
-func (w *Wallet) GetBalance() uint64 {
-	var balance uint64 = 0
+func proofsAmount(proofs cashu.Proofs) uint64 {
+	var totalAmount uint64 = 0
+	for _, proof := range proofs {
+		totalAmount += proof.Amount
+	}
+	return totalAmount
+}
 
-	for _, proof := range w.proofs {
-		balance += proof.Amount
+func (w *Wallet) GetBalance() uint64 {
+	return proofsAmount(w.proofs)
+}
+
+func (w *Wallet) GetBalanceByMints() map[string]uint64 {
+	mintsBalances := make(map[string]uint64)
+
+	for _, mint := range w.mints {
+		var mintBalance uint64 = 0
+		
+		for _, keyset := range mint.activeKeysets {
+			proofs := w.db.GetProofsByKeysetId(keyset.Id)
+			mintBalance += proofsAmount(proofs)
+		}
+		for _, keyset := range mint.inactiveKeysets {
+			proofs := w.db.GetProofsByKeysetId(keyset.Id)
+			mintBalance += proofsAmount(proofs)
+		}
+
+		mintsBalances[mint.mintURL] = mintBalance
 	}
 
-	return balance
+	return mintsBalances
 }
 
 func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
@@ -200,7 +247,7 @@ func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
 }
 
 // Receives Cashu token. If swap is true, it will swap the funds to the configured default mint.
-// If false, it will trust the mint and add the proofs from the trusted mint.
+// If false, it will add the proofs from the trusted mint.
 func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 	proofsToSwap := make(cashu.Proofs, 0)
 
@@ -208,24 +255,108 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 		proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
 	}
 
-	activeSatKeyset := w.GetActiveSatKeyset()
-	outputs, secrets, rs, err := w.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
-	if err != nil {
-		return fmt.Errorf("CreateBlindedMessages: %v", err)
+	tokenMintURL := token.Token[0].Mint
+	proofsAmount := token.TotalAmount()
+
+	if swap {
+		invoicePct := 0.99
+		amount := float64(proofsAmount) * invoicePct
+		var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
+
+		for {
+			mintResponse, err := w.RequestMint(uint64(amount))
+			if err != nil {
+				return err
+			}
+
+			invoice := lightning.Invoice{Id: mintResponse.Quote,
+				PaymentRequest: mintResponse.Request, Amount: uint64(amount),
+				Expiry: mintResponse.Expiry}
+
+			err = w.SaveInvoice(invoice)
+			if err != nil {
+				return err
+			}
+
+			meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: "sat"}
+			meltQuoteResponse, err = PostMeltQuoteBolt11(tokenMintURL, meltRequest)
+			if err != nil {
+				return err
+			}
+
+			if meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve > proofsAmount {
+				invoicePct -= 0.01
+				amount *= invoicePct
+			} else {
+				break
+			}
+		}
+
+		meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofsToSwap}
+		meltBolt11Response, err := PostMeltBolt11(tokenMintURL, meltBolt11Request)
+		if err != nil {
+			return err
+		}
+
+		if meltBolt11Response.Paid {
+			activeKeyset := w.GetActiveSatKeyset()
+			blindedMessages, secrets, rs, err := w.CreateBlindedMessages(uint64(amount), activeKeyset)
+			if err != nil {
+				return fmt.Errorf("error creating blinded messages: %v", err)
+			}
+
+			blindedSignatures, err := w.MintTokens(meltBolt11Request.Quote, blindedMessages)
+			if err != nil {
+				return err
+			}
+
+			// unblind the signatures from the promises and build the proofs
+			proofs, err := w.ConstructProofs(blindedSignatures, secrets, rs, &activeKeyset)
+			if err != nil {
+				return fmt.Errorf("error constructing proofs: %v", err)
+			}
+
+			// store proofs in db
+			err = w.SaveProofs(proofs)
+			if err != nil {
+				return fmt.Errorf("error storing proofs: %v", err)
+			}
+		} else {
+			return errors.New("mint could not pay lightning invoice")
+		}
+
+	} else {
+		mint, err := w.addMint(tokenMintURL)
+		if err != nil {
+			return err
+		}
+
+		var activeSatKeyset crypto.Keyset
+		// for now just taking first keyset val from map and assign it as sat keyset
+		for _, k := range mint.activeKeysets {
+			activeSatKeyset = k
+			break
+		}
+
+		outputs, secrets, rs, err := w.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
+		if err != nil {
+			return fmt.Errorf("CreateBlindedMessages: %v", err)
+		}
+
+		swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
+		swapResponse, err := PostSwap(tokenMintURL, swapRequest)
+		if err != nil {
+			return err
+		}
+
+		proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
+		if err != nil {
+			return fmt.Errorf("wallet.ConstructProofs: %v", err)
+		}
+
+		w.SaveProofs(proofs)
 	}
 
-	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
-	swapResponse, err := PostSwap(w.currentMint.mintURL, swapRequest)
-	if err != nil {
-		return err
-	}
-
-	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
-	if err != nil {
-		return fmt.Errorf("wallet.ConstructProofs: %v", err)
-	}
-
-	w.SaveProofs(proofs)
 	return nil
 }
 
@@ -479,7 +610,7 @@ func (w *Wallet) getWalletMints() map[string]walletMint {
 	}
 
 	return walletMints
-} 
+}
 
 func (w *Wallet) SaveProofs(proofs cashu.Proofs) error {
 	for _, proof := range proofs {
