@@ -235,20 +235,19 @@ func (w *Wallet) MintTokens(quoteId string, blindedMessages cashu.BlindedMessage
 	return mintResponse.Signatures, nil
 }
 
-func (w *Wallet) Send(amount uint64) (*cashu.Token, error) {
-	proofsToSend, err := w.getProofsForAmount(amount)
+func (w *Wallet) Send(amount uint64, mintURL string) (*cashu.Token, error) {
+	proofsToSend, err := w.getProofsForAmount(amount, mintURL)
 	if err != nil {
 		return nil, err
 	}
 
-	// mint url passed here needs to change. Need to do it based on selected proofs
-	token := cashu.NewToken(proofsToSend, w.currentMint.mintURL, "sat")
+	token := cashu.NewToken(proofsToSend, mintURL, "sat")
 	return &token, nil
 }
 
 // Receives Cashu token. If swap is true, it will swap the funds to the configured default mint.
 // If false, it will add the proofs from the trusted mint.
-func (w *Wallet) Receive(token cashu.Token, swap bool) error {
+func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 	proofsToSwap := make(cashu.Proofs, 0)
 
 	for _, tokenProof := range token.Token {
@@ -256,18 +255,18 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 	}
 
 	tokenMintURL := token.Token[0].Mint
-	proofsAmount := token.TotalAmount()
+	tokenAmount := token.TotalAmount()
 	var invoice lightning.Invoice
 
 	if swap {
 		invoicePct := 0.99
-		amount := float64(proofsAmount) * invoicePct
+		amount := float64(tokenAmount) * invoicePct
 		var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
 
 		for {
 			mintResponse, err := w.RequestMint(uint64(amount))
 			if err != nil {
-				return err
+				return 0, err
 			}
 
 			invoice = lightning.Invoice{Id: mintResponse.Quote,
@@ -276,16 +275,16 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 
 			err = w.SaveInvoice(invoice)
 			if err != nil {
-				return err
+				return 0, err
 			}
 
 			meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: "sat"}
 			meltQuoteResponse, err = PostMeltQuoteBolt11(tokenMintURL, meltRequest)
 			if err != nil {
-				return err
+				return 0, err
 			}
 
-			if meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve > proofsAmount {
+			if meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve > tokenAmount {
 				invoicePct -= 0.01
 				amount *= invoicePct
 			} else {
@@ -296,40 +295,40 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 		meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofsToSwap}
 		meltBolt11Response, err := PostMeltBolt11(tokenMintURL, meltBolt11Request)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		if meltBolt11Response.Paid {
 			activeKeyset := w.GetActiveSatKeyset()
 			blindedMessages, secrets, rs, err := w.CreateBlindedMessages(uint64(amount), activeKeyset)
 			if err != nil {
-				return fmt.Errorf("error creating blinded messages: %v", err)
+				return 0, fmt.Errorf("error creating blinded messages: %v", err)
 			}
 
 			blindedSignatures, err := w.MintTokens(invoice.Id, blindedMessages)
 			if err != nil {
-				return err
+				return 0, err
 			}
 
 			// unblind the signatures from the promises and build the proofs
 			proofs, err := w.ConstructProofs(blindedSignatures, secrets, rs, &activeKeyset)
 			if err != nil {
-				return fmt.Errorf("error constructing proofs: %v", err)
+				return 0, fmt.Errorf("error constructing proofs: %v", err)
 			}
 
 			// store proofs in db
 			err = w.SaveProofs(proofs)
 			if err != nil {
-				return fmt.Errorf("error storing proofs: %v", err)
+				return 0, fmt.Errorf("error storing proofs: %v", err)
 			}
+			return proofsAmount(proofs), nil
 		} else {
-			return errors.New("mint could not pay lightning invoice")
+			return 0, errors.New("mint could not pay lightning invoice")
 		}
-
 	} else {
 		mint, err := w.addMint(tokenMintURL)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		var activeSatKeyset crypto.Keyset
@@ -341,41 +340,49 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) error {
 
 		outputs, secrets, rs, err := w.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
 		if err != nil {
-			return fmt.Errorf("CreateBlindedMessages: %v", err)
+			return 0, fmt.Errorf("CreateBlindedMessages: %v", err)
 		}
 
 		swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: outputs}
 		swapResponse, err := PostSwap(tokenMintURL, swapRequest)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
 		if err != nil {
-			return fmt.Errorf("wallet.ConstructProofs: %v", err)
+			return 0, fmt.Errorf("wallet.ConstructProofs: %v", err)
 		}
 
 		w.SaveProofs(proofs)
+		return proofsAmount(proofs), nil
 	}
-
-	return nil
 }
 
-func (w *Wallet) Melt(invoice string) (*nut05.PostMeltBolt11Response, error) {
+func (w *Wallet) swapToTrusted() {
+
+}
+
+func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Response, error) {
+	selectedMint, ok := w.mints[mint]
+	if !ok {
+		return nil, errors.New("mint does not exist")
+	}
+
 	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
-	meltQuoteResponse, err := PostMeltQuoteBolt11(w.currentMint.mintURL, meltRequest)
+	meltQuoteResponse, err := PostMeltQuoteBolt11(selectedMint.mintURL, meltRequest)
 	if err != nil {
 		return nil, err
 	}
 
 	amountNeeded := meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve
-	proofs, err := w.getProofsForAmount(amountNeeded)
+	proofs, err := w.getProofsForAmount(amountNeeded, mint)
 	if err != nil {
 		return nil, err
 	}
 
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
-	meltBolt11Response, err := PostMeltBolt11(w.currentMint.mintURL, meltBolt11Request)
+	meltBolt11Response, err := PostMeltBolt11(selectedMint.mintURL, meltBolt11Request)
 	if err != nil {
 		return nil, err
 	}
@@ -390,18 +397,49 @@ func (w *Wallet) Melt(invoice string) (*nut05.PostMeltBolt11Response, error) {
 	return meltBolt11Response, nil
 }
 
-func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
-	balance := w.GetBalance()
+func (w *Wallet) GetProofsByMint(mintURL string) (cashu.Proofs, error) {
+	selectedMint, ok := w.mints[mintURL]
+	if !ok {
+		return nil, errors.New("mint does not exist")
+	}
+
+	proofs := cashu.Proofs{}
+	for _, keyset := range selectedMint.activeKeysets {
+		keysetProofs := w.db.GetProofsByKeysetId(keyset.Id)
+		proofs = append(proofs, keysetProofs...)
+	}
+
+	for _, keyset := range selectedMint.inactiveKeysets {
+		keysetProofs := w.db.GetProofsByKeysetId(keyset.Id)
+		proofs = append(proofs, keysetProofs...)
+	}
+
+	return proofs, nil
+}
+
+func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs, error) {
+	selectedMint, ok := w.mints[mintURL]
+	if !ok {
+		return nil, errors.New("mint does not exist")
+	}
+
+	balanceByMints := w.GetBalanceByMints()
+	balance := balanceByMints[mintURL]
 	if balance < amount {
-		return nil, errors.New("not enough funds")
+		return nil, errors.New("not enough funds in selected mint")
 	}
 
 	// use proofs from inactive keysets first
 	activeKeysetProofs := cashu.Proofs{}
 	inactiveKeysetProofs := cashu.Proofs{}
-	for _, proof := range w.proofs {
+	mintProofs, err := w.GetProofsByMint(mintURL)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, proof := range mintProofs {
 		isInactive := false
-		for _, inactiveKeyset := range w.currentMint.inactiveKeysets {
+		for _, inactiveKeyset := range selectedMint.inactiveKeysets {
 			if proof.Id == inactiveKeyset.Id {
 				isInactive = true
 				break
@@ -438,7 +476,11 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 	addKeysetProofs(inactiveKeysetProofs)
 	addKeysetProofs(activeKeysetProofs)
 
-	activeSatKeyset := w.GetActiveSatKeyset()
+	var activeSatKeyset crypto.Keyset
+	for _, k := range selectedMint.activeKeysets {
+		activeSatKeyset = k
+		break
+	}
 	// blinded messages for send amount
 	send, secrets, rs, err := w.CreateBlindedMessages(amount, activeSatKeyset)
 	if err != nil {
@@ -474,7 +516,7 @@ func (w *Wallet) getProofsForAmount(amount uint64) (cashu.Proofs, error) {
 	}
 
 	swapRequest := nut03.PostSwapRequest{Inputs: selectedProofs, Outputs: blindedMessages}
-	swapResponse, err := PostSwap(w.currentMint.mintURL, swapRequest)
+	swapResponse, err := PostSwap(selectedMint.mintURL, swapRequest)
 	if err != nil {
 		return nil, err
 	}

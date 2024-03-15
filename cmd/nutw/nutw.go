@@ -119,15 +119,17 @@ var balanceCmd = &cli.Command{
 
 func getBalance(ctx *cli.Context) error {
 	balanceByMints := nutw.GetBalanceByMints()
-	fmt.Printf("balance in %v mints\n", len(balanceByMints))
+	fmt.Printf("Balance by mint:\n\n")
 	totalBalance := uint64(0)
 
+	i := 1
 	for mint, balance := range balanceByMints {
-		fmt.Printf("mint: %v ---- balance: %v\n", mint, balance)
+		fmt.Printf("Mint %v: %v ---- balance: %v\n", i, mint, balance)
 		totalBalance += balance
+		i++
 	}
 
-	fmt.Printf("total balance: %v\n", totalBalance)
+	fmt.Printf("\nTotal balance: %v\n", totalBalance)
 	return nil
 }
 
@@ -154,7 +156,7 @@ func receive(ctx *cli.Context) error {
 	mintURL := token.Token[0].Mint
 	_, ok := trustedMints[mintURL]
 	if !ok {
-		fmt.Printf("token received comes from an untrusted mint: %v. Do you wish to trust this mint? (y/n)", mintURL)
+		fmt.Printf("Token received comes from an untrusted mint: %v. Do you wish to trust this mint? (y/n) ", mintURL)
 
 		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
@@ -164,23 +166,22 @@ func receive(ctx *cli.Context) error {
 
 		input = strings.ToLower(strings.TrimSpace(input))
 		if input == "y" || input == "yes" {
-			fmt.Println("token from unknown mint will be added")
+			fmt.Println("Token from unknown mint will be added")
 			swap = false
 		} else {
-			fmt.Println("token will be swapped to your default trusted mint")
+			fmt.Println("Token will be swapped to your default trusted mint")
 		}
 	} else {
 		// if it comes from an already trusted mint, do not swap 
 		swap = false
 	}
 
-
-	err = nutw.Receive(*token, swap)
+	receivedAmount, err := nutw.Receive(*token, swap)
 	if err != nil {
 		printErr(err)
 	}
 
-	fmt.Printf("%v sats received\n", token.TotalAmount())
+	fmt.Printf("%v sats received\n", receivedAmount)
 	return nil
 }
 
@@ -301,7 +302,9 @@ func send(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	token, err := nutw.Send(sendAmount)
+	selectedMint := promptMintSelection("send")
+
+	token, err := nutw.Send(sendAmount, selectedMint)
 	if err != nil {
 		printErr(err)
 	}
@@ -322,14 +325,51 @@ func pay(ctx *cli.Context) error {
 		printErr(errors.New("specify a lightning invoice to pay"))
 	}
 
+	selectedMint := promptMintSelection("pay invoice")
+
 	invoice := args.First()
-	meltResponse, err := nutw.Melt(invoice)
+	meltResponse, err := nutw.Melt(invoice, selectedMint)
 	if err != nil {
 		printErr(err)
 	}
 
 	fmt.Printf("invoice paid: %v\n", meltResponse.Paid)
 	return nil
+}
+
+func promptMintSelection(action string) string {
+	balanceByMints := nutw.GetBalanceByMints()
+	mintsLen := len(balanceByMints)
+
+	mintsMap := make(map[int]string)
+	selectedMint := ""
+	if mintsLen > 1 {
+		fmt.Printf("You have balances in %v mints: \n\n", mintsLen)
+
+		i := 1
+		for mint, balance := range balanceByMints {
+			fmt.Printf("Mint %v: %v ---- balance: %v\n", i, mint, balance)
+			mintsMap[i] = mint
+			i++
+		}
+
+		fmt.Printf("\nSelect from which mint (1-%v) you wish to %v: ", mintsLen, action)
+
+		reader := bufio.NewReader(os.Stdin)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal("error reading input, please try again")
+		}
+
+		num, err := strconv.Atoi(input[:len(input)-1])
+		if err != nil {
+			fmt.Println(err)
+			printErr(errors.New("invalid number provided"))
+		}
+		selectedMint = mintsMap[num]
+	}
+	
+	return selectedMint
 }
 
 func printErr(msg error) {
