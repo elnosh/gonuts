@@ -151,33 +151,6 @@ func (db *BoltDB) SaveKeyset(keyset *crypto.Keyset) error {
 	return nil
 }
 
-func (db *BoltDB) GetKeysetsByMint(mintURL string) ([]crypto.Keyset, error) {
-	keysets := make([]crypto.Keyset, 0)
-
-	if err := db.bolt.View(func(tx *bolt.Tx) error {
-		keysetsb := tx.Bucket([]byte(keysetsBucket))
-		mintBucket := keysetsb.Bucket([]byte(mintURL))
-		if mintBucket == nil {
-			return errors.New("mint does not exist")
-		}
-
-		c := mintBucket.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var keyset crypto.Keyset
-			if err := json.Unmarshal(v, &keyset); err != nil {
-				return err
-			}
-
-			keysets = append(keysets, keyset)
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return keysets, nil
-}
-
 func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 	keysets := make(crypto.KeysetsMap)
 
