@@ -35,7 +35,7 @@ go install github.com/elnosh/gonuts/cmd/nutw@latest
 
 **_Warning_: By default, the wallet will be setup with the mint `https://8333.space:3338`. That is a public test mint for demonstration purposes and could vanish at any moment.**
 
-To setup the wallet with a different mint create a `.env` file at ~/.gonuts/wallet/.env and setup your preferred mint.
+To setup the wallet with a different mint, create a `.env` file at ~/.gonuts/wallet/.env and setup your preferred mint.
 
 ## Using the wallet
 
@@ -104,7 +104,7 @@ nutw pay lnbc100n1pju35fedqqsp52xt3...
 ### Run mint
 
 - `cd cmd/mint`
-- you'll need to setup a lightning regtest environment with something like [Polar](https://lightningpolar.com/) and fill in the values in the .env file
+- you'll need to setup a lightning regtest environment with something like [Polar](https://lightningpolar.com/) and fill in the values in the `.env` file
 
 - `go build -v -o mint mint.go`
 

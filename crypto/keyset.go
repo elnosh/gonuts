@@ -135,9 +135,14 @@ type KeyPairTemp struct {
 }
 
 func (kp *KeyPair) MarshalJSON() ([]byte, error) {
+	var privKey []byte
+
+	if kp.PrivateKey != nil {
+		privKey = append(privKey, kp.PrivateKey.Serialize()...)
+	} 	
 	res := KeyPairTemp{
-		PrivateKey: kp.PrivateKey.Serialize(),
-		PublicKey:  kp.PublicKey.SerializeCompressed(),
+		PrivateKey: privKey,
+		PublicKey: kp.PublicKey.SerializeCompressed(),
 	}
 	return json.Marshal(res)
 }
