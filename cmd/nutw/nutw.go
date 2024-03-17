@@ -172,7 +172,7 @@ func receive(ctx *cli.Context) error {
 			fmt.Println("Token will be swapped to your default trusted mint")
 		}
 	} else {
-		// if it comes from an already trusted mint, do not swap 
+		// if it comes from an already trusted mint, do not swap
 		swap = false
 	}
 
@@ -253,35 +253,12 @@ func mintTokens(paymentRequest string) error {
 		return errors.New("invoice not found")
 	}
 
-	invoicePaid := nutw.CheckQuotePaid(invoice.Id)
-	if !invoicePaid {
-		return errors.New("invoice has not been paid")
-	}
-
-	activeKeyset := nutw.GetActiveSatKeyset()
-	blindedMessages, secrets, rs, err := nutw.CreateBlindedMessages(invoice.Amount, activeKeyset)
-	if err != nil {
-		return fmt.Errorf("error creating blinded messages: %v", err)
-	}
-
-	blindedSignatures, err := nutw.MintTokens(invoice.Id, blindedMessages)
+	proofs, err := nutw.MintTokens(invoice.Id)
 	if err != nil {
 		return err
 	}
 
-	// unblind the signatures from the promises and build the proofs
-	proofs, err := nutw.ConstructProofs(blindedSignatures, secrets, rs, &activeKeyset)
-	if err != nil {
-		return fmt.Errorf("error constructing proofs: %v", err)
-	}
-
-	// store proofs in db
-	err = nutw.SaveProofs(proofs)
-	if err != nil {
-		return fmt.Errorf("error storing proofs: %v", err)
-	}
-
-	fmt.Println("tokens successfully minted")
+	fmt.Printf("%v sats successfully minted\n", proofs.Amount())
 	return nil
 }
 
@@ -368,7 +345,7 @@ func promptMintSelection(action string) string {
 		}
 		selectedMint = mintsMap[num]
 	}
-	
+
 	return selectedMint
 }
 
