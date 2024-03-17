@@ -197,7 +197,21 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 
 func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
 	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: "sat"}
-	return PostMintQuoteBolt11(w.currentMint.mintURL, mintRequest)
+	mintResponse, err := PostMintQuoteBolt11(w.currentMint.mintURL, mintRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	invoice := lightning.Invoice{Id: mintResponse.Quote,
+		PaymentRequest: mintResponse.Request, Amount: amount,
+		Expiry: mintResponse.Expiry}
+
+	err = w.db.SaveInvoice(invoice)
+	if err != nil {
+		return nil, err
+	}
+
+	return mintResponse, nil
 }
 
 func (w *Wallet) CheckQuotePaid(quoteId string) bool {
@@ -210,7 +224,6 @@ func (w *Wallet) CheckQuotePaid(quoteId string) bool {
 }
 
 func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
-	fmt.Println("using refactored mint tokens")
 	mintQuote, err := GetMintQuoteState(w.currentMint.mintURL, quoteId)
 	if err != nil {
 		return nil, err
@@ -667,10 +680,6 @@ func (w *Wallet) saveProofs(proofs cashu.Proofs) error {
 	}
 	w.proofs = append(w.proofs, proofs...)
 	return nil
-}
-
-func (w *Wallet) SaveInvoice(invoice lightning.Invoice) error {
-	return w.db.SaveInvoice(invoice)
 }
 
 func (w *Wallet) GetInvoice(pr string) *lightning.Invoice {

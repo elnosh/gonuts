@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/joho/godotenv"
 	"github.com/urfave/cli/v2"
@@ -233,16 +232,7 @@ func requestMint(amountStr string) error {
 		return err
 	}
 
-	invoice := lightning.Invoice{Id: mintResponse.Quote,
-		PaymentRequest: mintResponse.Request, Amount: amount,
-		Expiry: mintResponse.Expiry}
-
-	err = nutw.SaveInvoice(invoice)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("invoice: %v\n\n", invoice.PaymentRequest)
+	fmt.Printf("invoice: %v\n\n", mintResponse.Request)
 	fmt.Println("after paying the invoice you can redeem the ecash using the --invoice flag")
 	return nil
 }
