@@ -69,6 +69,22 @@ func PostMintQuoteBolt11(mintURL string, mintQuoteRequest nut04.PostMintQuoteBol
 	return reqMintResponse, nil
 }
 
+func GetMintQuoteState(mintURL, quoteId string) (*nut04.PostMintQuoteBolt11Response, error) {
+	resp, err := http.Get(mintURL + "/v1/mint/quote/bolt11/" + quoteId)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var mintQuoteResponse *nut04.PostMintQuoteBolt11Response
+	err = json.NewDecoder(resp.Body).Decode(&mintQuoteResponse)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return mintQuoteResponse, nil
+}
+
 func PostMintBolt11(mintURL string, mintRequest nut04.PostMintBolt11Request) (
 	*nut04.PostMintBolt11Response, error) {
 	requestBody, err := json.Marshal(mintRequest)
