@@ -1,0 +1,13 @@
+syntax = "proto3";
+option go_package = "github.com/elnosh/gonuts/cashurpc";
+
+message Proof {
+  uint64 amount = 1;
+  string id = 2;
+  string secret = 3;
+  string C = 4;
+}
+
+message Proofs {
+  repeated Proof proofs = 1;
+}

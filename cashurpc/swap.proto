@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+import "proofs.proto";
+import "message.proto";
+import "signature.proto";
+option go_package = "github.com/elnosh/gonuts/cashurpc";
+
+message SwapResponse {
+  repeated BlindedSignature signatures = 1;
+}
+
+message SwapRequest {
+  Proofs inputs = 1;
+  repeated BlindedMessage outputs = 2;
+}

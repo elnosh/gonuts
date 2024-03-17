@@ -5,32 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/elnosh/gonuts/cashurpc"
 )
 
-type BlindedMessage struct {
-	Amount uint64 `json:"amount"`
-	B_     string `json:"B_"`
-	Id     string `json:"id"`
-}
+type BlindedMessages []*cashurpc.BlindedMessage
 
-type BlindedMessages []BlindedMessage
-
-type BlindedSignature struct {
-	Amount uint64 `json:"amount"`
-	C_     string `json:"C_"`
-	Id     string `json:"id"`
-}
-
-type BlindedSignatures []BlindedSignature
-
-type Proof struct {
-	Amount uint64 `json:"amount"`
-	Id     string `json:"id"`
-	Secret string `json:"secret"`
-	C      string `json:"C"`
-}
-
-type Proofs []Proof
+type BlindedSignatures []*cashurpc.BlindedSignature
 
 type Token struct {
 	Token []TokenProof `json:"token"`
@@ -39,11 +19,11 @@ type Token struct {
 }
 
 type TokenProof struct {
-	Mint   string `json:"mint"`
-	Proofs Proofs `json:"proofs"`
+	Mint   string           `json:"mint"`
+	Proofs *cashurpc.Proofs `json:"proofs"`
 }
 
-func NewToken(proofs Proofs, mint string, unit string) Token {
+func NewToken(proofs *cashurpc.Proofs, mint string, unit string) Token {
 	tokenProof := TokenProof{Mint: mint, Proofs: proofs}
 	return Token{Token: []TokenProof{tokenProof}, Unit: unit}
 }
@@ -87,7 +67,7 @@ func (t *Token) ToString() string {
 func (t *Token) TotalAmount() uint64 {
 	var totalAmount uint64 = 0
 	for _, tokenProof := range t.Token {
-		for _, proof := range tokenProof.Proofs {
+		for _, proof := range tokenProof.Proofs.Proofs {
 			totalAmount += proof.Amount
 		}
 	}

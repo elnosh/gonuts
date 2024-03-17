@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/elnosh/gonuts/cashurpc"
 	"log"
 	"net/url"
 	"os"
@@ -287,7 +288,8 @@ func pay(ctx *cli.Context) error {
 	}
 
 	invoice := args.First()
-	meltResponse, err := nutw.Melt(invoice)
+	meltRequest := &cashurpc.PostMeltQuoteRequest{Request: invoice, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
+	meltResponse, err := nutw.Melt(meltRequest)
 	if err != nil {
 		printErr(err)
 	}

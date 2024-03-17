@@ -7,7 +7,7 @@ MINT_DERIVATION_PATH="0/0/0"
 MINT_NAME="a cashu mint"
 MINT_DESCRIPTION="short mint description"
 MINT_DESCRIPTION_LONG="a long description of the mint"
-MINT_CONTACT_INFO=[["email", "contact@me.com"], ["nostr", "npub..."]]
+MINT_CONTACT_INFO=[{"type":2, "info":"npub...."},{"type":0, "info":"contact@me.com"}]
 MINT_MOTD="message to the users of the mint"
 
 # Lightning Backend

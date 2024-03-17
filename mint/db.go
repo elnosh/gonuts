@@ -3,9 +3,9 @@ package mint
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/elnosh/gonuts/cashurpc"
 	"path/filepath"
 
-	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -110,8 +110,8 @@ type dbproof struct {
 	C      string `json:"C"`
 }
 
-func (db *BoltDB) GetProof(secret string) *cashu.Proof {
-	var proof *cashu.Proof
+func (db *BoltDB) GetProof(secret string) *cashurpc.Proof {
+	var proof *cashurpc.Proof
 	Y := crypto.HashToCurve([]byte(secret))
 
 	db.bolt.View(func(tx *bolt.Tx) error {
@@ -126,7 +126,7 @@ func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 	return proof
 }
 
-func (b *BoltDB) SaveProof(proof cashu.Proof) error {
+func (b *BoltDB) SaveProof(proof *cashurpc.Proof) error {
 	Y := crypto.HashToCurve([]byte(proof.Secret))
 
 	dbproof := dbproof{

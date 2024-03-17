@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/elnosh/gonuts/cashurpc"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,8 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/cashu/nuts/nut04"
-	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 )
@@ -33,7 +32,7 @@ type Mint struct {
 	Keysets map[string]crypto.Keyset
 
 	LightningClient lightning.Client
-	MintInfo        *nut06.MintInfo
+	MintInfo        *cashurpc.InfoResponse
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -91,42 +90,42 @@ func (m *Mint) KeysetList() []string {
 	return keysetIds
 }
 
-func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut04.PostMintQuoteBolt11Response, error) {
+func (m *Mint) RequestMintQuote(method string, amount uint64, unit cashurpc.UnitType) (*cashurpc.PostMintQuoteResponse, error) {
 	if method != "bolt11" {
-		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
+		return nil, cashu.PaymentMethodNotSupportedErr
 	}
-	if unit != "sat" {
-		return nut04.PostMintQuoteBolt11Response{}, cashu.UnitNotSupportedErr
+	if unit.String() != "sat" {
+		return nil, cashu.UnitNotSupportedErr
 	}
 
 	invoice, err := m.requestInvoice(amount)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, err
+		return nil, err
 	}
 
 	err = m.db.SaveInvoice(*invoice)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, err
+		return nil, err
 	}
 
-	reqMintQuoteResponse := nut04.PostMintQuoteBolt11Response{
+	reqMintQuoteResponse := cashurpc.PostMintQuoteResponse{
 		Quote:   invoice.Id,
 		Request: invoice.PaymentRequest,
 		Paid:    invoice.Settled,
 		Expiry:  invoice.Expiry,
 	}
 
-	return reqMintQuoteResponse, nil
+	return &reqMintQuoteResponse, nil
 }
 
-func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBolt11Response, error) {
+func (m *Mint) GetMintQuoteState(method, quoteId string) (*cashurpc.PostMintQuoteResponse, error) {
 	if method != "bolt11" {
-		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
+		return nil, cashu.PaymentMethodNotSupportedErr
 	}
 
 	invoice := m.db.GetInvoice(quoteId)
 	if invoice == nil {
-		return nut04.PostMintQuoteBolt11Response{}, cashu.InvoiceNotExistErr
+		return nil, cashu.InvoiceNotExistErr
 	}
 
 	settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
@@ -135,7 +134,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 		m.db.SaveInvoice(*invoice)
 	}
 
-	quoteState := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
+	quoteState := &cashurpc.PostMintQuoteResponse{Quote: invoice.Id,
 		Request: invoice.PaymentRequest, Paid: settled, Expiry: invoice.Expiry}
 	return quoteState, nil
 }
@@ -184,11 +183,11 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 	return blindedSignatures, nil
 }
 
-func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
+func (m *Mint) Swap(proofs *cashurpc.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
 	var proofsAmount uint64 = 0
 	var blindedMessagesAmount uint64 = 0
 
-	for _, proof := range proofs {
+	for _, proof := range proofs.Proofs {
 		proofsAmount += proof.Amount
 	}
 
@@ -212,7 +211,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		return nil, cashuErr
 	}
 
-	for _, proof := range proofs {
+	for _, proof := range proofs.Proofs {
 		m.db.SaveProof(proof)
 	}
 
@@ -222,18 +221,14 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 type MeltQuote struct {
 	Id             string
 	InvoiceRequest string
-	Amount         uint64
-	FeeReserve     uint64
-	Paid           bool
-	Expiry         int64
-	Preimage       string
+	*cashurpc.PostMeltQuoteResponse
 }
 
-func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
+func (m *Mint) MeltRequest(method, request string, unit cashurpc.UnitType) (MeltQuote, error) {
 	if method != "bolt11" {
 		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
-	if unit != "sat" {
+	if unit.String() != "sat" {
 		return MeltQuote{}, cashu.UnitNotSupportedErr
 	}
 
@@ -252,12 +247,14 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 	expiry := time.Now().Add(time.Minute * QuoteExpiryMins).Unix()
 
 	meltQuote := MeltQuote{
-		Id:             hex.EncodeToString(hash[:]),
+		Id: hex.EncodeToString(hash[:]),
+		PostMeltQuoteResponse: &cashurpc.PostMeltQuoteResponse{
+			Amount:     amount,
+			FeeReserve: fee,
+			Paid:       false,
+			Expiry:     expiry,
+		},
 		InvoiceRequest: request,
-		Amount:         amount,
-		FeeReserve:     fee,
-		Paid:           false,
-		Expiry:         expiry,
 	}
 	m.db.SaveMeltQuote(meltQuote)
 
@@ -277,46 +274,48 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 	return *meltQuote, nil
 }
 
-func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuote, error) {
+func (m *Mint) MeltTokens(method, quoteId string, proofs *cashurpc.Proofs) (*cashurpc.PostMeltResponse, error) {
 	if method != "bolt11" {
-		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
+		return nil, cashu.PaymentMethodNotSupportedErr
 	}
 
 	meltQuote := m.db.GetMeltQuote(quoteId)
 	if meltQuote == nil {
-		return MeltQuote{}, cashu.MeltQuoteNotExistErr
+		return nil, cashu.MeltQuoteNotExistErr
 	}
 
 	valid, err := m.VerifyProofs(proofs)
 	if err != nil || !valid {
-		return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+		return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 	}
 
 	var inputsAmount uint64 = 0
-	for _, input := range proofs {
+	for _, input := range proofs.Proofs {
 		inputsAmount += input.Amount
 	}
 
 	if inputsAmount < meltQuote.Amount+meltQuote.FeeReserve {
-		return MeltQuote{}, cashu.InsufficientProofsAmount
+		return nil, cashu.InsufficientProofsAmount
 	}
 
 	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest)
 	if err != nil {
-		return *meltQuote, nil
+		return nil, err
 	}
 	meltQuote.Paid = true
-	meltQuote.Preimage = preimage
 
-	for _, proof := range proofs {
+	for _, proof := range proofs.Proofs {
 		m.db.SaveProof(proof)
 	}
 
-	return *meltQuote, nil
+	return &cashurpc.PostMeltResponse{
+		PaymentPreimage: preimage,
+		Paid:            meltQuote.Paid,
+	}, nil
 }
 
-func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
-	for _, proof := range proofs {
+func (m *Mint) VerifyProofs(proofs *cashurpc.Proofs) (bool, error) {
+	for _, proof := range proofs.Proofs {
 		dbProof := m.db.GetProof(proof.Secret)
 		if dbProof != nil {
 			return false, cashu.ProofAlreadyUsedErr
@@ -378,7 +377,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 		C_ := crypto.SignBlindedMessage(B_, k)
 		C_hex := hex.EncodeToString(C_.SerializeCompressed())
 
-		blindedSignature := cashu.BlindedSignature{Amount: msg.Amount,
+		blindedSignature := &cashurpc.BlindedSignature{Amount: msg.Amount,
 			C_: C_hex, Id: keyset.Id}
 
 		blindedSignatures[i] = blindedSignature

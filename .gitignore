@@ -1,0 +1,7 @@
+log/*
+!log/*.go
+.idea
+data/*
+nutw
+.env
+

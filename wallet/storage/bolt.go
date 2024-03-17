@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashurpc"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -59,15 +59,15 @@ func (db *BoltDB) initWalletBuckets() error {
 }
 
 // it will return list of all proofs with ids in the list
-func (db *BoltDB) GetProofs(ids []string) cashu.Proofs {
-	proofs := cashu.Proofs{}
+func (db *BoltDB) GetProofs(ids []string) cashurpc.Proofs {
+	proofs := cashurpc.Proofs{}
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var proof cashu.Proof
+			var proof *cashurpc.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
 				return fmt.Errorf("error getting proofs: %v", err)
 			}
@@ -75,19 +75,19 @@ func (db *BoltDB) GetProofs(ids []string) cashu.Proofs {
 			// only append proofs with keyset ids that are from curent mint
 			for _, id := range ids {
 				if proof.Id == id {
-					proofs = append(proofs, proof)
+					proofs.Proofs = append(proofs.Proofs, proof)
 				}
 			}
 		}
 		return nil
 	}); err != nil {
-		return cashu.Proofs{}
+		return cashurpc.Proofs{}
 	}
 
 	return proofs
 }
 
-func (db *BoltDB) SaveProof(proof cashu.Proof) error {
+func (db *BoltDB) SaveProof(proof *cashurpc.Proof) error {
 	jsonProof, err := json.Marshal(proof)
 	if err != nil {
 		return fmt.Errorf("invalid proof format: %v", err)

@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package cashu.v1;
+
+import "keys.proto";
+import "swap.proto";
+import "mint.proto";
+import "melt.proto";
+import "state.proto";
+import "info.proto";
+import "google/api/annotations.proto";
+
+option go_package = "github.com/elnosh/gonuts/cashurpc";
+
+
+service Mint {
+  // Starting https://github.com/cashubtc/nuts/blob/main/01.md
+  rpc  Keys(KeysRequest) returns (KeysResponse){
+    option (google.api.http) = {
+      get: "/v1/keys"
+    };
+  };
+  // Starting https://github.com/cashubtc/nuts/blob/main/02.md
+  rpc  KeySets(KeysRequest) returns (KeysResponse){
+    option (google.api.http) = {
+      get: "/v1/keysets"
+    };
+  };
+  // Starting https://github.com/cashubtc/nuts/blob/main/03.md
+  rpc  Swap(SwapRequest) returns (SwapResponse){
+    option (google.api.http) = {
+      post: "/v1/swap"
+    };
+  };
+  // Starting https://github.com/cashubtc/nuts/blob/main/05.md
+  rpc  MintQuote(PostMintQuoteRequest) returns (PostMintQuoteResponse){
+    option (google.api.http) = {
+      post: "/v1/mint/quote/{method}"
+    };
+  };
+  rpc  MintQuoteState(GetQuoteStateRequest) returns (PostMintQuoteResponse){
+    option (google.api.http) = {
+      post: "/v1/mint/quote/{method}/{quote_id}"
+    };
+  };
+  rpc  Mint(PostMintRequest) returns (PostMintResponse){
+    option (google.api.http) = {
+      post: "/v1/mint/{method}"
+    };
+  };
+  // Starting https://github.com/cashubtc/nuts/blob/main/05.md
+  rpc  MeltQuote(PostMeltQuoteRequest) returns (PostMeltQuoteResponse){
+    option (google.api.http) = {
+      post: "/v1/melt/quote/{method}"
+    };
+  };
+  rpc  MeltQuoteState(GetQuoteStateRequest) returns (PostMeltQuoteResponse){
+    option (google.api.http) = {
+      post: "/v1/melt/quote/{method}/{quote_id}"
+    };
+  };
+  rpc  Melt(PostMeltRequest) returns (PostMeltResponse){
+    option (google.api.http) = {
+      post: "/v1/melt/{method}"
+    };
+  };
+  // Starting https://github.com/cashubtc/nuts/blob/main/06.md
+  rpc  Info(InfoRequest) returns (InfoResponse){
+    option (google.api.http) = {
+      post: "/v1/info"
+    };
+  };
+  // Starting https://github.com/cashubtc/nuts/blob/main/07.md
+  rpc  CheckState(PostCheckStateRequest) returns (PostCheckStateResponse){
+    option (google.api.http) = {
+      post: "/v1/checkstate"
+    };
+  };
+}

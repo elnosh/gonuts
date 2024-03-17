@@ -1,0 +1,703 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "cashu.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Mint"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/checkstate": {
+      "post": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/07.md",
+        "operationId": "Mint_CheckState",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostCheckStateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "secrets",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/info": {
+      "post": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/06.md",
+        "operationId": "Mint_Info",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/InfoResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/keys": {
+      "get": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/01.md",
+        "operationId": "Mint_Keys",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeysResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/keysets": {
+      "get": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/02.md",
+        "operationId": "Mint_KeySets",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeysResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/melt/quote/{method}": {
+      "post": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/05.md",
+        "operationId": "Mint_MeltQuote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMeltQuoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "request",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "unit",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNIT_TYPE_UNSPECIFIED",
+              "UNIT_TYPE_SAT"
+            ],
+            "default": "UNIT_TYPE_UNSPECIFIED"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/melt/quote/{method}/{quote_id}": {
+      "post": {
+        "operationId": "Mint_MeltQuoteState",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMeltQuoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "quote_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/melt/{method}": {
+      "post": {
+        "operationId": "Mint_Melt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMeltResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "quote",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/mint/quote/{method}": {
+      "post": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/05.md",
+        "operationId": "Mint_MintQuote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMintQuoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "amount",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "unit",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNIT_TYPE_UNSPECIFIED",
+              "UNIT_TYPE_SAT"
+            ],
+            "default": "UNIT_TYPE_UNSPECIFIED"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/mint/quote/{method}/{quote_id}": {
+      "post": {
+        "operationId": "Mint_MintQuoteState",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMintQuoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "quote_id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/mint/{method}": {
+      "post": {
+        "operationId": "Mint_Mint",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMintResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "quote",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/swap": {
+      "post": {
+        "summary": "Starting https://github.com/cashubtc/nuts/blob/main/03.md",
+        "operationId": "Mint_Swap",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/SwapResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Mint"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "BlindedMessage": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "B_": {
+          "type": "string"
+        }
+      }
+    },
+    "BlindedSignature": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "C_": {
+          "type": "string"
+        }
+      }
+    },
+    "Contact": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/ContactType"
+        },
+        "info": {
+          "type": "string"
+        }
+      }
+    },
+    "ContactType": {
+      "type": "string",
+      "enum": [
+        "EMAIL",
+        "TWITTER",
+        "NOSTR"
+      ],
+      "default": "EMAIL"
+    },
+    "InfoResponse": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "pubkey": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "description_long": {
+          "type": "string"
+        },
+        "contact": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/Contact"
+          }
+        },
+        "motd": {
+          "type": "string"
+        },
+        "nuts": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/NutDetails"
+          }
+        }
+      }
+    },
+    "KeysResponse": {
+      "type": "object",
+      "properties": {
+        "keysets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/Keyset"
+          }
+        }
+      }
+    },
+    "Keyset": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "MethodType": {
+      "type": "string",
+      "enum": [
+        "BOLT11",
+        "SAT"
+      ],
+      "default": "BOLT11",
+      "title": "- SAT: add more if needed"
+    },
+    "NutDetails": {
+      "type": "object",
+      "properties": {
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MethodType"
+          }
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "supported": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PostCheckStateResponse": {
+      "type": "object",
+      "properties": {
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/States"
+          }
+        }
+      }
+    },
+    "PostMeltQuoteResponse": {
+      "type": "object",
+      "properties": {
+        "quote": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "fee_reserve": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "paid": {
+          "type": "boolean"
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "PostMeltResponse": {
+      "type": "object",
+      "properties": {
+        "paid": {
+          "type": "boolean"
+        },
+        "payment_preimage": {
+          "type": "string",
+          "description": "This field is optional and can be null."
+        }
+      }
+    },
+    "PostMintQuoteResponse": {
+      "type": "object",
+      "properties": {
+        "quote": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "paid": {
+          "type": "boolean"
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "PostMintResponse": {
+      "type": "object",
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/BlindedSignature"
+          }
+        }
+      }
+    },
+    "Proof": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        },
+        "C": {
+          "type": "string"
+        }
+      }
+    },
+    "Proofs": {
+      "type": "object",
+      "properties": {
+        "proofs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/Proof"
+          }
+        }
+      }
+    },
+    "States": {
+      "type": "object",
+      "properties": {
+        "secret": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "witness": {
+          "type": "string"
+        }
+      }
+    },
+    "SwapResponse": {
+      "type": "object",
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/BlindedSignature"
+          }
+        }
+      }
+    },
+    "UnitType": {
+      "type": "string",
+      "enum": [
+        "UNIT_TYPE_UNSPECIFIED",
+        "UNIT_TYPE_SAT"
+      ],
+      "default": "UNIT_TYPE_UNSPECIFIED"
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

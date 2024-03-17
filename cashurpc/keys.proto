@@ -1,0 +1,18 @@
+syntax = "proto3";
+import "tagger/tagger.proto";
+option go_package = "github.com/elnosh/gonuts/cashurpc";
+
+
+message KeysResponse{
+  repeated Keyset keysets = 1 [(tagger.tags) = "json:\"keysets\""];
+}
+message KeysRequest{
+
+}
+
+message Keyset {
+  string id = 1;
+  string unit = 2;
+  bool active = 3;
+  map<uint64, string> keys = 4;
+}

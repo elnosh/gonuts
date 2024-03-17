@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+import "message.proto";
+import "signature.proto";
+option go_package = "github.com/elnosh/gonuts/cashurpc";
+
+enum UnitType {
+  UNIT_TYPE_UNSPECIFIED = 0;
+  UNIT_TYPE_SAT = 1;
+}
+
+
+message PostMintQuoteRequest {
+  string method =1;
+  uint64 amount = 2;
+  UnitType unit = 3;
+}
+
+message PostMintQuoteResponse {
+  string quote = 1;
+  string request = 2;
+  bool paid = 3;
+  int64 expiry = 4;
+}
+
+
+message PostMintRequest {
+  string method =1;
+  string quote = 2;
+  repeated BlindedMessage outputs = 3;
+}
+
+
+message PostMintResponse {
+  repeated BlindedSignature signatures = 1;
+}
