@@ -298,16 +298,7 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 				return 0, err
 			}
 
-			invoice = lightning.Invoice{Id: mintResponse.Quote,
-				PaymentRequest: mintResponse.Request, Amount: uint64(amount),
-				Expiry: mintResponse.Expiry}
-
-			err = w.db.SaveInvoice(invoice)
-			if err != nil {
-				return 0, err
-			}
-
-			meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: "sat"}
+			meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
 			meltQuoteResponse, err = PostMeltQuoteBolt11(tokenMintURL, meltRequest)
 			if err != nil {
 				return 0, err
