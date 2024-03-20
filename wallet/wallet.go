@@ -658,6 +658,10 @@ func (w *Wallet) getWalletMints() map[string]walletMint {
 	return walletMints
 }
 
+func (w *Wallet) CurrentMint() string {
+	return w.currentMint.mintURL
+}
+
 func (w *Wallet) TrustedMints() map[string]walletMint {
 	return w.mints
 }

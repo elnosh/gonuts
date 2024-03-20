@@ -309,7 +309,7 @@ func promptMintSelection(action string) string {
 	mintsLen := len(balanceByMints)
 
 	mintsMap := make(map[int]string)
-	selectedMint := ""
+	selectedMint := nutw.CurrentMint()
 	if mintsLen > 1 {
 		fmt.Printf("You have balances in %v mints: \n\n", mintsLen)
 
@@ -330,7 +330,6 @@ func promptMintSelection(action string) string {
 
 		num, err := strconv.Atoi(input[:len(input)-1])
 		if err != nil {
-			fmt.Println(err)
 			printErr(errors.New("invalid number provided"))
 		}
 		selectedMint = mintsMap[num]
