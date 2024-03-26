@@ -182,11 +182,11 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 
 		for _, keyset := range mint.activeKeysets {
 			proofs := w.db.GetProofsByKeysetId(keyset.Id)
-			mintBalance += proofs.Amount() 
+			mintBalance += proofs.Amount()
 		}
 		for _, keyset := range mint.inactiveKeysets {
 			proofs := w.db.GetProofsByKeysetId(keyset.Id)
-			mintBalance += proofs.Amount() 
+			mintBalance += proofs.Amount()
 		}
 
 		mintsBalances[mint.mintURL] = mintBalance
@@ -277,58 +277,20 @@ func (w *Wallet) Send(amount uint64, mintURL string) (*cashu.Token, error) {
 // Receives Cashu token. If swap is true, it will swap the funds to the configured default mint.
 // If false, it will add the proofs from the trusted mint.
 func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
-	proofsToSwap := make(cashu.Proofs, 0)
-
-	for _, tokenProof := range token.Token {
-		proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
-	}
-
-	tokenMintURL := token.Token[0].Mint
-	tokenAmount := token.TotalAmount()
-	var invoice lightning.Invoice
-
 	if swap {
-		invoicePct := 0.99
-		amount := float64(tokenAmount) * invoicePct
-		var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
-
-		for {
-			mintResponse, err := w.RequestMint(uint64(amount))
-			if err != nil {
-				return 0, err
-			}
-
-			meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
-			meltQuoteResponse, err = PostMeltQuoteBolt11(tokenMintURL, meltRequest)
-			if err != nil {
-				return 0, err
-			}
-
-			if meltQuoteResponse.Amount+meltQuoteResponse.FeeReserve > tokenAmount {
-				invoicePct -= 0.01
-				amount *= invoicePct
-			} else {
-				break
-			}
-		}
-
-		meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofsToSwap}
-		meltBolt11Response, err := PostMeltBolt11(tokenMintURL, meltBolt11Request)
+		trustedMintProofs, err := w.swapToTrusted(token)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("error swapping token to trusted mint: %v", err)
 		}
-
-		if meltBolt11Response.Paid {
-			proofs, err := w.MintTokens(invoice.Id)
-			if err != nil {
-				return 0, err
-			}
-
-			return proofs.Amount(), nil
-		} else {
-			return 0, errors.New("mint could not pay lightning invoice")
-		}
+		return trustedMintProofs.Amount(), nil
 	} else {
+		proofsToSwap := make(cashu.Proofs, 0)
+		for _, tokenProof := range token.Token {
+			proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
+		}
+
+		tokenMintURL := token.Token[0].Mint
+
 		mint, err := w.addMint(tokenMintURL)
 		if err != nil {
 			return 0, err
@@ -362,8 +324,56 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 	}
 }
 
-func (w *Wallet) swapToTrusted() {
+func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
+	invoicePct := 0.99
+	tokenAmount := token.TotalAmount()
+	tokenMintURL := token.Token[0].Mint
+	amount := float64(tokenAmount) * invoicePct
 
+	proofsToSwap := make(cashu.Proofs, 0)
+	for _, tokenProof := range token.Token {
+		proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
+	}
+
+	var mintResponse *nut04.PostMintQuoteBolt11Response
+	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
+	var err error
+
+	for {
+		mintResponse, err = w.RequestMint(uint64(amount))
+		if err != nil {
+			return nil, fmt.Errorf("error requesting mint: %v", err)
+		}
+
+		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
+		meltQuoteResponse, err = PostMeltQuoteBolt11(tokenMintURL, meltRequest)
+		if err != nil {
+			return nil, fmt.Errorf("error with melt request: %v", err)
+		}
+
+		if meltQuoteResponse.Amount+meltQuoteResponse.FeeReserve > tokenAmount {
+			invoicePct -= 0.01
+			amount *= invoicePct
+		} else {
+			break
+		}
+	}
+
+	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofsToSwap}
+	meltBolt11Response, err := PostMeltBolt11(tokenMintURL, meltBolt11Request)
+	if err != nil {
+		return nil, fmt.Errorf("error melting token: %v", err)
+	}
+
+	if meltBolt11Response.Paid {
+		proofs, err := w.MintTokens(mintResponse.Quote)
+		if err != nil {
+			return nil, fmt.Errorf("error minting tokens: %v", err)
+		}
+		return proofs, nil
+	} else {
+		return nil, errors.New("mint could not pay lightning invoice")
+	}
 }
 
 func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Response, error) {
