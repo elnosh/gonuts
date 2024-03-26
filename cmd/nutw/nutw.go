@@ -123,12 +123,12 @@ func getBalance(ctx *cli.Context) error {
 
 	i := 1
 	for mint, balance := range balanceByMints {
-		fmt.Printf("Mint %v: %v ---- balance: %v\n", i, mint, balance)
+		fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i, mint, balance)
 		totalBalance += balance
 		i++
 	}
 
-	fmt.Printf("\nTotal balance: %v\n", totalBalance)
+	fmt.Printf("\nTotal balance: %v sats\n", totalBalance)
 	return nil
 }
 
@@ -315,7 +315,7 @@ func promptMintSelection(action string) string {
 
 		i := 1
 		for mint, balance := range balanceByMints {
-			fmt.Printf("Mint %v: %v ---- balance: %v\n", i, mint, balance)
+			fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i, mint, balance)
 			mintsMap[i] = mint
 			i++
 		}
