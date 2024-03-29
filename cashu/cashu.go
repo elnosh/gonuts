@@ -12,6 +12,14 @@ type BlindedMessages []*cashurpc.BlindedMessage
 
 type BlindedSignatures []*cashurpc.BlindedSignature
 
+func (proofs Proofs) Amount() uint64 {
+	var totalAmount uint64 = 0
+	for _, proof := range proofs {
+		totalAmount += proof.Amount
+	}
+	return totalAmount
+}
+
 type Token struct {
 	Token []TokenProof `json:"token"`
 	Unit  string       `json:"unit"`

@@ -58,8 +58,28 @@ func (db *BoltDB) initWalletBuckets() error {
 	})
 }
 
-// it will return list of all proofs with ids in the list
-func (db *BoltDB) GetProofs(ids []string) cashurpc.Proofs {
+// return all proofs from db
+func (db *BoltDB) GetProofs() cashurpc.Proofs {
+	proofs := cashurpc.Proofs{}
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
+
+		c := proofsb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var proof cashurpc.Proof
+			if err := json.Unmarshal(v, &proof); err != nil {
+				proofs = cashurpc.Proofs{}
+				return nil
+			}
+			proofs = append(proofs, proof)
+		}
+		return nil
+	})
+	return proofs
+}
+
+func (db *BoltDB) GetProofsByKeysetId(id string) cashurpc.Proofs {
 	proofs := cashurpc.Proofs{}
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
@@ -72,11 +92,8 @@ func (db *BoltDB) GetProofs(ids []string) cashurpc.Proofs {
 				return fmt.Errorf("error getting proofs: %v", err)
 			}
 
-			// only append proofs with keyset ids that are from curent mint
-			for _, id := range ids {
-				if proof.Id == id {
-					proofs.Proofs = append(proofs.Proofs, proof)
-				}
+			if proof.Id == id {
+				proofs = append(proofs, proof)
 			}
 		}
 		return nil
@@ -115,7 +132,7 @@ func (db *BoltDB) DeleteProof(secret string) error {
 	})
 }
 
-func (db *BoltDB) SaveKeyset(keyset crypto.Keyset) error {
+func (db *BoltDB) SaveKeyset(keyset *crypto.Keyset) error {
 	jsonKeyset, err := json.Marshal(keyset)
 	if err != nil {
 		return fmt.Errorf("invalid keyset format: %v", err)
@@ -174,8 +191,7 @@ func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
 		key := []byte(invoice.PaymentRequest)
-		err := invoicesb.Put(key, jsonbytes)
-		return err
+		return invoicesb.Put(key, jsonbytes)
 	}); err != nil {
 		return fmt.Errorf("error saving invoice: %v", err)
 	}
