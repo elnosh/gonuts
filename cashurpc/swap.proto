@@ -10,6 +10,6 @@ message SwapResponse {
 }
 
 message SwapRequest {
-  Proofs inputs = 1;
+  repeated Proof inputs = 1;
   repeated BlindedMessage outputs = 2;
 }

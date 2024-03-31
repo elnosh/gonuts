@@ -8,8 +8,8 @@ import (
 
 type DB interface {
 	SaveProof(*cashurpc.Proof) error
-	GetProofsByKeysetId(string) *cashurpc.Proofs
-	GetProofs() *cashurpc.Proofs
+	GetProofsByKeysetId(string) []*cashurpc.Proof
+	GetProofs() []*cashurpc.Proof
 	DeleteProof(string) error
 	SaveKeyset(*crypto.Keyset) error
 	GetKeysets() crypto.KeysetsMap

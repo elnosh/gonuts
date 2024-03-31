@@ -25,7 +25,7 @@ type Wallet struct {
 	// array of mints that have been trusted
 	mints map[string]walletMint
 
-	proofs           *cashurpc.Proofs
+	proofs           []*cashurpc.Proof
 	domainSeparation bool
 }
 
@@ -180,7 +180,7 @@ func (w *Wallet) CheckQuotePaid(ctx context.Context, quoteId string) bool {
 	return mintQuote.Paid
 }
 
-func (w *Wallet) MintTokens(ctx context.Context, quoteId string) (*cashurpc.Proofs, error) {
+func (w *Wallet) MintTokens(ctx context.Context, quoteId string) ([]*cashurpc.Proof, error) {
 	mintQuote, err := GetMintQuoteState(ctx, w.currentMint.mintURL, quoteId)
 	if err != nil {
 		return nil, err
@@ -241,12 +241,12 @@ func (w *Wallet) Receive(ctx context.Context, token *cashurpc.TokenV3, swap bool
 		}
 		return cashu.Amount(trustedMintProofs), nil
 	} else {
-		proofsToSwap := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, 0)}
+		proofsToSwap := make([]*cashurpc.Proof, 0)
 		for _, tokenProof := range token.Token {
-			proofsToSwap.Proofs = append(proofsToSwap.Proofs, tokenProof.Proofs.Proofs...)
+			proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
 		}
 
-		tokenMintURL := token.Token[0].Mint
+		tokenMintURL := "localhost:3339"
 
 		mint, err := w.addMint(ctx, tokenMintURL)
 		if err != nil {
@@ -281,15 +281,15 @@ func (w *Wallet) Receive(ctx context.Context, token *cashurpc.TokenV3, swap bool
 	}
 }
 
-func (w *Wallet) swapToTrusted(ctx context.Context, token *cashurpc.TokenV3) (*cashurpc.Proofs, error) {
+func (w *Wallet) swapToTrusted(ctx context.Context, token *cashurpc.TokenV3) ([]*cashurpc.Proof, error) {
 	invoicePct := 0.99
 	tokenAmount := token.TotalAmount()
 	tokenMintURL := token.Token[0].Mint
 	amount := float64(tokenAmount) * invoicePct
 
-	proofsToSwap := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, 0)}
+	proofsToSwap := make([]*cashurpc.Proof, 0)
 	for _, tokenProof := range token.Token {
-		proofsToSwap.Proofs = append(proofsToSwap.Proofs, tokenProof.Proofs.Proofs...)
+		proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
 	}
 
 	var mintResponse *cashurpc.PostMintQuoteBolt11Response
@@ -359,7 +359,7 @@ func (w *Wallet) Melt(ctx context.Context, invoice string, mint string) (*cashur
 
 	// only delete proofs after invoice has been paid
 	if meltBolt11Response.Paid {
-		for _, proof := range proofs.Proofs {
+		for _, proof := range proofs {
 			w.db.DeleteProof(proof.Secret)
 		}
 	}
@@ -367,22 +367,22 @@ func (w *Wallet) Melt(ctx context.Context, invoice string, mint string) (*cashur
 	return meltBolt11Response, nil
 }
 
-func (w *Wallet) GetProofsByMint(mintURL string) (*cashurpc.Proofs, error) {
+func (w *Wallet) GetProofsByMint(mintURL string) ([]*cashurpc.Proof, error) {
 	selectedMint, ok := w.mints[mintURL]
 	if !ok {
 		return nil, errors.New("mint does not exist")
 	}
 
-	proofs := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, 0)}
+	proofs := make([]*cashurpc.Proof, 0)
 	for _, keyset := range selectedMint.activeKeysets {
 		keysetProofs := w.db.GetProofsByKeysetId(keyset.Id)
-		proofs.Proofs = append(proofs.Proofs, keysetProofs.Proofs...)
+		proofs = append(proofs, keysetProofs...)
 	}
 
 	return proofs, nil
 }
 
-func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL string) (*cashurpc.Proofs, error) {
+func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL string) ([]*cashurpc.Proof, error) {
 	selectedMint, ok := w.mints[mintURL]
 	if !ok {
 		return nil, errors.New("mint does not exist")
@@ -395,14 +395,14 @@ func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL 
 	}
 
 	// use proofs from inactive keysets first
-	activeKeysetProofs := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, 0)}
-	inactiveKeysetProofs := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, 0)}
+	activeKeysetProofs := make([]*cashurpc.Proof, 0)
+	inactiveKeysetProofs := make([]*cashurpc.Proof, 0)
 	mintProofs, err := w.GetProofsByMint(mintURL)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, proof := range mintProofs.Proofs {
+	for _, proof := range mintProofs {
 		isInactive := false
 		for _, inactiveKeyset := range selectedMint.activeKeysets {
 			if proof.Id == inactiveKeyset.Id && !inactiveKeyset.Active {
@@ -412,22 +412,22 @@ func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL 
 		}
 
 		if isInactive {
-			inactiveKeysetProofs.Proofs = append(inactiveKeysetProofs.Proofs, proof)
+			inactiveKeysetProofs = append(inactiveKeysetProofs, proof)
 		} else {
-			activeKeysetProofs.Proofs = append(activeKeysetProofs.Proofs, proof)
+			activeKeysetProofs = append(activeKeysetProofs, proof)
 		}
 	}
 
-	selectedProofs := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, 0)}
+	selectedProofs := make([]*cashurpc.Proof, 0)
 	var currentProofsAmount uint64 = 0
-	addKeysetProofs := func(proofs *cashurpc.Proofs) {
+	addKeysetProofs := func(proofs []*cashurpc.Proof) {
 		if currentProofsAmount < amount {
-			for _, proof := range proofs.Proofs {
-				selectedProofs.Proofs = append(selectedProofs.Proofs, proof)
+			for _, proof := range proofs {
+				selectedProofs = append(selectedProofs, proof)
 				currentProofsAmount += proof.Amount
 
 				if currentProofsAmount == amount {
-					for _, proofToDelete := range selectedProofs.Proofs {
+					for _, proofToDelete := range selectedProofs {
 						w.db.DeleteProof(proofToDelete.Secret)
 					}
 				} else if currentProofsAmount > amount {
@@ -486,7 +486,7 @@ func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL 
 		return nil, err
 	}
 
-	for _, proof := range selectedProofs.Proofs {
+	for _, proof := range selectedProofs {
 		w.db.DeleteProof(proof.Secret)
 	}
 
@@ -495,12 +495,12 @@ func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL 
 		return nil, fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
 
-	proofsToSend := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, len(send))}
+	proofsToSend := make([]*cashurpc.Proof, len(send))
 	for i, sendmsg := range send {
-		for j, proof := range proofs.Proofs {
+		for j, proof := range proofs {
 			if sendmsg.Amount == proof.Amount {
-				proofsToSend.Proofs[i] = proof
-				proofs.Proofs = slices.Delete(proofs.Proofs, j, j+1)
+				proofsToSend[i] = proof
+				proofs = slices.Delete(proofs, j, j+1)
 				break
 			}
 		}
@@ -559,13 +559,13 @@ func (w *Wallet) CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cas
 }
 
 func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
-	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (*cashurpc.Proofs, error) {
+	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) ([]*cashurpc.Proof, error) {
 
 	if len(blindedSignatures) != len(secrets) && len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
 	}
 
-	proofs := &cashurpc.Proofs{Proofs: make([]*cashurpc.Proof, len(blindedSignatures))}
+	proofs := make([]*cashurpc.Proof, len(blindedSignatures))
 	for i, blindedSignature := range blindedSignatures {
 		C_bytes, err := hex.DecodeString(blindedSignature.C_)
 		if err != nil {
@@ -583,7 +583,7 @@ func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 		proof := &cashurpc.Proof{Amount: blindedSignature.Amount,
 			Secret: secrets[i], C: Cstr, Id: blindedSignature.Id}
 
-		proofs.Proofs[i] = proof
+		proofs[i] = proof
 	}
 
 	return proofs, nil
@@ -623,14 +623,14 @@ func (w *Wallet) TrustedMints() map[string]walletMint {
 	return w.mints
 }
 
-func (w *Wallet) saveProofs(proofs *cashurpc.Proofs) error {
-	for _, proof := range proofs.Proofs {
+func (w *Wallet) saveProofs(proofs []*cashurpc.Proof) error {
+	for _, proof := range proofs {
 		err := w.db.SaveProof(proof)
 		if err != nil {
 			return err
 		}
 	}
-	w.proofs.Proofs = append(w.proofs.Proofs, proofs.Proofs...)
+	w.proofs = append(w.proofs, proofs...)
 	return nil
 }
 

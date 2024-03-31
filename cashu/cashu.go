@@ -12,15 +12,15 @@ type BlindedMessages []*cashurpc.BlindedMessage
 
 type BlindedSignatures []*cashurpc.BlindedSignature
 
-func Amount(proofs *cashurpc.Proofs) uint64 {
+func Amount(proofs []*cashurpc.Proof) uint64 {
 	var totalAmount uint64 = 0
-	for _, proof := range proofs.Proofs {
+	for _, proof := range proofs {
 		totalAmount += proof.Amount
 	}
 	return totalAmount
 }
 
-func NewToken(proofs *cashurpc.Proofs, mint string, unit string) cashurpc.TokenV3 {
+func NewToken(proofs []*cashurpc.Proof, mint string, unit string) cashurpc.TokenV3 {
 	tokenProof := cashurpc.BaseToken{Mint: mint, Proofs: proofs}
 	return cashurpc.TokenV3{Token: []*cashurpc.BaseToken{&tokenProof}, Unit: unit}
 }

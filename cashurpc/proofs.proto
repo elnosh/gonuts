@@ -7,7 +7,3 @@ message Proof {
   string secret = 3;
   string C = 4;
 }
-
-message Proofs {
-  repeated Proof proofs = 1;
-}

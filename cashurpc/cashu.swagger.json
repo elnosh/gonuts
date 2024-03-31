@@ -452,6 +452,9 @@
         "unit": {
           "type": "string"
         },
+        "mint_url": {
+          "type": "string"
+        },
         "active": {
           "type": "boolean"
         },
@@ -505,7 +508,11 @@
       "type": "object",
       "properties": {
         "inputs": {
-          "$ref": "#/definitions/Proofs"
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/Proof"
+          }
         },
         "quote": {
           "type": "string"
@@ -633,18 +640,6 @@
         }
       }
     },
-    "Proofs": {
-      "type": "object",
-      "properties": {
-        "proofs": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/Proof"
-          }
-        }
-      }
-    },
     "States": {
       "type": "object",
       "properties": {
@@ -663,7 +658,11 @@
       "type": "object",
       "properties": {
         "inputs": {
-          "$ref": "#/definitions/Proofs"
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/Proof"
+          }
         },
         "outputs": {
           "type": "array",

@@ -154,7 +154,7 @@ func receive(ctx *cli.Context) error {
 
 	swap := true
 	trustedMints := nutw.TrustedMints()
-	mintURL := token.Token[0].Mint
+	mintURL := "localhost:3889"
 	_, ok := trustedMints[mintURL]
 	if !ok {
 		fmt.Printf("Token received comes from an untrusted mint: %v. Do you wish to trust this mint? (y/n) ", mintURL)

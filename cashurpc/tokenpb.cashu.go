@@ -17,7 +17,7 @@ func (x *TokenV3) ToString() string {
 func (t *TokenV3) TotalAmount() uint64 {
 	var totalAmount uint64 = 0
 	for _, tokenProof := range t.Token {
-		for _, proof := range tokenProof.Proofs.Proofs {
+		for _, proof := range tokenProof.Proofs {
 			totalAmount += proof.Amount
 		}
 	}

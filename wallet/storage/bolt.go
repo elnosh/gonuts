@@ -59,8 +59,8 @@ func (db *BoltDB) initWalletBuckets() error {
 }
 
 // return all proofs from db
-func (db *BoltDB) GetProofs() *cashurpc.Proofs {
-	proofs := &cashurpc.Proofs{}
+func (db *BoltDB) GetProofs() []*cashurpc.Proof {
+	proofs := make([]*cashurpc.Proof, 0)
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
@@ -69,18 +69,18 @@ func (db *BoltDB) GetProofs() *cashurpc.Proofs {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var proof *cashurpc.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
-				proofs = &cashurpc.Proofs{}
+				proofs = make([]*cashurpc.Proof, 0)
 				return nil
 			}
-			proofs.Proofs = append(proofs.Proofs, proof)
+			proofs = append(proofs, proof)
 		}
 		return nil
 	})
 	return proofs
 }
 
-func (db *BoltDB) GetProofsByKeysetId(id string) *cashurpc.Proofs {
-	proofs := &cashurpc.Proofs{}
+func (db *BoltDB) GetProofsByKeysetId(id string) []*cashurpc.Proof {
+	proofs := make([]*cashurpc.Proof, 0)
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
@@ -93,12 +93,12 @@ func (db *BoltDB) GetProofsByKeysetId(id string) *cashurpc.Proofs {
 			}
 
 			if proof.Id == id {
-				proofs.Proofs = append(proofs.Proofs, proof)
+				proofs = append(proofs, proof)
 			}
 		}
 		return nil
 	}); err != nil {
-		return &cashurpc.Proofs{}
+		return make([]*cashurpc.Proof, 0)
 	}
 
 	return proofs

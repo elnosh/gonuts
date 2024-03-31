@@ -13,5 +13,5 @@ message TokenV3 {
 
 message BaseToken {
   string mint = 1;
-  Proofs proofs = 2;
+  repeated Proof proofs = 2;
 }

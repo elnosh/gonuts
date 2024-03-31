@@ -28,7 +28,7 @@ message PostMeltQuoteBolt11Response {
 
 
 message PostMeltBolt11Request {
-  Proofs inputs = 1;
+  repeated Proof inputs = 1;
   string quote = 2;
 }
 
