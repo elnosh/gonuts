@@ -12,31 +12,20 @@ type BlindedMessages []*cashurpc.BlindedMessage
 
 type BlindedSignatures []*cashurpc.BlindedSignature
 
-func (proofs Proofs) Amount() uint64 {
+func Amount(proofs *cashurpc.Proofs) uint64 {
 	var totalAmount uint64 = 0
-	for _, proof := range proofs {
+	for _, proof := range proofs.Proofs {
 		totalAmount += proof.Amount
 	}
 	return totalAmount
 }
 
-type Token struct {
-	Token []TokenProof `json:"token"`
-	Unit  string       `json:"unit"`
-	Memo  string       `json:"memo,omitempty"`
+func NewToken(proofs *cashurpc.Proofs, mint string, unit string) cashurpc.TokenV3 {
+	tokenProof := cashurpc.BaseToken{Mint: mint, Proofs: proofs}
+	return cashurpc.TokenV3{Token: []*cashurpc.BaseToken{&tokenProof}, Unit: unit}
 }
 
-type TokenProof struct {
-	Mint   string           `json:"mint"`
-	Proofs *cashurpc.Proofs `json:"proofs"`
-}
-
-func NewToken(proofs *cashurpc.Proofs, mint string, unit string) Token {
-	tokenProof := TokenProof{Mint: mint, Proofs: proofs}
-	return Token{Token: []TokenProof{tokenProof}, Unit: unit}
-}
-
-func DecodeToken(tokenstr string) (*Token, error) {
+func DecodeToken(tokenstr string) (*cashurpc.TokenV3, error) {
 	prefixVersion := tokenstr[:6]
 	base64Token := tokenstr[6:]
 	if prefixVersion != "cashuA" {
@@ -53,33 +42,13 @@ func DecodeToken(tokenstr string) (*Token, error) {
 		}
 	}
 
-	var token Token
+	var token cashurpc.TokenV3
 	err = json.Unmarshal(tokenBytes, &token)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshaling token: %v", err)
 	}
 
 	return &token, nil
-}
-
-func (t *Token) ToString() string {
-	jsonBytes, err := json.Marshal(t)
-	if err != nil {
-		panic(err)
-	}
-
-	token := base64.URLEncoding.EncodeToString(jsonBytes)
-	return "cashuA" + token
-}
-
-func (t *Token) TotalAmount() uint64 {
-	var totalAmount uint64 = 0
-	for _, tokenProof := range t.Token {
-		for _, proof := range tokenProof.Proofs.Proofs {
-			totalAmount += proof.Amount
-		}
-	}
-	return totalAmount
 }
 
 type CashuErrCode int

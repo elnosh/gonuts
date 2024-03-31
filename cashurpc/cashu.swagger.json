@@ -52,7 +52,7 @@
       }
     },
     "/v1/info": {
-      "post": {
+      "get": {
         "summary": "Starting https://github.com/cashubtc/nuts/blob/main/06.md",
         "operationId": "Mint_Info",
         "responses": {
@@ -120,7 +120,39 @@
         ]
       }
     },
-    "/v1/melt/quote/{method}": {
+    "/v1/melt/bolt11": {
+      "post": {
+        "operationId": "Mint_Melt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/PostMeltBolt11Response"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PostMeltBolt11Request"
+            }
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
+    "/v1/melt/quote/bolt11": {
       "post": {
         "summary": "Starting https://github.com/cashubtc/nuts/blob/main/05.md",
         "operationId": "Mint_MeltQuote",
@@ -128,7 +160,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/PostMeltQuoteResponse"
+              "$ref": "#/definitions/PostMeltQuoteBolt11Response"
             }
           },
           "default": {
@@ -140,27 +172,12 @@
         },
         "parameters": [
           {
-            "name": "method",
-            "in": "path",
+            "name": "body",
+            "in": "body",
             "required": true,
-            "type": "string"
-          },
-          {
-            "name": "request",
-            "in": "query",
-            "required": false,
-            "type": "string"
-          },
-          {
-            "name": "unit",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "enum": [
-              "UNIT_TYPE_UNSPECIFIED",
-              "UNIT_TYPE_SAT"
-            ],
-            "default": "UNIT_TYPE_UNSPECIFIED"
+            "schema": {
+              "$ref": "#/definitions/PostMeltQuoteBolt11Request"
+            }
           }
         ],
         "tags": [
@@ -168,14 +185,14 @@
         ]
       }
     },
-    "/v1/melt/quote/{method}/{quote_id}": {
-      "post": {
+    "/v1/melt/quote/bolt11/{quote_id}": {
+      "get": {
         "operationId": "Mint_MeltQuoteState",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/PostMeltQuoteResponse"
+              "$ref": "#/definitions/PostMeltQuoteBolt11Response"
             }
           },
           "default": {
@@ -186,12 +203,6 @@
           }
         },
         "parameters": [
-          {
-            "name": "method",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
           {
             "name": "quote_id",
             "in": "path",
@@ -204,14 +215,14 @@
         ]
       }
     },
-    "/v1/melt/{method}": {
+    "/v1/mint/bolt11": {
       "post": {
-        "operationId": "Mint_Melt",
+        "operationId": "Mint_Mint",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/PostMeltResponse"
+              "$ref": "#/definitions/PostMintBolt11Response"
             }
           },
           "default": {
@@ -223,16 +234,12 @@
         },
         "parameters": [
           {
-            "name": "method",
-            "in": "path",
+            "name": "body",
+            "in": "body",
             "required": true,
-            "type": "string"
-          },
-          {
-            "name": "quote",
-            "in": "query",
-            "required": false,
-            "type": "string"
+            "schema": {
+              "$ref": "#/definitions/PostMintBolt11Request"
+            }
           }
         ],
         "tags": [
@@ -240,7 +247,7 @@
         ]
       }
     },
-    "/v1/mint/quote/{method}": {
+    "/v1/mint/quote/bolt11": {
       "post": {
         "summary": "Starting https://github.com/cashubtc/nuts/blob/main/05.md",
         "operationId": "Mint_MintQuote",
@@ -248,7 +255,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/PostMintQuoteResponse"
+              "$ref": "#/definitions/PostMintQuoteBolt11Response"
             }
           },
           "default": {
@@ -260,28 +267,12 @@
         },
         "parameters": [
           {
-            "name": "method",
-            "in": "path",
+            "name": "body",
+            "in": "body",
             "required": true,
-            "type": "string"
-          },
-          {
-            "name": "amount",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "format": "uint64"
-          },
-          {
-            "name": "unit",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "enum": [
-              "UNIT_TYPE_UNSPECIFIED",
-              "UNIT_TYPE_SAT"
-            ],
-            "default": "UNIT_TYPE_UNSPECIFIED"
+            "schema": {
+              "$ref": "#/definitions/PostMintQuoteBolt11Request"
+            }
           }
         ],
         "tags": [
@@ -289,14 +280,14 @@
         ]
       }
     },
-    "/v1/mint/quote/{method}/{quote_id}": {
-      "post": {
+    "/v1/mint/quote/bolt11/{quote_id}": {
+      "get": {
         "operationId": "Mint_MintQuoteState",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/PostMintQuoteResponse"
+              "$ref": "#/definitions/PostMintQuoteBolt11Response"
             }
           },
           "default": {
@@ -307,52 +298,10 @@
           }
         },
         "parameters": [
-          {
-            "name": "method",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
           {
             "name": "quote_id",
             "in": "path",
             "required": true,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "Mint"
-        ]
-      }
-    },
-    "/v1/mint/{method}": {
-      "post": {
-        "operationId": "Mint_Mint",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/PostMintResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "method",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "quote",
-            "in": "query",
-            "required": false,
             "type": "string"
           }
         ],
@@ -379,6 +328,16 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SwapRequest"
+            }
+          }
+        ],
         "tags": [
           "Mint"
         ]
@@ -542,7 +501,41 @@
         }
       }
     },
-    "PostMeltQuoteResponse": {
+    "PostMeltBolt11Request": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "$ref": "#/definitions/Proofs"
+        },
+        "quote": {
+          "type": "string"
+        }
+      }
+    },
+    "PostMeltBolt11Response": {
+      "type": "object",
+      "properties": {
+        "paid": {
+          "type": "boolean"
+        },
+        "payment_preimage": {
+          "type": "string",
+          "description": "This field is optional and can be null."
+        }
+      }
+    },
+    "PostMeltQuoteBolt11Request": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/definitions/UnitType"
+        }
+      }
+    },
+    "PostMeltQuoteBolt11Response": {
       "type": "object",
       "properties": {
         "quote": {
@@ -565,19 +558,46 @@
         }
       }
     },
-    "PostMeltResponse": {
+    "PostMintBolt11Request": {
       "type": "object",
       "properties": {
-        "paid": {
-          "type": "boolean"
+        "quote": {
+          "type": "string"
         },
-        "payment_preimage": {
-          "type": "string",
-          "description": "This field is optional and can be null."
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/BlindedMessage"
+          }
         }
       }
     },
-    "PostMintQuoteResponse": {
+    "PostMintBolt11Response": {
+      "type": "object",
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/BlindedSignature"
+          }
+        }
+      }
+    },
+    "PostMintQuoteBolt11Request": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "unit": {
+          "$ref": "#/definitions/UnitType"
+        }
+      }
+    },
+    "PostMintQuoteBolt11Response": {
       "type": "object",
       "properties": {
         "quote": {
@@ -592,18 +612,6 @@
         "expiry": {
           "type": "string",
           "format": "int64"
-        }
-      }
-    },
-    "PostMintResponse": {
-      "type": "object",
-      "properties": {
-        "signatures": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/BlindedSignature"
-          }
         }
       }
     },
@@ -648,6 +656,21 @@
         },
         "witness": {
           "type": "string"
+        }
+      }
+    },
+    "SwapRequest": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "$ref": "#/definitions/Proofs"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/BlindedMessage"
+          }
         }
       }
     },

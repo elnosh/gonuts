@@ -66,13 +66,13 @@ type MintClient interface {
 	// Starting https://github.com/cashubtc/nuts/blob/main/03.md
 	Swap(context.Context, *connect_go.Request[cashurpc.SwapRequest]) (*connect_go.Response[cashurpc.SwapResponse], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MintQuote(context.Context, *connect_go.Request[cashurpc.PostMintQuoteRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error)
-	MintQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error)
-	Mint(context.Context, *connect_go.Request[cashurpc.PostMintRequest]) (*connect_go.Response[cashurpc.PostMintResponse], error)
+	MintQuote(context.Context, *connect_go.Request[cashurpc.PostMintQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error)
+	MintQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error)
+	Mint(context.Context, *connect_go.Request[cashurpc.PostMintBolt11Request]) (*connect_go.Response[cashurpc.PostMintBolt11Response], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MeltQuote(context.Context, *connect_go.Request[cashurpc.PostMeltQuoteRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error)
-	MeltQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error)
-	Melt(context.Context, *connect_go.Request[cashurpc.PostMeltRequest]) (*connect_go.Response[cashurpc.PostMeltResponse], error)
+	MeltQuote(context.Context, *connect_go.Request[cashurpc.PostMeltQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error)
+	MeltQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error)
+	Melt(context.Context, *connect_go.Request[cashurpc.PostMeltBolt11Request]) (*connect_go.Response[cashurpc.PostMeltBolt11Response], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/06.md
 	Info(context.Context, *connect_go.Request[cashurpc.InfoRequest]) (*connect_go.Response[cashurpc.InfoResponse], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/07.md
@@ -104,32 +104,32 @@ func NewMintClient(httpClient connect_go.HTTPClient, baseURL string, opts ...con
 			baseURL+MintSwapProcedure,
 			opts...,
 		),
-		mintQuote: connect_go.NewClient[cashurpc.PostMintQuoteRequest, cashurpc.PostMintQuoteResponse](
+		mintQuote: connect_go.NewClient[cashurpc.PostMintQuoteBolt11Request, cashurpc.PostMintQuoteBolt11Response](
 			httpClient,
 			baseURL+MintMintQuoteProcedure,
 			opts...,
 		),
-		mintQuoteState: connect_go.NewClient[cashurpc.GetQuoteStateRequest, cashurpc.PostMintQuoteResponse](
+		mintQuoteState: connect_go.NewClient[cashurpc.GetQuoteBolt11StateRequest, cashurpc.PostMintQuoteBolt11Response](
 			httpClient,
 			baseURL+MintMintQuoteStateProcedure,
 			opts...,
 		),
-		mint: connect_go.NewClient[cashurpc.PostMintRequest, cashurpc.PostMintResponse](
+		mint: connect_go.NewClient[cashurpc.PostMintBolt11Request, cashurpc.PostMintBolt11Response](
 			httpClient,
 			baseURL+MintMintProcedure,
 			opts...,
 		),
-		meltQuote: connect_go.NewClient[cashurpc.PostMeltQuoteRequest, cashurpc.PostMeltQuoteResponse](
+		meltQuote: connect_go.NewClient[cashurpc.PostMeltQuoteBolt11Request, cashurpc.PostMeltQuoteBolt11Response](
 			httpClient,
 			baseURL+MintMeltQuoteProcedure,
 			opts...,
 		),
-		meltQuoteState: connect_go.NewClient[cashurpc.GetQuoteStateRequest, cashurpc.PostMeltQuoteResponse](
+		meltQuoteState: connect_go.NewClient[cashurpc.GetQuoteBolt11StateRequest, cashurpc.PostMeltQuoteBolt11Response](
 			httpClient,
 			baseURL+MintMeltQuoteStateProcedure,
 			opts...,
 		),
-		melt: connect_go.NewClient[cashurpc.PostMeltRequest, cashurpc.PostMeltResponse](
+		melt: connect_go.NewClient[cashurpc.PostMeltBolt11Request, cashurpc.PostMeltBolt11Response](
 			httpClient,
 			baseURL+MintMeltProcedure,
 			opts...,
@@ -152,12 +152,12 @@ type mintClient struct {
 	keys           *connect_go.Client[cashurpc.KeysRequest, cashurpc.KeysResponse]
 	keySets        *connect_go.Client[cashurpc.KeysRequest, cashurpc.KeysResponse]
 	swap           *connect_go.Client[cashurpc.SwapRequest, cashurpc.SwapResponse]
-	mintQuote      *connect_go.Client[cashurpc.PostMintQuoteRequest, cashurpc.PostMintQuoteResponse]
-	mintQuoteState *connect_go.Client[cashurpc.GetQuoteStateRequest, cashurpc.PostMintQuoteResponse]
-	mint           *connect_go.Client[cashurpc.PostMintRequest, cashurpc.PostMintResponse]
-	meltQuote      *connect_go.Client[cashurpc.PostMeltQuoteRequest, cashurpc.PostMeltQuoteResponse]
-	meltQuoteState *connect_go.Client[cashurpc.GetQuoteStateRequest, cashurpc.PostMeltQuoteResponse]
-	melt           *connect_go.Client[cashurpc.PostMeltRequest, cashurpc.PostMeltResponse]
+	mintQuote      *connect_go.Client[cashurpc.PostMintQuoteBolt11Request, cashurpc.PostMintQuoteBolt11Response]
+	mintQuoteState *connect_go.Client[cashurpc.GetQuoteBolt11StateRequest, cashurpc.PostMintQuoteBolt11Response]
+	mint           *connect_go.Client[cashurpc.PostMintBolt11Request, cashurpc.PostMintBolt11Response]
+	meltQuote      *connect_go.Client[cashurpc.PostMeltQuoteBolt11Request, cashurpc.PostMeltQuoteBolt11Response]
+	meltQuoteState *connect_go.Client[cashurpc.GetQuoteBolt11StateRequest, cashurpc.PostMeltQuoteBolt11Response]
+	melt           *connect_go.Client[cashurpc.PostMeltBolt11Request, cashurpc.PostMeltBolt11Response]
 	info           *connect_go.Client[cashurpc.InfoRequest, cashurpc.InfoResponse]
 	checkState     *connect_go.Client[cashurpc.PostCheckStateRequest, cashurpc.PostCheckStateResponse]
 }
@@ -178,32 +178,32 @@ func (c *mintClient) Swap(ctx context.Context, req *connect_go.Request[cashurpc.
 }
 
 // MintQuote calls cashu.v1.Mint.MintQuote.
-func (c *mintClient) MintQuote(ctx context.Context, req *connect_go.Request[cashurpc.PostMintQuoteRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error) {
+func (c *mintClient) MintQuote(ctx context.Context, req *connect_go.Request[cashurpc.PostMintQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error) {
 	return c.mintQuote.CallUnary(ctx, req)
 }
 
 // MintQuoteState calls cashu.v1.Mint.MintQuoteState.
-func (c *mintClient) MintQuoteState(ctx context.Context, req *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error) {
+func (c *mintClient) MintQuoteState(ctx context.Context, req *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error) {
 	return c.mintQuoteState.CallUnary(ctx, req)
 }
 
 // Mint calls cashu.v1.Mint.Mint.
-func (c *mintClient) Mint(ctx context.Context, req *connect_go.Request[cashurpc.PostMintRequest]) (*connect_go.Response[cashurpc.PostMintResponse], error) {
+func (c *mintClient) Mint(ctx context.Context, req *connect_go.Request[cashurpc.PostMintBolt11Request]) (*connect_go.Response[cashurpc.PostMintBolt11Response], error) {
 	return c.mint.CallUnary(ctx, req)
 }
 
 // MeltQuote calls cashu.v1.Mint.MeltQuote.
-func (c *mintClient) MeltQuote(ctx context.Context, req *connect_go.Request[cashurpc.PostMeltQuoteRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error) {
+func (c *mintClient) MeltQuote(ctx context.Context, req *connect_go.Request[cashurpc.PostMeltQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error) {
 	return c.meltQuote.CallUnary(ctx, req)
 }
 
 // MeltQuoteState calls cashu.v1.Mint.MeltQuoteState.
-func (c *mintClient) MeltQuoteState(ctx context.Context, req *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error) {
+func (c *mintClient) MeltQuoteState(ctx context.Context, req *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error) {
 	return c.meltQuoteState.CallUnary(ctx, req)
 }
 
 // Melt calls cashu.v1.Mint.Melt.
-func (c *mintClient) Melt(ctx context.Context, req *connect_go.Request[cashurpc.PostMeltRequest]) (*connect_go.Response[cashurpc.PostMeltResponse], error) {
+func (c *mintClient) Melt(ctx context.Context, req *connect_go.Request[cashurpc.PostMeltBolt11Request]) (*connect_go.Response[cashurpc.PostMeltBolt11Response], error) {
 	return c.melt.CallUnary(ctx, req)
 }
 
@@ -226,13 +226,13 @@ type MintHandler interface {
 	// Starting https://github.com/cashubtc/nuts/blob/main/03.md
 	Swap(context.Context, *connect_go.Request[cashurpc.SwapRequest]) (*connect_go.Response[cashurpc.SwapResponse], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MintQuote(context.Context, *connect_go.Request[cashurpc.PostMintQuoteRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error)
-	MintQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error)
-	Mint(context.Context, *connect_go.Request[cashurpc.PostMintRequest]) (*connect_go.Response[cashurpc.PostMintResponse], error)
+	MintQuote(context.Context, *connect_go.Request[cashurpc.PostMintQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error)
+	MintQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error)
+	Mint(context.Context, *connect_go.Request[cashurpc.PostMintBolt11Request]) (*connect_go.Response[cashurpc.PostMintBolt11Response], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MeltQuote(context.Context, *connect_go.Request[cashurpc.PostMeltQuoteRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error)
-	MeltQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error)
-	Melt(context.Context, *connect_go.Request[cashurpc.PostMeltRequest]) (*connect_go.Response[cashurpc.PostMeltResponse], error)
+	MeltQuote(context.Context, *connect_go.Request[cashurpc.PostMeltQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error)
+	MeltQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error)
+	Melt(context.Context, *connect_go.Request[cashurpc.PostMeltBolt11Request]) (*connect_go.Response[cashurpc.PostMeltBolt11Response], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/06.md
 	Info(context.Context, *connect_go.Request[cashurpc.InfoRequest]) (*connect_go.Response[cashurpc.InfoResponse], error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/07.md
@@ -319,27 +319,27 @@ func (UnimplementedMintHandler) Swap(context.Context, *connect_go.Request[cashur
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.Swap is not implemented"))
 }
 
-func (UnimplementedMintHandler) MintQuote(context.Context, *connect_go.Request[cashurpc.PostMintQuoteRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error) {
+func (UnimplementedMintHandler) MintQuote(context.Context, *connect_go.Request[cashurpc.PostMintQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.MintQuote is not implemented"))
 }
 
-func (UnimplementedMintHandler) MintQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteResponse], error) {
+func (UnimplementedMintHandler) MintQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMintQuoteBolt11Response], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.MintQuoteState is not implemented"))
 }
 
-func (UnimplementedMintHandler) Mint(context.Context, *connect_go.Request[cashurpc.PostMintRequest]) (*connect_go.Response[cashurpc.PostMintResponse], error) {
+func (UnimplementedMintHandler) Mint(context.Context, *connect_go.Request[cashurpc.PostMintBolt11Request]) (*connect_go.Response[cashurpc.PostMintBolt11Response], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.Mint is not implemented"))
 }
 
-func (UnimplementedMintHandler) MeltQuote(context.Context, *connect_go.Request[cashurpc.PostMeltQuoteRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error) {
+func (UnimplementedMintHandler) MeltQuote(context.Context, *connect_go.Request[cashurpc.PostMeltQuoteBolt11Request]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.MeltQuote is not implemented"))
 }
 
-func (UnimplementedMintHandler) MeltQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteStateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteResponse], error) {
+func (UnimplementedMintHandler) MeltQuoteState(context.Context, *connect_go.Request[cashurpc.GetQuoteBolt11StateRequest]) (*connect_go.Response[cashurpc.PostMeltQuoteBolt11Response], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.MeltQuoteState is not implemented"))
 }
 
-func (UnimplementedMintHandler) Melt(context.Context, *connect_go.Request[cashurpc.PostMeltRequest]) (*connect_go.Response[cashurpc.PostMeltResponse], error) {
+func (UnimplementedMintHandler) Melt(context.Context, *connect_go.Request[cashurpc.PostMeltBolt11Request]) (*connect_go.Response[cashurpc.PostMeltBolt11Response], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("cashu.v1.Mint.Melt is not implemented"))
 }
 

@@ -4,23 +4,21 @@ import "mint.proto";
 import "proofs.proto";
 option go_package = "github.com/elnosh/gonuts/cashurpc";
 
-message GetQuoteStateRequest {
-  string method = 1;
-  string quote_id = 2;
+message GetQuoteBolt11StateRequest {
+  string quote_id = 1;
 
 }
 
-message PostMeltQuoteRequest {
-  string method = 1;
-  string request = 2;
-  UnitType unit = 3;
+message PostMeltQuoteBolt11Request {
+  string request = 1;
+  UnitType unit = 2;
 }
 
 message PostMeltQuoteStateResponse {
 
 }
 
-message PostMeltQuoteResponse {
+message PostMeltQuoteBolt11Response {
   string quote = 1;
   uint64 amount = 2;
   uint64 fee_reserve = 3;
@@ -29,14 +27,13 @@ message PostMeltQuoteResponse {
 }
 
 
-message PostMeltRequest {
-  string method = 1;
-  Proofs inputs = 2;
-  string quote = 3;
+message PostMeltBolt11Request {
+  Proofs inputs = 1;
+  string quote = 2;
 }
 
 
-message PostMeltResponse {
+message PostMeltBolt11Response {
   bool paid = 1;
   string payment_preimage = 2; // This field is optional and can be null.
 }

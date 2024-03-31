@@ -25,9 +25,6 @@ const (
 type Mint struct {
 	db *BoltDB
 
-	// active keysets
-	ActiveKeysets map[string]crypto.Keyset
-
 	// map of all keysets (both active and inactive)
 	Keysets map[string]crypto.Keyset
 
@@ -43,7 +40,7 @@ func LoadMint(config Config) (*Mint, error) {
 	}
 
 	activeKeyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
-	mint := &Mint{db: db, ActiveKeysets: map[string]crypto.Keyset{activeKeyset.Id: *activeKeyset}}
+	mint := &Mint{db: db}
 
 	mint.db.SaveKeyset(activeKeyset)
 	mint.Keysets = mint.db.GetKeysets()
@@ -90,11 +87,11 @@ func (m *Mint) KeysetList() []string {
 	return keysetIds
 }
 
-func (m *Mint) RequestMintQuote(method string, amount uint64, unit cashurpc.UnitType) (*cashurpc.PostMintQuoteResponse, error) {
+func (m *Mint) RequestMintQuote(method string, amount uint64, unit cashurpc.UnitType) (*cashurpc.PostMintQuoteBolt11Response, error) {
 	if method != "bolt11" {
 		return nil, cashu.PaymentMethodNotSupportedErr
 	}
-	if unit.String() != "sat" {
+	if unit != cashurpc.UnitType_UNIT_TYPE_SAT {
 		return nil, cashu.UnitNotSupportedErr
 	}
 
@@ -108,17 +105,16 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit cashurpc.Unit
 		return nil, err
 	}
 
-	reqMintQuoteResponse := cashurpc.PostMintQuoteResponse{
+	reqMintQuoteResponse := cashurpc.PostMintQuoteBolt11Response{
 		Quote:   invoice.Id,
 		Request: invoice.PaymentRequest,
 		Paid:    invoice.Settled,
-		Expiry:  invoice.Expiry,
 	}
 
 	return &reqMintQuoteResponse, nil
 }
 
-func (m *Mint) GetMintQuoteState(method, quoteId string) (*cashurpc.PostMintQuoteResponse, error) {
+func (m *Mint) GetMintQuoteState(method, quoteId string) (*cashurpc.PostMintQuoteBolt11Response, error) {
 	if method != "bolt11" {
 		return nil, cashu.PaymentMethodNotSupportedErr
 	}
@@ -134,7 +130,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (*cashurpc.PostMintQuot
 		m.db.SaveInvoice(*invoice)
 	}
 
-	quoteState := &cashurpc.PostMintQuoteResponse{Quote: invoice.Id,
+	quoteState := &cashurpc.PostMintQuoteBolt11Response{Quote: invoice.Id,
 		Request: invoice.PaymentRequest, Paid: settled, Expiry: invoice.Expiry}
 	return quoteState, nil
 }
@@ -221,7 +217,7 @@ func (m *Mint) Swap(proofs *cashurpc.Proofs, blindedMessages cashu.BlindedMessag
 type MeltQuote struct {
 	Id             string
 	InvoiceRequest string
-	*cashurpc.PostMeltQuoteResponse
+	*cashurpc.PostMeltQuoteBolt11Response
 }
 
 func (m *Mint) MeltRequest(method, request string, unit cashurpc.UnitType) (MeltQuote, error) {
@@ -248,7 +244,7 @@ func (m *Mint) MeltRequest(method, request string, unit cashurpc.UnitType) (Melt
 
 	meltQuote := MeltQuote{
 		Id: hex.EncodeToString(hash[:]),
-		PostMeltQuoteResponse: &cashurpc.PostMeltQuoteResponse{
+		PostMeltQuoteBolt11Response: &cashurpc.PostMeltQuoteBolt11Response{
 			Amount:     amount,
 			FeeReserve: fee,
 			Paid:       false,
@@ -274,7 +270,7 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 	return *meltQuote, nil
 }
 
-func (m *Mint) MeltTokens(method, quoteId string, proofs *cashurpc.Proofs) (*cashurpc.PostMeltResponse, error) {
+func (m *Mint) MeltTokens(method, quoteId string, proofs *cashurpc.Proofs) (*cashurpc.PostMeltBolt11Response, error) {
 	if method != "bolt11" {
 		return nil, cashu.PaymentMethodNotSupportedErr
 	}
@@ -308,7 +304,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs *cashurpc.Proofs) (*cas
 		m.db.SaveProof(proof)
 	}
 
-	return &cashurpc.PostMeltResponse{
+	return &cashurpc.PostMeltBolt11Response{
 		PaymentPreimage: preimage,
 		Paid:            meltQuote.Paid,
 	}, nil
@@ -354,10 +350,10 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 
 	for i, msg := range blindedMessages {
 		var k *secp256k1.PrivateKey
-		keyset, ok := m.ActiveKeysets[msg.Id]
+		keyset, ok := m.Keysets[msg.Id]
 		if !ok {
 			return nil, cashu.InvalidSignatureRequest
-		} else {
+		} else if keyset.Active {
 			if key, ok := keyset.Keys[msg.Amount]; ok {
 				k = key.PrivateKey
 			} else {

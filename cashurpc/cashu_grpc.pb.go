@@ -43,13 +43,13 @@ type MintClient interface {
 	// Starting https://github.com/cashubtc/nuts/blob/main/03.md
 	Swap(ctx context.Context, in *SwapRequest, opts ...grpc.CallOption) (*SwapResponse, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MintQuote(ctx context.Context, in *PostMintQuoteRequest, opts ...grpc.CallOption) (*PostMintQuoteResponse, error)
-	MintQuoteState(ctx context.Context, in *GetQuoteStateRequest, opts ...grpc.CallOption) (*PostMintQuoteResponse, error)
-	Mint(ctx context.Context, in *PostMintRequest, opts ...grpc.CallOption) (*PostMintResponse, error)
+	MintQuote(ctx context.Context, in *PostMintQuoteBolt11Request, opts ...grpc.CallOption) (*PostMintQuoteBolt11Response, error)
+	MintQuoteState(ctx context.Context, in *GetQuoteBolt11StateRequest, opts ...grpc.CallOption) (*PostMintQuoteBolt11Response, error)
+	Mint(ctx context.Context, in *PostMintBolt11Request, opts ...grpc.CallOption) (*PostMintBolt11Response, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MeltQuote(ctx context.Context, in *PostMeltQuoteRequest, opts ...grpc.CallOption) (*PostMeltQuoteResponse, error)
-	MeltQuoteState(ctx context.Context, in *GetQuoteStateRequest, opts ...grpc.CallOption) (*PostMeltQuoteResponse, error)
-	Melt(ctx context.Context, in *PostMeltRequest, opts ...grpc.CallOption) (*PostMeltResponse, error)
+	MeltQuote(ctx context.Context, in *PostMeltQuoteBolt11Request, opts ...grpc.CallOption) (*PostMeltQuoteBolt11Response, error)
+	MeltQuoteState(ctx context.Context, in *GetQuoteBolt11StateRequest, opts ...grpc.CallOption) (*PostMeltQuoteBolt11Response, error)
+	Melt(ctx context.Context, in *PostMeltBolt11Request, opts ...grpc.CallOption) (*PostMeltBolt11Response, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/06.md
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/07.md
@@ -91,8 +91,8 @@ func (c *mintClient) Swap(ctx context.Context, in *SwapRequest, opts ...grpc.Cal
 	return out, nil
 }
 
-func (c *mintClient) MintQuote(ctx context.Context, in *PostMintQuoteRequest, opts ...grpc.CallOption) (*PostMintQuoteResponse, error) {
-	out := new(PostMintQuoteResponse)
+func (c *mintClient) MintQuote(ctx context.Context, in *PostMintQuoteBolt11Request, opts ...grpc.CallOption) (*PostMintQuoteBolt11Response, error) {
+	out := new(PostMintQuoteBolt11Response)
 	err := c.cc.Invoke(ctx, Mint_MintQuote_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -100,8 +100,8 @@ func (c *mintClient) MintQuote(ctx context.Context, in *PostMintQuoteRequest, op
 	return out, nil
 }
 
-func (c *mintClient) MintQuoteState(ctx context.Context, in *GetQuoteStateRequest, opts ...grpc.CallOption) (*PostMintQuoteResponse, error) {
-	out := new(PostMintQuoteResponse)
+func (c *mintClient) MintQuoteState(ctx context.Context, in *GetQuoteBolt11StateRequest, opts ...grpc.CallOption) (*PostMintQuoteBolt11Response, error) {
+	out := new(PostMintQuoteBolt11Response)
 	err := c.cc.Invoke(ctx, Mint_MintQuoteState_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -109,8 +109,8 @@ func (c *mintClient) MintQuoteState(ctx context.Context, in *GetQuoteStateReques
 	return out, nil
 }
 
-func (c *mintClient) Mint(ctx context.Context, in *PostMintRequest, opts ...grpc.CallOption) (*PostMintResponse, error) {
-	out := new(PostMintResponse)
+func (c *mintClient) Mint(ctx context.Context, in *PostMintBolt11Request, opts ...grpc.CallOption) (*PostMintBolt11Response, error) {
+	out := new(PostMintBolt11Response)
 	err := c.cc.Invoke(ctx, Mint_Mint_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -118,8 +118,8 @@ func (c *mintClient) Mint(ctx context.Context, in *PostMintRequest, opts ...grpc
 	return out, nil
 }
 
-func (c *mintClient) MeltQuote(ctx context.Context, in *PostMeltQuoteRequest, opts ...grpc.CallOption) (*PostMeltQuoteResponse, error) {
-	out := new(PostMeltQuoteResponse)
+func (c *mintClient) MeltQuote(ctx context.Context, in *PostMeltQuoteBolt11Request, opts ...grpc.CallOption) (*PostMeltQuoteBolt11Response, error) {
+	out := new(PostMeltQuoteBolt11Response)
 	err := c.cc.Invoke(ctx, Mint_MeltQuote_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -127,8 +127,8 @@ func (c *mintClient) MeltQuote(ctx context.Context, in *PostMeltQuoteRequest, op
 	return out, nil
 }
 
-func (c *mintClient) MeltQuoteState(ctx context.Context, in *GetQuoteStateRequest, opts ...grpc.CallOption) (*PostMeltQuoteResponse, error) {
-	out := new(PostMeltQuoteResponse)
+func (c *mintClient) MeltQuoteState(ctx context.Context, in *GetQuoteBolt11StateRequest, opts ...grpc.CallOption) (*PostMeltQuoteBolt11Response, error) {
+	out := new(PostMeltQuoteBolt11Response)
 	err := c.cc.Invoke(ctx, Mint_MeltQuoteState_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -136,8 +136,8 @@ func (c *mintClient) MeltQuoteState(ctx context.Context, in *GetQuoteStateReques
 	return out, nil
 }
 
-func (c *mintClient) Melt(ctx context.Context, in *PostMeltRequest, opts ...grpc.CallOption) (*PostMeltResponse, error) {
-	out := new(PostMeltResponse)
+func (c *mintClient) Melt(ctx context.Context, in *PostMeltBolt11Request, opts ...grpc.CallOption) (*PostMeltBolt11Response, error) {
+	out := new(PostMeltBolt11Response)
 	err := c.cc.Invoke(ctx, Mint_Melt_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -174,13 +174,13 @@ type MintServer interface {
 	// Starting https://github.com/cashubtc/nuts/blob/main/03.md
 	Swap(context.Context, *SwapRequest) (*SwapResponse, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MintQuote(context.Context, *PostMintQuoteRequest) (*PostMintQuoteResponse, error)
-	MintQuoteState(context.Context, *GetQuoteStateRequest) (*PostMintQuoteResponse, error)
-	Mint(context.Context, *PostMintRequest) (*PostMintResponse, error)
+	MintQuote(context.Context, *PostMintQuoteBolt11Request) (*PostMintQuoteBolt11Response, error)
+	MintQuoteState(context.Context, *GetQuoteBolt11StateRequest) (*PostMintQuoteBolt11Response, error)
+	Mint(context.Context, *PostMintBolt11Request) (*PostMintBolt11Response, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/05.md
-	MeltQuote(context.Context, *PostMeltQuoteRequest) (*PostMeltQuoteResponse, error)
-	MeltQuoteState(context.Context, *GetQuoteStateRequest) (*PostMeltQuoteResponse, error)
-	Melt(context.Context, *PostMeltRequest) (*PostMeltResponse, error)
+	MeltQuote(context.Context, *PostMeltQuoteBolt11Request) (*PostMeltQuoteBolt11Response, error)
+	MeltQuoteState(context.Context, *GetQuoteBolt11StateRequest) (*PostMeltQuoteBolt11Response, error)
+	Melt(context.Context, *PostMeltBolt11Request) (*PostMeltBolt11Response, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/06.md
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	// Starting https://github.com/cashubtc/nuts/blob/main/07.md
@@ -201,22 +201,22 @@ func (UnimplementedMintServer) KeySets(context.Context, *KeysRequest) (*KeysResp
 func (UnimplementedMintServer) Swap(context.Context, *SwapRequest) (*SwapResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Swap not implemented")
 }
-func (UnimplementedMintServer) MintQuote(context.Context, *PostMintQuoteRequest) (*PostMintQuoteResponse, error) {
+func (UnimplementedMintServer) MintQuote(context.Context, *PostMintQuoteBolt11Request) (*PostMintQuoteBolt11Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MintQuote not implemented")
 }
-func (UnimplementedMintServer) MintQuoteState(context.Context, *GetQuoteStateRequest) (*PostMintQuoteResponse, error) {
+func (UnimplementedMintServer) MintQuoteState(context.Context, *GetQuoteBolt11StateRequest) (*PostMintQuoteBolt11Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MintQuoteState not implemented")
 }
-func (UnimplementedMintServer) Mint(context.Context, *PostMintRequest) (*PostMintResponse, error) {
+func (UnimplementedMintServer) Mint(context.Context, *PostMintBolt11Request) (*PostMintBolt11Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Mint not implemented")
 }
-func (UnimplementedMintServer) MeltQuote(context.Context, *PostMeltQuoteRequest) (*PostMeltQuoteResponse, error) {
+func (UnimplementedMintServer) MeltQuote(context.Context, *PostMeltQuoteBolt11Request) (*PostMeltQuoteBolt11Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MeltQuote not implemented")
 }
-func (UnimplementedMintServer) MeltQuoteState(context.Context, *GetQuoteStateRequest) (*PostMeltQuoteResponse, error) {
+func (UnimplementedMintServer) MeltQuoteState(context.Context, *GetQuoteBolt11StateRequest) (*PostMeltQuoteBolt11Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MeltQuoteState not implemented")
 }
-func (UnimplementedMintServer) Melt(context.Context, *PostMeltRequest) (*PostMeltResponse, error) {
+func (UnimplementedMintServer) Melt(context.Context, *PostMeltBolt11Request) (*PostMeltBolt11Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Melt not implemented")
 }
 func (UnimplementedMintServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
@@ -293,7 +293,7 @@ func _Mint_Swap_Handler(srv interface{}, ctx context.Context, dec func(interface
 }
 
 func _Mint_MintQuote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PostMintQuoteRequest)
+	in := new(PostMintQuoteBolt11Request)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -305,13 +305,13 @@ func _Mint_MintQuote_Handler(srv interface{}, ctx context.Context, dec func(inte
 		FullMethod: Mint_MintQuote_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MintServer).MintQuote(ctx, req.(*PostMintQuoteRequest))
+		return srv.(MintServer).MintQuote(ctx, req.(*PostMintQuoteBolt11Request))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Mint_MintQuoteState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetQuoteStateRequest)
+	in := new(GetQuoteBolt11StateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -323,13 +323,13 @@ func _Mint_MintQuoteState_Handler(srv interface{}, ctx context.Context, dec func
 		FullMethod: Mint_MintQuoteState_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MintServer).MintQuoteState(ctx, req.(*GetQuoteStateRequest))
+		return srv.(MintServer).MintQuoteState(ctx, req.(*GetQuoteBolt11StateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Mint_Mint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PostMintRequest)
+	in := new(PostMintBolt11Request)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -341,13 +341,13 @@ func _Mint_Mint_Handler(srv interface{}, ctx context.Context, dec func(interface
 		FullMethod: Mint_Mint_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MintServer).Mint(ctx, req.(*PostMintRequest))
+		return srv.(MintServer).Mint(ctx, req.(*PostMintBolt11Request))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Mint_MeltQuote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PostMeltQuoteRequest)
+	in := new(PostMeltQuoteBolt11Request)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -359,13 +359,13 @@ func _Mint_MeltQuote_Handler(srv interface{}, ctx context.Context, dec func(inte
 		FullMethod: Mint_MeltQuote_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MintServer).MeltQuote(ctx, req.(*PostMeltQuoteRequest))
+		return srv.(MintServer).MeltQuote(ctx, req.(*PostMeltQuoteBolt11Request))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Mint_MeltQuoteState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetQuoteStateRequest)
+	in := new(GetQuoteBolt11StateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -377,13 +377,13 @@ func _Mint_MeltQuoteState_Handler(srv interface{}, ctx context.Context, dec func
 		FullMethod: Mint_MeltQuoteState_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MintServer).MeltQuoteState(ctx, req.(*GetQuoteStateRequest))
+		return srv.(MintServer).MeltQuoteState(ctx, req.(*GetQuoteBolt11StateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Mint_Melt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PostMeltRequest)
+	in := new(PostMeltBolt11Request)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -395,7 +395,7 @@ func _Mint_Melt_Handler(srv interface{}, ctx context.Context, dec func(interface
 		FullMethod: Mint_Melt_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MintServer).Melt(ctx, req.(*PostMeltRequest))
+		return srv.(MintServer).Melt(ctx, req.(*PostMeltBolt11Request))
 	}
 	return interceptor(ctx, in, info, handler)
 }

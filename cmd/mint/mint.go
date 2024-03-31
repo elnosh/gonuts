@@ -16,11 +16,8 @@ func main() {
 
 	mintServer, err := mint.SetupMintServer(mintConfig)
 	if err != nil {
-		log.Fatalf("error setting up mint server: %v", err)
-	}
-
-	err = mint.StartMintServer(mintServer)
-	if err != nil {
 		log.Fatalf("error starting mint server: %v", err)
 	}
+
+	mint.StartMintServer(mintServer)
 }

@@ -18,6 +18,8 @@ import (
 	"github.com/elnosh/gonuts/crypto"
 )
 
+const bolt11 = "bolt11"
+
 type Server struct {
 	cashurpc.UnimplementedMintServer
 	rpc    *rpc.Server
@@ -71,7 +73,7 @@ func (ms *Server) Keys(ctx context.Context, request *cashurpc.KeysRequest) (*cas
 
 func (ms *Server) KeySets(ctx context.Context, request *cashurpc.KeysRequest) (*cashurpc.KeysResponse, error) {
 	//TODO implement me
-	return buildKeysResponse(ms.mint.ActiveKeysets), nil
+	return buildKeysResponse(ms.mint.Keysets), nil
 
 }
 
@@ -85,47 +87,47 @@ func (ms *Server) Swap(ctx context.Context, request *cashurpc.SwapRequest) (*cas
 	}, nil
 }
 
-func (ms *Server) MintQuoteState(ctx context.Context, request *cashurpc.GetQuoteStateRequest) (*cashurpc.PostMintQuoteResponse, error) {
-	response, err := ms.mint.GetMintQuoteState(request.Method, request.QuoteId)
+func (ms *Server) MintQuoteState(ctx context.Context, request *cashurpc.GetQuoteBolt11StateRequest) (*cashurpc.PostMintQuoteBolt11Response, error) {
+	response, err := ms.mint.GetMintQuoteState(bolt11, request.QuoteId)
 	if err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
-func (ms *Server) MintQuote(ctx context.Context, request *cashurpc.PostMintQuoteRequest) (*cashurpc.PostMintQuoteResponse, error) {
-	return ms.mint.RequestMintQuote("bolt11", request.Amount, request.Unit)
+func (ms *Server) MintQuote(ctx context.Context, request *cashurpc.PostMintQuoteBolt11Request) (*cashurpc.PostMintQuoteBolt11Response, error) {
+	return ms.mint.RequestMintQuote(bolt11, request.Amount, request.Unit)
 
 }
 
-func (ms *Server) Mint(ctx context.Context, request *cashurpc.PostMintRequest) (*cashurpc.PostMintResponse, error) {
-	signatures, err := ms.mint.MintTokens(request.Method, request.Quote, request.Outputs)
+func (ms *Server) Mint(ctx context.Context, request *cashurpc.PostMintBolt11Request) (*cashurpc.PostMintBolt11Response, error) {
+	signatures, err := ms.mint.MintTokens(bolt11, request.Quote, request.Outputs)
 	if err != nil {
 		return nil, err
 	}
-	return &cashurpc.PostMintResponse{
+	return &cashurpc.PostMintBolt11Response{
 		Signatures: signatures,
 	}, nil
 }
 
-func (ms *Server) MeltQuoteState(ctx context.Context, request *cashurpc.GetQuoteStateRequest) (*cashurpc.PostMeltQuoteResponse, error) {
-	melt, err := ms.mint.GetMeltQuoteState(request.Method, request.QuoteId)
+func (ms *Server) MeltQuoteState(ctx context.Context, request *cashurpc.GetQuoteBolt11StateRequest) (*cashurpc.PostMeltQuoteBolt11Response, error) {
+	melt, err := ms.mint.GetMeltQuoteState(bolt11, request.QuoteId)
 	if err != nil {
 		return nil, err
 	}
-	return melt.PostMeltQuoteResponse, nil
+	return melt.PostMeltQuoteBolt11Response, nil
 }
 
-func (ms *Server) MeltQuote(ctx context.Context, request *cashurpc.PostMeltQuoteRequest) (*cashurpc.PostMeltQuoteResponse, error) {
-	melt, err := ms.mint.MeltRequest(request.Method, request.Request, request.Unit)
+func (ms *Server) MeltQuote(ctx context.Context, request *cashurpc.PostMeltQuoteBolt11Request) (*cashurpc.PostMeltQuoteBolt11Response, error) {
+	melt, err := ms.mint.MeltRequest(bolt11, request.Request, request.Unit)
 	if err != nil {
 		return nil, err
 	}
-	return melt.PostMeltQuoteResponse, nil
+	return melt.PostMeltQuoteBolt11Response, nil
 }
 
-func (ms *Server) Melt(ctx context.Context, request *cashurpc.PostMeltRequest) (*cashurpc.PostMeltResponse, error) {
-	melt, err := ms.mint.MeltTokens(request.Method, request.Quote, request.Inputs)
+func (ms *Server) Melt(ctx context.Context, request *cashurpc.PostMeltBolt11Request) (*cashurpc.PostMeltBolt11Response, error) {
+	melt, err := ms.mint.MeltTokens(bolt11, request.Quote, request.Inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +147,9 @@ func buildKeysResponse(keysets map[string]crypto.Keyset) *cashurpc.KeysResponse 
 	keysResponse := &cashurpc.KeysResponse{}
 
 	for _, keyset := range keysets {
+		if !keyset.Active {
+			continue
+		}
 		pks := keyset.DerivePublic()
 		keyRes := &cashurpc.Keyset{Id: keyset.Id, Unit: keyset.Unit, Keys: pks}
 		keysResponse.Keysets = append(keysResponse.Keysets, keyRes)

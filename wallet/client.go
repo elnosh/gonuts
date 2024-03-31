@@ -1,187 +1,117 @@
 package wallet
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
-
-	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashurpc"
+	"github.com/elnosh/gonuts/mint/rpc"
 )
 
-func GetActiveKeysets(mintURL string) (*nut01.GetKeysResponse, error) {
-	resp, err := http.Get(mintURL + "/v1/keys")
+func GetActiveKeysets(ctx context.Context, mintURL string) (*cashurpc.KeysResponse, error) {
+	client, err := createMintClient(mintURL)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	var keysetRes *nut01.GetKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return keysetRes, nil
-}
-
-func GetAllKeysets(mintURL string) (*nut02.GetKeysetsResponse, error) {
-	resp, err := http.Get(mintURL + "/v1/keysets")
+	resp, err := client.Keys(ctx, &cashurpc.KeysRequest{})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	var keysetsRes *nut02.GetKeysetsResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetsRes)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return keysetsRes, nil
-}
-
-func PostMintQuoteBolt11(mintURL string, mintQuoteRequest nut04.PostMintQuoteBolt11Request) (
-	*nut04.PostMintQuoteBolt11Response, error) {
-	requestBody, err := json.Marshal(mintQuoteRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(mintURL+"/v1/mint/quote/bolt11", "application/json", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var reqMintResponse *nut04.PostMintQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return reqMintResponse, nil
-}
-
-func GetMintQuoteState(mintURL, quoteId string) (*nut04.PostMintQuoteBolt11Response, error) {
-	resp, err := http.Get(mintURL + "/v1/mint/quote/bolt11/" + quoteId)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var mintQuoteResponse *nut04.PostMintQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&mintQuoteResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return mintQuoteResponse, nil
-}
-
-func PostMintBolt11(mintURL string, mintRequest nut04.PostMintBolt11Request) (
-	*nut04.PostMintBolt11Response, error) {
-	requestBody, err := json.Marshal(mintRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(mintURL+"/v1/mint/bolt11", "application/json", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var reqMintResponse *nut04.PostMintBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return reqMintResponse, nil
-}
-
-func PostSwap(mintURL string, swapRequest nut03.PostSwapRequest) (*nut03.PostSwapResponse, error) {
-	requestBody, err := json.Marshal(swapRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(mintURL+"/v1/swap", "application/json", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var swapResponse *nut03.PostSwapResponse
-	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return swapResponse, nil
-}
-
-func PostMeltQuoteBolt11(mintURL string, meltQuoteRequest nut05.PostMeltQuoteBolt11Request) (
-	*nut05.PostMeltQuoteBolt11Response, error) {
-
-	requestBody, err := json.Marshal(meltQuoteRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(mintURL+"/v1/melt/quote/bolt11", "application/json", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&meltQuoteResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return meltQuoteResponse, nil
-}
-
-func PostMeltBolt11(mintURL string, meltRequest nut05.PostMeltBolt11Request) (
-	*nut05.PostMeltBolt11Response, error) {
-
-	requestBody, err := json.Marshal(meltRequest)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal: %v", err)
-	}
-
-	resp, err := httpPost(mintURL+"/v1/melt/bolt11", "application/json", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var meltResponse *nut05.PostMeltBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&meltResponse)
-	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
-	}
-
-	return meltResponse, nil
-}
-
-func httpPost(url, contentType string, body io.Reader) (*http.Response, error) {
-	resp, err := http.Post(url, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode == 400 {
-		var errResponse cashu.Error
-		err = json.NewDecoder(resp.Body).Decode(&errResponse)
-		if err != nil {
-			return nil, fmt.Errorf("could not decode error response from mint: %v", err)
-		}
-		return nil, errResponse
-	}
-
 	return resp, nil
+}
+
+func GetAllKeysets(ctx context.Context, mintURL string) (*cashurpc.KeysResponse, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.KeySets(ctx, &cashurpc.KeysRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func PostMintQuoteBolt11(ctx context.Context, mintURL string, mintQuoteRequest *cashurpc.PostMintQuoteBolt11Request) (
+	*cashurpc.PostMintQuoteBolt11Response, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.MintQuote(ctx, mintQuoteRequest)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func GetMintQuoteState(ctx context.Context, mintURL, quoteId string) (*cashurpc.PostMintQuoteBolt11Response, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.MintQuoteState(ctx,
+		&cashurpc.GetQuoteBolt11StateRequest{QuoteId: quoteId})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func PostMintBolt11(ctx context.Context, mintURL string, mintRequest *cashurpc.PostMintBolt11Request) (
+	*cashurpc.PostMintBolt11Response, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Mint(ctx, mintRequest)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func PostSwap(ctx context.Context, mintURL string, swapRequest *cashurpc.SwapRequest) (*cashurpc.SwapResponse, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Swap(ctx, swapRequest)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func PostMeltQuoteBolt11(ctx context.Context, mintURL string, meltQuoteRequest *cashurpc.PostMeltQuoteBolt11Request) (
+	*cashurpc.PostMeltQuoteBolt11Response, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.MeltQuote(ctx, meltQuoteRequest)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func PostMeltBolt11(ctx context.Context, mintURL string, meltRequest *cashurpc.PostMeltBolt11Request) (
+	*cashurpc.PostMeltBolt11Response, error) {
+	client, err := createMintClient(mintURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Melt(ctx, meltRequest)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func createMintClient(mintURL string) (cashurpc.MintClient, error) {
+	conn, err := rpc.CreateGrpcClient(mintURL, true)
+	if err != nil {
+		return nil, fmt.Errorf("could not create gRPC client: %w", err)
+	}
+	return cashurpc.NewMintClient(conn), nil
 }

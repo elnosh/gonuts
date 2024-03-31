@@ -59,28 +59,28 @@ func (db *BoltDB) initWalletBuckets() error {
 }
 
 // return all proofs from db
-func (db *BoltDB) GetProofs() cashurpc.Proofs {
-	proofs := cashurpc.Proofs{}
+func (db *BoltDB) GetProofs() *cashurpc.Proofs {
+	proofs := &cashurpc.Proofs{}
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var proof cashurpc.Proof
+			var proof *cashurpc.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
-				proofs = cashurpc.Proofs{}
+				proofs = &cashurpc.Proofs{}
 				return nil
 			}
-			proofs = append(proofs, proof)
+			proofs.Proofs = append(proofs.Proofs, proof)
 		}
 		return nil
 	})
 	return proofs
 }
 
-func (db *BoltDB) GetProofsByKeysetId(id string) cashurpc.Proofs {
-	proofs := cashurpc.Proofs{}
+func (db *BoltDB) GetProofsByKeysetId(id string) *cashurpc.Proofs {
+	proofs := &cashurpc.Proofs{}
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
@@ -93,12 +93,12 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashurpc.Proofs {
 			}
 
 			if proof.Id == id {
-				proofs = append(proofs, proof)
+				proofs.Proofs = append(proofs.Proofs, proof)
 			}
 		}
 		return nil
 	}); err != nil {
-		return cashurpc.Proofs{}
+		return &cashurpc.Proofs{}
 	}
 
 	return proofs
@@ -193,7 +193,7 @@ func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 		key := []byte(invoice.PaymentRequest)
 		return invoicesb.Put(key, jsonbytes)
 	}); err != nil {
-		return fmt.Errorf("error saving invoice: %v", err)
+		return fmt.Errorf("error saving invoice!: %v", err)
 	}
 	return nil
 }

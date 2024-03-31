@@ -67,18 +67,15 @@ func local_request_Mint_KeySets_0(ctx context.Context, marshaler runtime.Marshal
 
 }
 
-var (
-	filter_Mint_Swap_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
-)
-
 func request_Mint_Swap_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq SwapRequest
 	var metadata runtime.ServerMetadata
 
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_Swap_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -91,10 +88,11 @@ func local_request_Mint_Swap_0(ctx context.Context, marshaler runtime.Marshaler,
 	var protoReq SwapRequest
 	var metadata runtime.ServerMetadata
 
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_Swap_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -103,35 +101,15 @@ func local_request_Mint_Swap_0(ctx context.Context, marshaler runtime.Marshaler,
 
 }
 
-var (
-	filter_Mint_MintQuote_0 = &utilities.DoubleArray{Encoding: map[string]int{"method": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
-)
-
 func request_Mint_MintQuote_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMintQuoteRequest
+	var protoReq PostMintQuoteBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_MintQuote_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -141,30 +119,14 @@ func request_Mint_MintQuote_0(ctx context.Context, marshaler runtime.Marshaler, 
 }
 
 func local_request_Mint_MintQuote_0(ctx context.Context, marshaler runtime.Marshaler, server MintServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMintQuoteRequest
+	var protoReq PostMintQuoteBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_MintQuote_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -174,7 +136,7 @@ func local_request_Mint_MintQuote_0(ctx context.Context, marshaler runtime.Marsh
 }
 
 func request_Mint_MintQuoteState_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq GetQuoteStateRequest
+	var protoReq GetQuoteBolt11StateRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -183,16 +145,6 @@ func request_Mint_MintQuoteState_0(ctx context.Context, marshaler runtime.Marsha
 		err error
 		_   = err
 	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
-	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
 
 	val, ok = pathParams["quote_id"]
 	if !ok {
@@ -210,7 +162,7 @@ func request_Mint_MintQuoteState_0(ctx context.Context, marshaler runtime.Marsha
 }
 
 func local_request_Mint_MintQuoteState_0(ctx context.Context, marshaler runtime.Marshaler, server MintServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq GetQuoteStateRequest
+	var protoReq GetQuoteBolt11StateRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -219,16 +171,6 @@ func local_request_Mint_MintQuoteState_0(ctx context.Context, marshaler runtime.
 		err error
 		_   = err
 	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
-	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
 
 	val, ok = pathParams["quote_id"]
 	if !ok {
@@ -245,35 +187,15 @@ func local_request_Mint_MintQuoteState_0(ctx context.Context, marshaler runtime.
 
 }
 
-var (
-	filter_Mint_Mint_0 = &utilities.DoubleArray{Encoding: map[string]int{"method": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
-)
-
 func request_Mint_Mint_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMintRequest
+	var protoReq PostMintBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_Mint_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -283,30 +205,14 @@ func request_Mint_Mint_0(ctx context.Context, marshaler runtime.Marshaler, clien
 }
 
 func local_request_Mint_Mint_0(ctx context.Context, marshaler runtime.Marshaler, server MintServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMintRequest
+	var protoReq PostMintBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_Mint_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -315,35 +221,15 @@ func local_request_Mint_Mint_0(ctx context.Context, marshaler runtime.Marshaler,
 
 }
 
-var (
-	filter_Mint_MeltQuote_0 = &utilities.DoubleArray{Encoding: map[string]int{"method": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
-)
-
 func request_Mint_MeltQuote_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMeltQuoteRequest
+	var protoReq PostMeltQuoteBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_MeltQuote_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -353,30 +239,14 @@ func request_Mint_MeltQuote_0(ctx context.Context, marshaler runtime.Marshaler, 
 }
 
 func local_request_Mint_MeltQuote_0(ctx context.Context, marshaler runtime.Marshaler, server MintServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMeltQuoteRequest
+	var protoReq PostMeltQuoteBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_MeltQuote_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -386,7 +256,7 @@ func local_request_Mint_MeltQuote_0(ctx context.Context, marshaler runtime.Marsh
 }
 
 func request_Mint_MeltQuoteState_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq GetQuoteStateRequest
+	var protoReq GetQuoteBolt11StateRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -395,16 +265,6 @@ func request_Mint_MeltQuoteState_0(ctx context.Context, marshaler runtime.Marsha
 		err error
 		_   = err
 	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
-	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
 
 	val, ok = pathParams["quote_id"]
 	if !ok {
@@ -422,7 +282,7 @@ func request_Mint_MeltQuoteState_0(ctx context.Context, marshaler runtime.Marsha
 }
 
 func local_request_Mint_MeltQuoteState_0(ctx context.Context, marshaler runtime.Marshaler, server MintServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq GetQuoteStateRequest
+	var protoReq GetQuoteBolt11StateRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -431,16 +291,6 @@ func local_request_Mint_MeltQuoteState_0(ctx context.Context, marshaler runtime.
 		err error
 		_   = err
 	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
-	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
 
 	val, ok = pathParams["quote_id"]
 	if !ok {
@@ -457,35 +307,15 @@ func local_request_Mint_MeltQuoteState_0(ctx context.Context, marshaler runtime.
 
 }
 
-var (
-	filter_Mint_Melt_0 = &utilities.DoubleArray{Encoding: map[string]int{"method": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
-)
-
 func request_Mint_Melt_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMeltRequest
+	var protoReq PostMeltBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_Melt_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -495,30 +325,14 @@ func request_Mint_Melt_0(ctx context.Context, marshaler runtime.Marshaler, clien
 }
 
 func local_request_Mint_Melt_0(ctx context.Context, marshaler runtime.Marshaler, server MintServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PostMeltRequest
+	var protoReq PostMeltBolt11Request
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["method"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "method")
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
 	}
-
-	protoReq.Method, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "method", err)
-	}
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_Melt_0); err != nil {
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -670,7 +484,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MintQuote", runtime.WithHTTPPathPattern("/v1/mint/quote/{method}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MintQuote", runtime.WithHTTPPathPattern("/v1/mint/quote/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -687,7 +501,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 
 	})
 
-	mux.Handle("POST", pattern_Mint_MintQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mint_MintQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -695,7 +509,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MintQuoteState", runtime.WithHTTPPathPattern("/v1/mint/quote/{method}/{quote_id}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MintQuoteState", runtime.WithHTTPPathPattern("/v1/mint/quote/bolt11/{quote_id}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -720,7 +534,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/Mint", runtime.WithHTTPPathPattern("/v1/mint/{method}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/Mint", runtime.WithHTTPPathPattern("/v1/mint/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -745,7 +559,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuote", runtime.WithHTTPPathPattern("/v1/melt/quote/{method}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuote", runtime.WithHTTPPathPattern("/v1/melt/quote/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -762,7 +576,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 
 	})
 
-	mux.Handle("POST", pattern_Mint_MeltQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mint_MeltQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -770,7 +584,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuoteState", runtime.WithHTTPPathPattern("/v1/melt/quote/{method}/{quote_id}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuoteState", runtime.WithHTTPPathPattern("/v1/melt/quote/bolt11/{quote_id}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -795,7 +609,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/Melt", runtime.WithHTTPPathPattern("/v1/melt/{method}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/cashu.v1.Mint/Melt", runtime.WithHTTPPathPattern("/v1/melt/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -812,7 +626,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 
 	})
 
-	mux.Handle("POST", pattern_Mint_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mint_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -975,7 +789,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MintQuote", runtime.WithHTTPPathPattern("/v1/mint/quote/{method}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MintQuote", runtime.WithHTTPPathPattern("/v1/mint/quote/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -991,13 +805,13 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 
 	})
 
-	mux.Handle("POST", pattern_Mint_MintQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mint_MintQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MintQuoteState", runtime.WithHTTPPathPattern("/v1/mint/quote/{method}/{quote_id}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MintQuoteState", runtime.WithHTTPPathPattern("/v1/mint/quote/bolt11/{quote_id}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1019,7 +833,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/Mint", runtime.WithHTTPPathPattern("/v1/mint/{method}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/Mint", runtime.WithHTTPPathPattern("/v1/mint/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1041,7 +855,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuote", runtime.WithHTTPPathPattern("/v1/melt/quote/{method}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuote", runtime.WithHTTPPathPattern("/v1/melt/quote/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1057,13 +871,13 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 
 	})
 
-	mux.Handle("POST", pattern_Mint_MeltQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mint_MeltQuoteState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuoteState", runtime.WithHTTPPathPattern("/v1/melt/quote/{method}/{quote_id}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/MeltQuoteState", runtime.WithHTTPPathPattern("/v1/melt/quote/bolt11/{quote_id}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1085,7 +899,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/Melt", runtime.WithHTTPPathPattern("/v1/melt/{method}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/cashu.v1.Mint/Melt", runtime.WithHTTPPathPattern("/v1/melt/bolt11"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1101,7 +915,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 
 	})
 
-	mux.Handle("POST", pattern_Mint_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Mint_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
@@ -1155,17 +969,17 @@ var (
 
 	pattern_Mint_Swap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "swap"}, ""))
 
-	pattern_Mint_MintQuote_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "mint", "quote", "method"}, ""))
+	pattern_Mint_MintQuote_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mint", "quote", "bolt11"}, ""))
 
-	pattern_Mint_MintQuoteState_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mint", "quote", "method", "quote_id"}, ""))
+	pattern_Mint_MintQuoteState_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mint", "quote", "bolt11", "quote_id"}, ""))
 
-	pattern_Mint_Mint_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "mint", "method"}, ""))
+	pattern_Mint_Mint_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mint", "bolt11"}, ""))
 
-	pattern_Mint_MeltQuote_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "melt", "quote", "method"}, ""))
+	pattern_Mint_MeltQuote_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "melt", "quote", "bolt11"}, ""))
 
-	pattern_Mint_MeltQuoteState_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "melt", "quote", "method", "quote_id"}, ""))
+	pattern_Mint_MeltQuoteState_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "melt", "quote", "bolt11", "quote_id"}, ""))
 
-	pattern_Mint_Melt_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "melt", "method"}, ""))
+	pattern_Mint_Melt_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "melt", "bolt11"}, ""))
 
 	pattern_Mint_Info_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "info"}, ""))
 

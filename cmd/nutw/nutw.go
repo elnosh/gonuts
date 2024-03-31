@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/elnosh/gonuts/cashurpc"
@@ -23,7 +24,7 @@ var nutw *wallet.Wallet
 func walletConfig() wallet.Config {
 	path := setWalletPath()
 	// default config
-	config := wallet.Config{WalletPath: path, CurrentMintURL: "https://8333.space:3338", DomainSeparation: false}
+	config := wallet.Config{WalletPath: path, CurrentMintURL: "grpc://8333.space:3339", DomainSeparation: false}
 
 	envPath := filepath.Join(path, ".env")
 	if _, err := os.Stat(envPath); err != nil {
@@ -70,7 +71,7 @@ func getMintURL() string {
 		mintHost := os.Getenv("MINT_HOST")
 		mintPort := os.Getenv("MINT_PORT")
 		if len(mintHost) == 0 || len(mintPort) == 0 {
-			return "http://127.0.0.1:3338"
+			return "127.0.0.1:3339"
 		}
 
 		url := &url.URL{
@@ -86,7 +87,7 @@ func setupWallet(ctx *cli.Context) error {
 	config := walletConfig()
 
 	var err error
-	nutw, err = wallet.LoadWallet(config)
+	nutw, err = wallet.LoadWallet(ctx.Context, config)
 	if err != nil {
 		printErr(err)
 	}
@@ -176,7 +177,7 @@ func receive(ctx *cli.Context) error {
 		swap = false
 	}
 
-	receivedAmount, err := nutw.Receive(*token, swap)
+	receivedAmount, err := nutw.Receive(ctx.Context, token, swap)
 	if err != nil {
 		printErr(err)
 	}
@@ -202,7 +203,7 @@ var mintCmd = &cli.Command{
 func mint(ctx *cli.Context) error {
 	// if paid invoice was passed, request tokens from mint
 	if ctx.IsSet(invoiceFlag) {
-		err := mintTokens(ctx.String(invoiceFlag))
+		err := mintTokens(ctx.Context, ctx.String(invoiceFlag))
 		if err != nil {
 			printErr(err)
 		}
@@ -214,7 +215,7 @@ func mint(ctx *cli.Context) error {
 		printErr(errors.New("specify an amount to mint"))
 	}
 	amountStr := args.First()
-	err := requestMint(amountStr)
+	err := requestMint(ctx.Context, amountStr)
 	if err != nil {
 		printErr(err)
 	}
@@ -222,13 +223,13 @@ func mint(ctx *cli.Context) error {
 	return nil
 }
 
-func requestMint(amountStr string) error {
+func requestMint(ctx context.Context, amountStr string) error {
 	amount, err := strconv.ParseUint(amountStr, 10, 64)
 	if err != nil {
 		return errors.New("invalid amount")
 	}
 
-	mintResponse, err := nutw.RequestMint(amount)
+	mintResponse, err := nutw.RequestMint(ctx, amount)
 	if err != nil {
 		return err
 	}
@@ -238,18 +239,18 @@ func requestMint(amountStr string) error {
 	return nil
 }
 
-func mintTokens(paymentRequest string) error {
+func mintTokens(ctx context.Context, paymentRequest string) error {
 	invoice := nutw.GetInvoice(paymentRequest)
 	if invoice == nil {
 		return errors.New("invoice not found")
 	}
 
-	proofs, err := nutw.MintTokens(invoice.Id)
+	proofs, err := nutw.MintTokens(ctx, invoice.Id)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("%v sats successfully minted\n", proofs.Amount())
+	fmt.Printf("%v sats successfully minted\n", cashu.Amount(proofs))
 	return nil
 }
 
@@ -272,7 +273,7 @@ func send(ctx *cli.Context) error {
 
 	selectedMint := promptMintSelection("send")
 
-	token, err := nutw.Send(sendAmount, selectedMint)
+	token, err := nutw.Send(ctx.Context, sendAmount, selectedMint)
 	if err != nil {
 		printErr(err)
 	}
@@ -296,8 +297,8 @@ func pay(ctx *cli.Context) error {
 	selectedMint := promptMintSelection("pay invoice")
 
 	invoice := args.First()
-	meltRequest := &cashurpc.PostMeltQuoteRequest{Request: invoice, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
-	meltResponse, err := nutw.Melt(meltRequest,selectedMint)
+	meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: invoice, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
+	meltResponse, err := nutw.Melt(ctx.Context, meltRequest.Request, selectedMint)
 	if err != nil {
 		printErr(err)
 	}

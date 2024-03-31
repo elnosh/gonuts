@@ -107,11 +107,13 @@ func startGateway(
 				metaData.Append("auth-user-bin", md["auth-user-bin"][0])
 			}
 			return metaData
-		}))
+		}),
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONBuiltin{}))
 
 	mux := runtime.NewServeMux(serverOptions...)
+
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	endpoint := fmt.Sprintf("%s:%d", "127.0.0.1", 3338)
+	endpoint := fmt.Sprintf("%s:%d", "127.0.0.1", 3339)
 	for _, endpointRegistration := range registration {
 		err := endpointRegistration(ctx, mux, endpoint, opts)
 		if err != nil {

@@ -10,13 +10,12 @@ enum UnitType {
 }
 
 
-message PostMintQuoteRequest {
-  string method =1;
-  uint64 amount = 2;
-  UnitType unit = 3;
+message PostMintQuoteBolt11Request {
+  uint64 amount = 1;
+  UnitType unit = 2;
 }
 
-message PostMintQuoteResponse {
+message PostMintQuoteBolt11Response {
   string quote = 1;
   string request = 2;
   bool paid = 3;
@@ -24,13 +23,12 @@ message PostMintQuoteResponse {
 }
 
 
-message PostMintRequest {
-  string method =1;
+message PostMintBolt11Request {
   string quote = 2;
   repeated BlindedMessage outputs = 3;
 }
 
 
-message PostMintResponse {
+message PostMintBolt11Response {
   repeated BlindedSignature signatures = 1;
 }
