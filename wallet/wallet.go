@@ -26,8 +26,7 @@ type Wallet struct {
 	// array of mints that have been trusted
 	mints map[string]walletMint
 
-	proofs           cashu.Proofs
-	domainSeparation bool
+	proofs cashu.Proofs
 }
 
 type walletMint struct {
@@ -111,9 +110,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		}
 	}
 	wallet.mints[mintURL] = *currentMint
-
 	wallet.proofs = wallet.db.GetProofs()
-	wallet.domainSeparation = config.DomainSeparation
 
 	return wallet, nil
 }
@@ -574,14 +571,6 @@ func (w *Wallet) CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cas
 	rs := make([]*secp256k1.PrivateKey, splitLen)
 
 	for i, amt := range splitAmounts {
-		// create random secret
-		secretBytes := make([]byte, 32)
-		_, err := rand.Read(secretBytes)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		secret := hex.EncodeToString(secretBytes)
-
 		// generate new private key r
 		r, err := secp256k1.GeneratePrivateKey()
 		if err != nil {
@@ -589,14 +578,21 @@ func (w *Wallet) CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cas
 		}
 
 		var B_ *secp256k1.PublicKey
-		if w.domainSeparation {
-			B_, r, err = crypto.BlindMessageDomainSeparated(secret, r)
+		var secret string
+		// generate random secret until it finds valid point
+		for {
+			secretBytes := make([]byte, 32)
+			_, err = rand.Read(secretBytes)
 			if err != nil {
 				return nil, nil, nil, err
 			}
-		} else {
-			B_, r = crypto.BlindMessage(secret, r)
+			secret = hex.EncodeToString(secretBytes)
+			B_, r, err = crypto.BlindMessage(secret, r)
+			if err == nil {
+				break
+			}
 		}
+
 		blindedMessage := NewBlindedMessage(keyset.Id, amt, B_)
 		blindedMessages[i] = blindedMessage
 		secrets[i] = secret

@@ -112,7 +112,7 @@ type dbproof struct {
 
 func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 	var proof *cashu.Proof
-	Y := crypto.HashToCurve([]byte(secret))
+	Y := crypto.HashToCurveDeprecated([]byte(secret))
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
@@ -127,7 +127,7 @@ func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 }
 
 func (b *BoltDB) SaveProof(proof cashu.Proof) error {
-	Y := crypto.HashToCurve([]byte(proof.Secret))
+	Y := crypto.HashToCurveDeprecated([]byte(proof.Secret))
 
 	dbproof := dbproof{
 		Y:      Y.SerializeCompressed(),

@@ -22,7 +22,7 @@ var nutw *wallet.Wallet
 func walletConfig() wallet.Config {
 	path := setWalletPath()
 	// default config
-	config := wallet.Config{WalletPath: path, CurrentMintURL: "https://8333.space:3338", DomainSeparation: false}
+	config := wallet.Config{WalletPath: path, CurrentMintURL: "https://8333.space:3338"}
 
 	envPath := filepath.Join(path, ".env")
 	if _, err := os.Stat(envPath); err != nil {
@@ -40,9 +40,6 @@ func walletConfig() wallet.Config {
 			config.CurrentMintURL = getMintURL()
 		}
 	}
-
-	domainSeparation, _ := strconv.ParseBool(os.Getenv("WALLET_DOMAIN_SEPARATION"))
-	config.DomainSeparation = domainSeparation
 
 	return config
 }
