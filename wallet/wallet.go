@@ -16,6 +16,8 @@ import (
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet/storage"
+
+	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
 
 type Wallet struct {
@@ -199,9 +201,18 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 		return nil, err
 	}
 
-	invoice := lightning.Invoice{Id: mintResponse.Quote,
-		PaymentRequest: mintResponse.Request, Amount: amount,
-		Expiry: mintResponse.Expiry}
+	bolt11, err := decodepay.Decodepay(mintResponse.Request)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)
+	}
+
+	invoice := lightning.Invoice{
+		Id:             mintResponse.Quote,
+		PaymentRequest: mintResponse.Request,
+		PaymentHash:    bolt11.PaymentHash,
+		Amount:         amount,
+		Expiry:         mintResponse.Expiry,
+	}
 
 	err = w.db.SaveInvoice(invoice)
 	if err != nil {
@@ -229,7 +240,10 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 		return nil, errors.New("invoice not paid")
 	}
 
-	invoice := w.db.GetInvoice(mintQuote.Request)
+	invoice, err := w.GetInvoiceByPaymentRequest(mintQuote.Request)
+	if err != nil {
+		return nil, err
+	}
 	if invoice == nil {
 		return nil, errors.New("invoice not found")
 	}
@@ -683,6 +697,15 @@ func (w *Wallet) saveProofs(proofs cashu.Proofs) error {
 	return nil
 }
 
-func (w *Wallet) GetInvoice(pr string) *lightning.Invoice {
-	return w.db.GetInvoice(pr)
+func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*lightning.Invoice, error) {
+	bolt11, err := decodepay.Decodepay(pr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid payment request: %v", err)
+	}
+
+	return w.db.GetInvoice(bolt11.PaymentHash), nil
+}
+
+func (w *Wallet) GetInvoiceByPaymentHash(hash string) *lightning.Invoice {
+	return w.db.GetInvoice(hash)
 }
