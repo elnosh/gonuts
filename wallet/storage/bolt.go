@@ -190,7 +190,7 @@ func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
-		key := []byte(invoice.PaymentRequest)
+		key := []byte(invoice.PaymentHash)
 		return invoicesb.Put(key, jsonbytes)
 	}); err != nil {
 		return fmt.Errorf("error saving invoice: %v", err)
@@ -198,12 +198,12 @@ func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 	return nil
 }
 
-func (db *BoltDB) GetInvoice(pr string) *lightning.Invoice {
+func (db *BoltDB) GetInvoice(paymentHash string) *lightning.Invoice {
 	var invoice *lightning.Invoice
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
-		invoiceBytes := invoicesb.Get([]byte(pr))
+		invoiceBytes := invoicesb.Get([]byte(paymentHash))
 		err := json.Unmarshal(invoiceBytes, &invoice)
 		if err != nil {
 			invoice = nil
