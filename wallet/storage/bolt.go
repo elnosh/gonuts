@@ -213,3 +213,23 @@ func (db *BoltDB) GetInvoice(paymentHash string) *lightning.Invoice {
 	})
 	return invoice
 }
+
+func (db *BoltDB) GetInvoices() []lightning.Invoice {
+	var invoices []lightning.Invoice
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		invoicesb := tx.Bucket([]byte(invoicesBucket))
+
+		c := invoicesb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var invoice lightning.Invoice
+			if err := json.Unmarshal(v, &invoice); err != nil {
+				invoices = []lightning.Invoice{}
+				return nil
+			}
+			invoices = append(invoices, invoice)
+		}
+		return nil
+	})
+	return invoices
+}
