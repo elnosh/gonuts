@@ -266,6 +266,13 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}
 
+	invoice.Settled = true
+	invoice.Redeemed = true
+	err = w.db.SaveInvoice(*invoice)
+	if err != nil {
+		return nil, err
+	}
+
 	// store proofs in db
 	err = w.saveProofs(proofs)
 	if err != nil {
@@ -708,4 +715,8 @@ func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*lightning.Invoice, erro
 
 func (w *Wallet) GetInvoiceByPaymentHash(hash string) *lightning.Invoice {
 	return w.db.GetInvoice(hash)
+}
+
+func (w *Wallet) GetAllInvoices() []lightning.Invoice {
+	return w.db.GetInvoices()
 }
