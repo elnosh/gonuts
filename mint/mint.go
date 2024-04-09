@@ -37,7 +37,7 @@ type Mint struct {
 }
 
 func LoadMint(config Config) (*Mint, error) {
-	path := setMintDBPath()
+	path := mintPath()
 	db, err := InitBolt(path)
 	if err != nil {
 		log.Fatalf("error starting mint: %v", err)
@@ -66,7 +66,7 @@ func LoadMint(config Config) (*Mint, error) {
 	return mint, nil
 }
 
-func setMintDBPath() string {
+func mintPath() string {
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)
