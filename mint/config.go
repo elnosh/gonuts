@@ -46,18 +46,32 @@ func getMintInfo() (*nut06.MintInfo, error) {
 	mintInfo.Contact = mintContactInfo
 
 	nuts := map[string]interface{}{
-		"4": map[string]interface{}{
-			"methods": [][]string{
-				{"bolt11", "sat"},
+		"4": NutSetting{
+			Methods: []MethodSetting{
+				{Method: "bolt11", Unit: "sat"},
 			},
+			Disabled: false,
 		},
-		"5": map[string]interface{}{
-			"methods": [][]string{
-				{"bolt11", "sat"},
+		"5": NutSetting{
+			Methods: []MethodSetting{
+				{Method: "bolt11", Unit: "sat"},
 			},
+			Disabled: false,
 		},
 	}
 
 	mintInfo.Nuts = nuts
 	return &mintInfo, nil
+}
+
+type NutSetting struct {
+	Methods  []MethodSetting `json:"methods"`
+	Disabled bool            `json:"disabled"`
+}
+
+type MethodSetting struct {
+	Method    string `json:"method"`
+	Unit      string `json:"unit"`
+	MinAmount uint64 `json:"min_amount,omitempty"`
+	MaxAmount uint64 `json:"max_amount,omitempty"`
 }
