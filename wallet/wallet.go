@@ -43,12 +43,12 @@ type walletMint struct {
 func mintInfo(mintURL string) (*walletMint, error) {
 	activeKeysets, err := GetMintActiveKeysets(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
+		return nil, err
 	}
 
 	inactiveKeysets, err := GetMintInactiveKeysets(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting inactive keysets from mint: %v", err)
+		return nil, err
 	}
 
 	return &walletMint{mintURL, activeKeysets, inactiveKeysets}, nil
@@ -98,7 +98,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 
 	currentMint, err := mintInfo(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting keysets from mint: %v", err)
+		return nil, err
 	}
 	wallet.currentMint = currentMint
 
