@@ -11,6 +11,10 @@ type BlindedMessage struct {
 	Amount uint64 `json:"amount"`
 	B_     string `json:"B_"`
 	Id     string `json:"id"`
+
+	// nutshell includes this field in requests even for mints that don't support that nut yet
+	// adding to not throw error when parsing the json but not doing anything with it for now
+	Witness string `json:"witness,omitempty"`
 }
 
 type BlindedMessages []BlindedMessage
@@ -28,6 +32,10 @@ type Proof struct {
 	Id     string `json:"id"`
 	Secret string `json:"secret"`
 	C      string `json:"C"`
+
+	// nutshell includes this field in requests even for mints that don't support that nut yet
+	// adding to not throw error when parsing the json but not doing anything with it for now
+	Witness string `json:"witness,omitempty"`
 }
 
 type Proofs []Proof
