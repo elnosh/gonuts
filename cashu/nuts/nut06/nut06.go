@@ -1,3 +1,6 @@
+// Package nut06 contains structs as defined in [NUT-06]
+//
+// [NUT-06]: https://github.com/cashubtc/nuts/blob/main/06.md
 package nut06
 
 import (
@@ -31,6 +34,7 @@ type MethodSetting struct {
 
 type NutsMap map[int]any
 
+// Custom marshaller to display supported nuts in order
 func (nm NutsMap) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')

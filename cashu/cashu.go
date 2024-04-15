@@ -1,3 +1,5 @@
+// Package cashu contains the core structs and logic
+// of the Cashu protocol.
 package cashu
 
 import (
@@ -7,18 +9,20 @@ import (
 	"fmt"
 )
 
+// Cashu BlindedMessage. See https://github.com/cashubtc/nuts/blob/main/00.md#blindedmessage
 type BlindedMessage struct {
 	Amount uint64 `json:"amount"`
 	B_     string `json:"B_"`
 	Id     string `json:"id"`
 
-	// nutshell includes this field in requests even for mints that don't support that nut yet
-	// adding to not throw error when parsing the json but not doing anything with it for now
+	// including Witness field for now to avoid throwing error when parsing json
+	// from clients that include this field even when mint does not support it.
 	Witness string `json:"witness,omitempty"`
 }
 
 type BlindedMessages []BlindedMessage
 
+// Cashu BlindedSignature. See https://github.com/cashubtc/nuts/blob/main/00.md#blindsignature
 type BlindedSignature struct {
 	Amount uint64 `json:"amount"`
 	C_     string `json:"C_"`
@@ -27,19 +31,22 @@ type BlindedSignature struct {
 
 type BlindedSignatures []BlindedSignature
 
+// Cashu Proof. See https://github.com/cashubtc/nuts/blob/main/00.md#proof
 type Proof struct {
 	Amount uint64 `json:"amount"`
 	Id     string `json:"id"`
 	Secret string `json:"secret"`
 	C      string `json:"C"`
 
-	// nutshell includes this field in requests even for mints that don't support that nut yet
-	// adding to not throw error when parsing the json but not doing anything with it for now
+	// including Witness field for now to avoid throwing error when parsing json
+	// from clients that include this field even when mint does not support it.
 	Witness string `json:"witness,omitempty"`
 }
 
 type Proofs []Proof
 
+// Amount returns the total amount from
+// the array of Proof
 func (proofs Proofs) Amount() uint64 {
 	var totalAmount uint64 = 0
 	for _, proof := range proofs {
@@ -48,6 +55,7 @@ func (proofs Proofs) Amount() uint64 {
 	return totalAmount
 }
 
+// Cashu token. See https://github.com/cashubtc/nuts/blob/main/00.md#token-format
 type Token struct {
 	Token []TokenProof `json:"token"`
 	Unit  string       `json:"unit"`
@@ -90,6 +98,7 @@ func DecodeToken(tokenstr string) (*Token, error) {
 	return &token, nil
 }
 
+// ToString serializes the token to a string
 func (t *Token) ToString() string {
 	jsonBytes, err := json.Marshal(t)
 	if err != nil {
@@ -100,6 +109,8 @@ func (t *Token) ToString() string {
 	return "cashuA" + token
 }
 
+// TotalAmount returns the total amount
+// from the array of Proofs in the token
 func (t *Token) TotalAmount() uint64 {
 	var totalAmount uint64 = 0
 	for _, tokenProof := range t.Token {
@@ -112,6 +123,7 @@ func (t *Token) TotalAmount() uint64 {
 
 type CashuErrCode int
 
+// Error represents an error to be used by the mint
 type Error struct {
 	Detail string       `json:"detail"`
 	Code   CashuErrCode `json:"code"`
@@ -125,6 +137,7 @@ func (e Error) Error() string {
 	return e.Detail
 }
 
+// Common error codes
 const (
 	StandardErrCode CashuErrCode = 1000 + iota
 	KeysetErrCode

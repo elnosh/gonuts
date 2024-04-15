@@ -1,3 +1,7 @@
+// Package crypto implements the cryptography used in the Cashu protocol
+// as explained in [Cashu].
+//
+// [Cashu]: https://github.com/cashubtc/nuts/blob/main/00.md
 package crypto
 
 import (
@@ -127,8 +131,7 @@ func verify(Y *secp256k1.PublicKey, k *secp256k1.PrivateKey, C *secp256k1.Public
 	return C.IsEqual(pk)
 }
 
-
-// Deprecated HashToCurve 
+// Deprecated HashToCurve
 
 func HashToCurveDeprecated(message []byte) *secp256k1.PublicKey {
 	var point *secp256k1.PublicKey

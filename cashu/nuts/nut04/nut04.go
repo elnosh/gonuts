@@ -1,3 +1,6 @@
+// Package nut04 contains structs as defined in [NUT-04]
+//
+// [NUT-04]: https://github.com/cashubtc/nuts/blob/main/04.md
 package nut04
 
 import "github.com/elnosh/gonuts/cashu"

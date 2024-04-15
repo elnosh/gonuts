@@ -1,3 +1,6 @@
+// Package nut01 contains structs as defined in [NUT-01]
+//
+// [NUT-01]: https://github.com/cashubtc/nuts/blob/main/01.md
 package nut01
 
 import (
@@ -18,7 +21,7 @@ type Keyset struct {
 
 type KeysMap map[uint64]string
 
-// custom marshaller to display sorted keys
+// Custom marshaller to display sorted keys
 func (km KeysMap) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')

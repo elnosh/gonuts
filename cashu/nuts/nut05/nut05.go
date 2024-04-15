@@ -1,3 +1,6 @@
+// Package nut05 contains structs as defined in [NUT-05]
+//
+// [NUT-05]: https://github.com/cashubtc/nuts/blob/main/05.md
 package nut05
 
 import "github.com/elnosh/gonuts/cashu"
