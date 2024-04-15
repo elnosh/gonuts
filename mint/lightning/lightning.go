@@ -9,6 +9,7 @@ const (
 	LND = "Lnd"
 )
 
+// Client interface to interact with a Lightning backend
 type Client interface {
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceSettled(hash string) bool

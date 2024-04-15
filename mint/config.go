@@ -22,6 +22,8 @@ func GetConfig() Config {
 	}
 }
 
+// getMintInfo returns information about the mint as
+// defined in NUT-06: https://github.com/cashubtc/nuts/blob/main/06.md
 func getMintInfo() (*nut06.MintInfo, error) {
 	mintInfo := nut06.MintInfo{
 		Name:        os.Getenv("MINT_NAME"),
