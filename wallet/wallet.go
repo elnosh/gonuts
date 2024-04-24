@@ -449,10 +449,10 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 		return nil, err
 	}
 
-	// only delete proofs after invoice has been paid
-	if meltBolt11Response.Paid {
+	// save proofs if invoices was not paid
+	if !meltBolt11Response.Paid {
 		for _, proof := range proofs {
-			w.db.DeleteProof(proof.Secret)
+			w.db.SaveProof(proof)
 		}
 	}
 
