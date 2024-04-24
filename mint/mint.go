@@ -130,7 +130,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 	}
 
 	// check if the invoice has been paid
-	settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
+	settled, _ := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
 	if settled != invoice.Settled {
 		invoice.Settled = settled
 		m.db.SaveInvoice(*invoice)
@@ -155,7 +155,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 	var blindedSignatures cashu.BlindedSignatures
 
-	settled := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
+	settled, _ := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
 	if settled {
 		if invoice.Redeemed {
 			return nil, cashu.InvoiceTokensIssuedErr
@@ -257,7 +257,7 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 	// Fee reserved that is required by the mint
 	amount, fee, err := m.LightningClient.FeeReserve(request)
 	if err != nil {
-		return MeltQuote{}, fmt.Errorf("error getting fee: %v", err)
+		return MeltQuote{}, fmt.Errorf("error getting fee reserve: %v", err)
 	}
 	expiry := time.Now().Add(time.Minute * QuoteExpiryMins).Unix()
 
