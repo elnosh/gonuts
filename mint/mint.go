@@ -17,6 +17,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
+	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
 
 const (
@@ -246,9 +247,16 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 		return MeltQuote{}, cashu.UnitNotSupportedErr
 	}
 
+	// check invoice passed is valid
+	_, err := decodepay.Decodepay(request)
+	if err != nil {
+		msg := fmt.Sprintf("invalid invoice: %v", err)
+		return MeltQuote{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
+	}
+
 	// generate random id for melt quote
 	randomBytes := make([]byte, 32)
-	_, err := rand.Read(randomBytes)
+	_, err = rand.Read(randomBytes)
 	if err != nil {
 		return MeltQuote{}, cashu.StandardErr
 	}
@@ -318,7 +326,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 	// to make the payment
 	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest)
 	if err != nil {
-		return *meltQuote, nil
+		return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.InvoiceErrCode)
 	}
 
 	// if payment succeeded, mark melt quote as paid

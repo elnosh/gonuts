@@ -14,6 +14,7 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/joho/godotenv"
+	decodepay "github.com/nbd-wtf/ln-decodepay"
 	"github.com/urfave/cli/v2"
 )
 
@@ -291,10 +292,15 @@ func pay(ctx *cli.Context) error {
 	if args.Len() < 1 {
 		printErr(errors.New("specify a lightning invoice to pay"))
 	}
+	invoice := args.First()
 
+	// check invoice passed is valid
+	_, err := decodepay.Decodepay(invoice)
+	if err != nil {
+		printErr(fmt.Errorf("invalid invoice: %v", err))
+	}
 	selectedMint := promptMintSelection("pay invoice")
 
-	invoice := args.First()
 	meltResponse, err := nutw.Melt(invoice, selectedMint)
 	if err != nil {
 		printErr(err)
