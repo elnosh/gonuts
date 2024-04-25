@@ -99,12 +99,13 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut0
 	// get an invoice from the lightning backend
 	invoice, err := m.requestInvoice(amount)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, err
+		msg := fmt.Sprintf("error generating invoice: %v", err)
+		return nut04.PostMintQuoteBolt11Response{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
 	}
 
 	err = m.db.SaveInvoice(*invoice)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, err
+		return nut04.PostMintQuoteBolt11Response{}, cashu.StandardErr
 	}
 
 	reqMintQuoteResponse := nut04.PostMintQuoteBolt11Response{
@@ -215,8 +216,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	// by adding them to the db
 	blindedSignatures, err := m.signBlindedMessages(blindedMessages)
 	if err != nil {
-		cashuErr := cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-		return nil, cashuErr
+		return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 	}
 
 	for _, proof := range proofs {
@@ -250,14 +250,15 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 	randomBytes := make([]byte, 32)
 	_, err := rand.Read(randomBytes)
 	if err != nil {
-		return MeltQuote{}, fmt.Errorf("melt request error: %v", err)
+		return MeltQuote{}, cashu.StandardErr
 	}
 	hash := sha256.Sum256(randomBytes)
 
 	// Fee reserved that is required by the mint
 	amount, fee, err := m.LightningClient.FeeReserve(request)
 	if err != nil {
-		return MeltQuote{}, fmt.Errorf("error getting fee reserve: %v", err)
+		msg := fmt.Sprintf("melt request error: %v", err)
+		return MeltQuote{}, cashu.BuildCashuError(msg, cashu.StandardErrCode)
 	}
 	expiry := time.Now().Add(time.Minute * QuoteExpiryMins).Unix()
 
@@ -389,11 +390,11 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 
 		B_bytes, err := hex.DecodeString(msg.B_)
 		if err != nil {
-			log.Fatal(err)
+			return nil, cashu.StandardErr
 		}
 		B_, err := btcec.ParsePubKey(B_bytes)
 		if err != nil {
-			return nil, err
+			return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
 		C_ := crypto.SignBlindedMessage(B_, k)
@@ -413,13 +414,13 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
 	invoice, err := m.LightningClient.CreateInvoice(amount)
 	if err != nil {
-		return nil, fmt.Errorf("error creating invoice: %v", err)
+		return nil, err
 	}
 
 	randomBytes := make([]byte, 32)
 	_, err = rand.Read(randomBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error creating invoice: %v", err)
+		return nil, err
 	}
 	hash := sha256.Sum256(randomBytes)
 	invoice.Id = hex.EncodeToString(hash[:])

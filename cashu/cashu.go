@@ -123,7 +123,7 @@ func (t *Token) TotalAmount() uint64 {
 
 type CashuErrCode int
 
-// Error represents an error to be used by the mint
+// Error represents an error to be returned by the mint
 type Error struct {
 	Detail string       `json:"detail"`
 	Code   CashuErrCode `json:"code"`
