@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -76,11 +76,16 @@ func httpClient(tlsCert string) (*http.Client, error) {
 	}, nil
 }
 
+type AddInvoiceResponse struct {
+	Hash           string `json:"r_hash"`
+	PaymentRequest string `json:"payment_request"`
+}
+
 func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 	body := map[string]any{"value": amount, "expiry": InvoiceExpiryMins * 60}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return Invoice{}, fmt.Errorf("invalid amount: %v", err)
+		return Invoice{}, err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, lnd.host+"/v1/invoices", bytes.NewBuffer(jsonBody))
@@ -94,21 +99,36 @@ func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 		return Invoice{}, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return Invoice{}, fmt.Errorf("unable to get invoice from lnd")
+	}
 
-	var res map[string]any
-	json.NewDecoder(resp.Body).Decode(&res)
-	pr := res["payment_request"].(string)
-	paymentHash := res["r_hash"].(string)
+	var res AddInvoiceResponse
+	err = json.NewDecoder(resp.Body).Decode(&res)
+	if err != nil {
+		return Invoice{}, fmt.Errorf("error parsing response from lnd: %v", err)
+	}
 
-	invoice := Invoice{PaymentRequest: pr, PaymentHash: paymentHash,
+	hashBytes, err := base64.StdEncoding.DecodeString(res.Hash)
+	if err != nil {
+		return Invoice{}, fmt.Errorf("error decoding hash from lnd: %v", err)
+	}
+	hash := hex.EncodeToString(hashBytes)
+
+	invoice := Invoice{PaymentRequest: res.PaymentRequest, PaymentHash: hash,
 		Amount: amount,
 		Expiry: time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()}
 	return invoice, nil
 }
 
 func (lnd *LndClient) InvoiceSettled(hash string) (bool, error) {
-	hash = strings.ReplaceAll(strings.ReplaceAll(hash, "/", "_"), "+", "-")
-	url := lnd.host + "/v2/invoices/lookup?payment_hash=" + hash
+	hashBytes, err := hex.DecodeString(hash)
+	if err != nil {
+		return false, fmt.Errorf("invalid hash provided")
+	}
+
+	b64EncodedHash := base64.URLEncoding.EncodeToString(hashBytes)
+	url := lnd.host + "/v2/invoices/lookup?payment_hash=" + b64EncodedHash
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -121,6 +141,9 @@ func (lnd *LndClient) InvoiceSettled(hash string) (bool, error) {
 		return false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false, fmt.Errorf("error getting invoice status")
+	}
 
 	var res map[string]any
 	json.NewDecoder(resp.Body).Decode(&res)
@@ -161,6 +184,11 @@ func (lnd *LndClient) FeeReserve(request string) (uint64, uint64, error) {
 	return uint64(satAmount), uint64(satAmount * FeePercent / 100), nil
 }
 
+type SendPaymentResponse struct {
+	PaymentError    string `json:"payment_error"`
+	PaymentPreimage string `json:"payment_preimage"`
+}
+
 func (lnd *LndClient) SendPayment(request string) (string, error) {
 	url := lnd.host + "/v1/channels/transactions"
 
@@ -182,13 +210,15 @@ func (lnd *LndClient) SendPayment(request string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	var res map[string]any
-	json.NewDecoder(resp.Body).Decode(&res)
-
-	if paymentErr, ok := res["payment_error"]; ok && len(paymentErr.(string)) > 0 {
-		return "", fmt.Errorf("error making payment: %v", paymentErr)
+	var res SendPaymentResponse
+	err = json.NewDecoder(resp.Body).Decode(&res)
+	if err != nil {
+		return "", fmt.Errorf("error parsing response from lnd: %v", err)
 	}
 
-	paymentPreimage := res["payment_preimage"]
-	return paymentPreimage.(string), nil
+	if len(res.PaymentError) > 0 {
+		return "", fmt.Errorf("unable to make payment: %v", res.PaymentError)
+	}
+
+	return res.PaymentPreimage, nil
 }
