@@ -27,8 +27,6 @@ type Wallet struct {
 	currentMint *walletMint
 	// array of mints that have been trusted
 	mints map[string]walletMint
-
-	proofs cashu.Proofs
 }
 
 type walletMint struct {
@@ -113,7 +111,6 @@ func LoadWallet(config Config) (*Wallet, error) {
 		}
 	}
 	wallet.mints[mintURL] = *currentMint
-	wallet.proofs = wallet.db.GetProofs()
 
 	return wallet, nil
 }
@@ -172,7 +169,7 @@ func GetMintInactiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 
 // GetBalance returns the total balance aggregated from all proofs
 func (w *Wallet) GetBalance() uint64 {
-	return w.proofs.Amount()
+	return w.db.GetProofs().Amount()
 }
 
 // GetBalanceByMints returns a map of string mint
@@ -445,18 +442,11 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
 	meltBolt11Response, err := PostMeltBolt11(selectedMint.mintURL, meltBolt11Request)
-	if err != nil {
-		return nil, err
+	if err != nil || !meltBolt11Response.Paid {
+		// save proofs if invoice was not paid
+		w.saveProofs(proofs)
 	}
-
-	// save proofs if invoices was not paid
-	if !meltBolt11Response.Paid {
-		for _, proof := range proofs {
-			w.db.SaveProof(proof)
-		}
-	}
-
-	return meltBolt11Response, nil
+	return meltBolt11Response, err
 }
 
 // GetProofsByMint will return an array of proofs that are from
@@ -737,7 +727,6 @@ func (w *Wallet) saveProofs(proofs cashu.Proofs) error {
 			return err
 		}
 	}
-	w.proofs = append(w.proofs, proofs...)
 	return nil
 }
 
