@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -119,11 +120,13 @@ func getBalance(ctx *cli.Context) error {
 	fmt.Printf("Balance by mint:\n\n")
 	totalBalance := uint64(0)
 
-	i := 1
-	for mint, balance := range balanceByMints {
-		fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i, mint, balance)
+	mints := nutw.TrustedMints()
+	slices.Sort(mints)
+
+	for i, mint := range mints {
+		balance := balanceByMints[mint]
+		fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i+1, mint, balance)
 		totalBalance += balance
-		i++
 	}
 
 	fmt.Printf("\nTotal balance: %v sats\n", totalBalance)
@@ -151,8 +154,9 @@ func receive(ctx *cli.Context) error {
 	swap := true
 	trustedMints := nutw.TrustedMints()
 	mintURL := token.Token[0].Mint
-	_, ok := trustedMints[mintURL]
-	if !ok {
+
+	isTrusted := slices.Contains(trustedMints, mintURL)
+	if !isTrusted {
 		fmt.Printf("Token received comes from an untrusted mint: %v. Do you wish to trust this mint? (y/n) ", mintURL)
 
 		reader := bufio.NewReader(os.Stdin)
@@ -314,16 +318,15 @@ func promptMintSelection(action string) string {
 	balanceByMints := nutw.GetBalanceByMints()
 	mintsLen := len(balanceByMints)
 
-	mintsMap := make(map[int]string)
+	mints := nutw.TrustedMints()
+	slices.Sort(mints)
 	selectedMint := nutw.CurrentMint()
 	if mintsLen > 1 {
 		fmt.Printf("You have balances in %v mints: \n\n", mintsLen)
 
-		i := 1
-		for mint, balance := range balanceByMints {
-			fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i, mint, balance)
-			mintsMap[i] = mint
-			i++
+		for i, mint := range mints {
+			balance := balanceByMints[mint]
+			fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i+1, mint, balance)
 		}
 
 		fmt.Printf("\nSelect from which mint (1-%v) you wish to %v: ", mintsLen, action)
@@ -338,7 +341,11 @@ func promptMintSelection(action string) string {
 		if err != nil {
 			printErr(errors.New("invalid number provided"))
 		}
-		selectedMint = mintsMap[num]
+
+		if num <= 0 || num > len(mints) {
+			printErr(errors.New("invalid mint selected"))
+		}
+		selectedMint = mints[num-1]
 	}
 
 	return selectedMint

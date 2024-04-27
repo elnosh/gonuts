@@ -716,8 +716,15 @@ func (w *Wallet) CurrentMint() string {
 	return w.currentMint.mintURL
 }
 
-func (w *Wallet) TrustedMints() map[string]walletMint {
-	return w.mints
+func (w *Wallet) TrustedMints() []string {
+	trustedMints := make([]string, len(w.mints))
+
+	i := 0
+	for mintURL := range w.mints {
+		trustedMints[i] = mintURL
+		i++
+	}
+	return trustedMints
 }
 
 func (w *Wallet) saveProofs(proofs cashu.Proofs) error {
