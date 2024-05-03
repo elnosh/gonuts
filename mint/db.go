@@ -126,17 +126,17 @@ func (db *BoltDB) GetProof(secret string) *cashurpc.Proof {
 	return proof
 }
 
-func (b *BoltDB) SaveProof(proof *cashurpc.Proof) error {
-	Y := crypto.HashToCurveDeprecated([]byte(secret))
+func (db *BoltDB) SaveProof(proof *cashurpc.Proof) error {
+	Y := crypto.HashToCurveDeprecated([]byte(proof.Secret))
 
-	dbproof := dbproof{
+	proofToSave := dbproof{
 		Y:      Y.SerializeCompressed(),
 		Amount: proof.Amount,
 		Id:     proof.Id,
 		Secret: proof.Secret,
 		C:      proof.C,
 	}
-	jsonProof, err := json.Marshal(dbproof)
+	jsonProof, err := json.Marshal(proofToSave)
 	if err != nil {
 		return fmt.Errorf("invalid proof format: %v", err)
 	}

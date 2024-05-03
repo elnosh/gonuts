@@ -27,8 +27,7 @@ type Wallet struct {
 	// array of mints that have been trusted
 	mints map[string]walletMint
 
-	proofs           []*cashurpc.Proof
-	domainSeparation bool
+	proofs []*cashurpc.Proof
 }
 
 type walletMint struct {
@@ -281,7 +280,7 @@ func (w *Wallet) Receive(ctx context.Context, token *cashurpc.TokenV3, swap bool
 
 		// add mint to list of trusted mints
 		tokenMintURL := token.Token[0].Mint
-		mint, err := w.addMint(tokenMintURL)
+		mint, err := w.addMint(ctx, tokenMintURL)
 		if err != nil {
 			return 0, err
 		}
@@ -324,6 +323,7 @@ func totalAmount(token *cashurpc.TokenV3) uint64 {
 	}
 	return total
 }
+
 // swapToTrusted will swap the proofs from mint in the token
 // to the wallet's configured default mint
 func (w *Wallet) swapToTrusted(ctx context.Context, token *cashurpc.TokenV3) ([]*cashurpc.Proof, error) {
@@ -351,7 +351,7 @@ func (w *Wallet) swapToTrusted(ctx context.Context, token *cashurpc.TokenV3) ([]
 
 		// request melt quote from untrusted mint which will
 		// request mint to pay invoice generated from trusted mint in previous mint request
-		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
+		meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
 		meltQuoteResponse, err = PostMeltQuoteBolt11(ctx, tokenMintURL, meltRequest)
 		if err != nil {
 			return nil, fmt.Errorf("error with melt request: %v", err)
@@ -409,8 +409,8 @@ func (w *Wallet) Melt(ctx context.Context, invoice string, mint string) (*cashur
 	meltBolt11Request := &cashurpc.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
 	meltBolt11Response, err := PostMeltBolt11(ctx, selectedMint.mintURL, meltBolt11Request)
 	if err != nil || !meltBolt11Response.Paid {
-			// save proofs if invoice was not paid
-			w.saveProofs(proofs)
+		// save proofs if invoice was not paid
+		w.saveProofs(proofs)
 	}
 	return meltBolt11Response, err
 }

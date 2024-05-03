@@ -201,9 +201,8 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 // the proofs that were used as input.
 // It returns the BlindedSignatures.
 func (m *Mint) Swap(proofs []*cashurpc.Proof, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
-	var proofsAmount uint64 = 0
 	var blindedMessagesAmount uint64 = 0
-	proofsAmount := proofs.Amount()
+	proofsAmount := cashu.Amount(proofs)
 
 	for _, msg := range blindedMessages {
 		blindedMessagesAmount += msg.Amount
@@ -301,7 +300,6 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 	return *meltQuote, nil
 }
 
-
 // MeltTokens verifies whether proofs provided are valid
 // and proceeds to attempt payment.
 func (m *Mint) MeltTokens(method, quoteId string, proofs []*cashurpc.Proof) (*cashurpc.PostMeltBolt11Response, error) {
@@ -319,7 +317,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs []*cashurpc.Proof) (*ca
 		return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 	}
 
-	proofsAmount := proofs.Amount()
+	inputsAmount := cashu.Amount(proofs)
 
 	if inputsAmount < meltQuote.Amount+meltQuote.FeeReserve {
 		return nil, cashu.InsufficientProofsAmount
@@ -336,7 +334,6 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs []*cashurpc.Proof) (*ca
 	// and invalidate proofs
 	meltQuote.Paid = true
 
-	meltQuote.Preimage = preimage
 	for _, proof := range proofs {
 		m.db.SaveProof(proof)
 	}

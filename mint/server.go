@@ -44,7 +44,10 @@ func SetupMintServer(config Config) (*Server, error) {
 		return nil, err
 	}
 
-	logger := getLogger()
+	logger, err := setupLogger()
+	if err != nil {
+		return nil, err
+	}
 	mintServer := &Server{mint: mint, logger: logger}
 	//mintServer.setupHttpServer()
 	return mintServer, nil
@@ -60,8 +63,8 @@ func setupLogger() (*slog.Logger, error) {
 		return a
 	}
 
-	mintPath := mintPath()
-	logFile, err := os.OpenFile(filepath.Join(mintPath, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+	path := mintPath()
+	logFile, err := os.OpenFile(filepath.Join(path, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("error opening log file: %v", err)
 	}
