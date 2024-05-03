@@ -1,9 +1,9 @@
 package mint
 
 import (
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"encoding/json"
 	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 	"path/filepath"
 
 	"github.com/elnosh/gonuts/crypto"

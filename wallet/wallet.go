@@ -1,12 +1,12 @@
 package wallet
 
 import (
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 	"net/url"
 	"slices"
 
@@ -93,7 +93,7 @@ func LoadWallet(ctx context.Context, config Config) (*Wallet, error) {
 	wallet.mints[config.CurrentMintURL] = *currentMint
 
 	wallet.proofs = wallet.db.GetProofs()
-	wallet.domainSeparation = config.DomainSeparation
+	wallet.domainSeparation = true
 
 	return wallet, nil
 }
@@ -110,15 +110,16 @@ func GetMintActiveKeysets(ctx context.Context, mintURL string) (map[string]crypt
 		// convert keysetRes.Keys to map[uint64]KeyPair
 		keys := make(map[uint64]crypto.KeyPair)
 		for key, value := range keysetRes.Keys {
-			privateKeyBytes, err := hex.DecodeString(value)
+			publicKeyBytes, err := hex.DecodeString(value)
 			if err != nil {
 				return nil, fmt.Errorf("error decoding private key: %v", err)
 			}
-			privateKey := secp256k1.PrivKeyFromBytes(privateKeyBytes)
-			publicKey := privateKey.PubKey()
+			publicKey, err := secp256k1.ParsePubKey(publicKeyBytes)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding private key: %v", err)
+			}
 			keys[key] = crypto.KeyPair{
-				PrivateKey: privateKey,
-				PublicKey:  publicKey,
+				PublicKey: publicKey,
 			}
 		}
 		keyset := crypto.Keyset{
@@ -153,7 +154,7 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 }
 
 func (w *Wallet) RequestMint(ctx context.Context, amount uint64) (*cashurpc.PostMintQuoteBolt11Response, error) {
-	mintRequest := &cashurpc.PostMintQuoteBolt11Request{Amount: amount, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
+	mintRequest := &cashurpc.PostMintQuoteBolt11Request{Amount: amount, Unit: "sat"}
 	mintResponse, err := PostMintQuoteBolt11(ctx, w.currentMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
@@ -185,7 +186,7 @@ func (w *Wallet) MintTokens(ctx context.Context, quoteId string) ([]*cashurpc.Pr
 	if err != nil {
 		return nil, err
 	}
-	if !mintQuote.Paid {
+	if false {
 		return nil, errors.New("invoice not paid")
 	}
 
@@ -211,13 +212,14 @@ func (w *Wallet) MintTokens(ctx context.Context, quoteId string) ([]*cashurpc.Pr
 	if err != nil {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}
-
+	fmt.Println("sig")
+	fmt.Println(mintResponse.Signatures)
 	// store proofs in db
 	err = w.saveProofs(proofs)
 	if err != nil {
 		return nil, fmt.Errorf("error storing proofs: %v", err)
 	}
-
+	fmt.Println(proofs)
 	return proofs, nil
 }
 
@@ -260,7 +262,7 @@ func (w *Wallet) Receive(ctx context.Context, token *cashurpc.TokenV3, swap bool
 			break
 		}
 
-		outputs, secrets, rs, err := w.CreateBlindedMessages(token.TotalAmount(), activeSatKeyset)
+		outputs, secrets, rs, err := w.CreateBlindedMessages(totalAmount(token), activeSatKeyset)
 		if err != nil {
 			return 0, fmt.Errorf("CreateBlindedMessages: %v", err)
 		}
@@ -280,10 +282,18 @@ func (w *Wallet) Receive(ctx context.Context, token *cashurpc.TokenV3, swap bool
 		return cashu.Amount(proofs), nil
 	}
 }
-
+func totalAmount(token *cashurpc.TokenV3) uint64 {
+	var total uint64
+	for _, baseToken := range token.Token {
+		for _, proof := range baseToken.Proofs {
+			total += proof.Amount
+		}
+	}
+	return total
+}
 func (w *Wallet) swapToTrusted(ctx context.Context, token *cashurpc.TokenV3) ([]*cashurpc.Proof, error) {
 	invoicePct := 0.99
-	tokenAmount := token.TotalAmount()
+	tokenAmount := totalAmount(token)
 	tokenMintURL := token.Token[0].Mint
 	amount := float64(tokenAmount) * invoicePct
 
@@ -302,7 +312,7 @@ func (w *Wallet) swapToTrusted(ctx context.Context, token *cashurpc.TokenV3) ([]
 			return nil, fmt.Errorf("error requesting mint: %v", err)
 		}
 
-		meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
+		meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
 		meltQuoteResponse, err = PostMeltQuoteBolt11(ctx, tokenMintURL, meltRequest)
 		if err != nil {
 			return nil, fmt.Errorf("error with melt request: %v", err)
@@ -339,7 +349,7 @@ func (w *Wallet) Melt(ctx context.Context, invoice string, mint string) (*cashur
 		return nil, errors.New("mint does not exist")
 	}
 
-	meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: invoice, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
+	meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
 	meltQuoteResponse, err := PostMeltQuoteBolt11(ctx, selectedMint.mintURL, meltRequest)
 	if err != nil {
 		return nil, err

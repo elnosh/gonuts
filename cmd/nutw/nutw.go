@@ -1,11 +1,13 @@
 package main
 
 import (
+	cashuv1 "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"bufio"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 	"log"
 	"net/url"
 	"os"
@@ -277,9 +279,21 @@ func send(ctx *cli.Context) error {
 	if err != nil {
 		printErr(err)
 	}
-
-	fmt.Printf("%v\n", token.ToString())
+	stringToken, err := toString(token)
+	if err != nil {
+		printErr(err)
+	}
+	fmt.Printf("%v\n", stringToken)
 	return nil
+}
+func toString(token *cashuv1.TokenV3) (string, error) {
+	jsonBytes, err := json.Marshal(token)
+	if err != nil {
+		return "", err
+	}
+	baseToken := base64.URLEncoding.EncodeToString(jsonBytes)
+	return "cashuA" + baseToken, nil
+
 }
 
 var payCmd = &cli.Command{
@@ -297,7 +311,7 @@ func pay(ctx *cli.Context) error {
 	selectedMint := promptMintSelection("pay invoice")
 
 	invoice := args.First()
-	meltRequest := &cashurpc.PostMeltQuoteBolt11Request{Request: invoice, Unit: cashurpc.UnitType_UNIT_TYPE_SAT}
+	meltRequest := &cashuv1.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
 	meltResponse, err := nutw.Melt(ctx.Context, meltRequest.Request, selectedMint)
 	if err != nil {
 		printErr(err)

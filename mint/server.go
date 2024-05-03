@@ -1,11 +1,13 @@
 package mint
 
 import (
+	"buf.build/gen/go/cashu/rpc/grpc-ecosystem/gateway/v2/cashu/cashuv1gateway"
+	"buf.build/gen/go/cashu/rpc/grpc/go/cashuv1grpc"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 	"github.com/elnosh/gonuts/mint/rpc"
 	"io"
 	"log/slog"
@@ -21,7 +23,7 @@ import (
 const bolt11 = "bolt11"
 
 type Server struct {
-	cashurpc.UnimplementedMintServer
+	cashuv1grpc.UnimplementedMintServer
 	rpc    *rpc.Server
 	mint   *Mint
 	logger *slog.Logger
@@ -29,9 +31,9 @@ type Server struct {
 
 func StartMintServer(server *Server) error {
 	server.rpc = rpc.NewServer(
-		rpc.WithServiceHandlerFromEndpointRegistration(cashurpc.RegisterMintHandlerFromEndpoint),
+		rpc.WithServiceHandlerFromEndpointRegistration(cashuv1gateway.RegisterMintHandlerFromEndpoint),
 	)
-	server.rpc.RegisterService(server.rpc.GRPC, &cashurpc.Mint_ServiceDesc, server)
+	server.rpc.RegisterService(server.rpc.GRPC, &cashuv1grpc.Mint_ServiceDesc, server)
 
 	return server.rpc.Serve()
 }
@@ -67,13 +69,13 @@ func (ms *Server) LogInfo(format string, v ...any) {
 }
 
 func (ms *Server) Keys(ctx context.Context, request *cashurpc.KeysRequest) (*cashurpc.KeysResponse, error) {
-	return ms.buildAllKeysetsResponse(), nil
+	return buildKeysResponse(ms.mint.Keysets), nil
 
 }
 
 func (ms *Server) KeySets(ctx context.Context, request *cashurpc.KeysRequest) (*cashurpc.KeysResponse, error) {
 	//TODO implement me
-	return buildKeysResponse(ms.mint.Keysets), nil
+	return ms.buildAllKeysetsResponse(), nil
 
 }
 

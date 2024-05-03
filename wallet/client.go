@@ -1,9 +1,10 @@
 package wallet
 
 import (
+	"buf.build/gen/go/cashu/rpc/grpc/go/cashuv1grpc"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"context"
 	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 	"github.com/elnosh/gonuts/mint/rpc"
 )
 
@@ -24,7 +25,7 @@ func GetAllKeysets(ctx context.Context, mintURL string) (*cashurpc.KeysResponse,
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.KeySets(ctx, &cashurpc.KeysRequest{})
+	resp, err := client.Keys(ctx, &cashurpc.KeysRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +109,10 @@ func PostMeltBolt11(ctx context.Context, mintURL string, meltRequest *cashurpc.P
 	return resp, nil
 }
 
-func createMintClient(mintURL string) (cashurpc.MintClient, error) {
+func createMintClient(mintURL string) (cashuv1grpc.MintClient, error) {
 	conn, err := rpc.CreateGrpcClient(mintURL, true)
 	if err != nil {
 		return nil, fmt.Errorf("could not create gRPC client: %w", err)
 	}
-	return cashurpc.NewMintClient(conn), nil
+	return cashuv1grpc.NewMintClient(conn), nil
 }

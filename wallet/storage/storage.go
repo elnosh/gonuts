@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"github.com/elnosh/gonuts/cashurpc"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 )

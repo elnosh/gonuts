@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -58,6 +60,12 @@ func (s *Server) Serve() error {
 	return s.GRPC.Serve(s.listener)
 }
 
+// DurationToTimeMillisFields converts the duration to milliseconds and uses the key `grpc.time_ms`.
+func DurationToTimeMillisFields(duration time.Duration) logging.Fields {
+	slog.Info("help")
+	return logging.Fields{"grpc.time_ms", float32(duration.Nanoseconds()/1000) / 1000}
+}
+
 func NewServer(opt ...ServerOption) *Server {
 	service := &Server{}
 	for _, options := range opt {
@@ -67,7 +75,11 @@ func NewServer(opt ...ServerOption) *Server {
 	}
 	server := createGrpcWithHealthServer(
 		service,
-		net.JoinHostPort("127.0.0.1", "3339"),
+		net.JoinHostPort("0.0.0.0", "3339"),
+		grpc.ChainUnaryInterceptor([]grpc.UnaryServerInterceptor{
+			logging.UnaryServerInterceptor(InterceptorLogger(slog.Default()), logging.WithDurationField(DurationToTimeMillisFields),
+				logging.WithLogOnEvents(logging.StartCall, logging.FinishCall, logging.PayloadReceived, logging.PayloadSent)),
+		}...),
 	)
 	service.GRPC = server
 	if service.gateWayRegistration != nil {
@@ -113,7 +125,7 @@ func startGateway(
 	mux := runtime.NewServeMux(serverOptions...)
 
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	endpoint := fmt.Sprintf("%s:%d", "127.0.0.1", 3339)
+	endpoint := fmt.Sprintf("%s:%d", "0.0.0.0", 3339)
 	for _, endpointRegistration := range registration {
 		err := endpointRegistration(ctx, mux, endpoint, opts)
 		if err != nil {
@@ -126,11 +138,38 @@ func startGateway(
 		Handler: Use(func(writer http.ResponseWriter, request *http.Request) {
 			mux.ServeHTTP(writer, request)
 		}, middlewares...),
-		Addr:        ":3338",
+		Addr:        "0.0.0.0:3338",
 		ReadTimeout: time.Second * 30,
 	}
 	// Start HTTP server (and proxy calls to gRPC server endpoint)
 	return fmt.Errorf("error while serving http: %w", server.ListenAndServe())
+}
+
+// InterceptorLogger is a function that returns a logger function for grpc server interceptors.
+// The logger function logs the incoming messages with the specified logger in the appropriate log level.
+// It also checks if the message should be skipped based on the context.
+//
+// Parameters:
+//   - logger: A pointer to a slog.Logger to use for logging.
+//
+// Return:
+//   - logging.LoggerFunc: The logger function used by the grpc server interceptors.
+func InterceptorLogger(logger *slog.Logger) logging.LoggerFunc {
+	return func(ctx context.Context, lvl logging.Level, msg string, fields ...any) {
+		// check if message should be skipped (start/finish call for health check for instance)
+		switch lvl {
+		case logging.LevelDebug:
+			logger.With(fields...).DebugContext(ctx, msg)
+		case logging.LevelInfo:
+			logger.With(fields...).InfoContext(ctx, msg)
+		case logging.LevelWarn:
+			logger.With(fields...).WarnContext(ctx, msg)
+		case logging.LevelError:
+			logger.With(fields...).ErrorContext(ctx, msg)
+		default:
+			logger.ErrorContext(ctx, "invalid log level", "log level", lvl)
+		}
+	}
 }
 
 func Use(h http.HandlerFunc, middleware ...func(http.HandlerFunc) http.HandlerFunc) http.HandlerFunc {

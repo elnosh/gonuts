@@ -1,8 +1,0 @@
-syntax = "proto3";
-option go_package = "github.com/elnosh/gonuts/cashurpc";
-
-message BlindedMessage {
-  uint64 amount = 1;
-  string id = 2;
-  string B_ = 3;
-}

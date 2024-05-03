@@ -1,10 +1,8 @@
 package mint
 
 import (
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 	"os"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -35,14 +33,14 @@ func getMintInfo() (*cashurpc.InfoResponse, error) {
 	privateKey := secp256k1.PrivKeyFromBytes([]byte(os.Getenv("MINT_PRIVATE_KEY")))
 	mintInfo.Pubkey = hex.EncodeToString(privateKey.PubKey().SerializeCompressed())
 
-	contact := os.Getenv("MINT_CONTACT_INFO")
-	var mintContactInfo []*cashurpc.Contact
-	if len(contact) > 0 {
+	//	contact := os.Getenv("MINT_CONTACT_INFO")
+	var mintContactInfo []string
+	/*if len(contact) > 0 {
 		err := json.Unmarshal([]byte(contact), &mintContactInfo)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing contact info: %v", err)
 		}
-	}
+	}*/
 	mintInfo.Contact = mintContactInfo
 
 	nuts := make(map[int32]*cashurpc.NutDetails)

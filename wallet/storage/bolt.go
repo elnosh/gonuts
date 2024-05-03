@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/elnosh/gonuts/cashurpc"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"

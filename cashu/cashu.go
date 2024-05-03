@@ -1,11 +1,11 @@
 package cashu
 
 import (
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/elnosh/gonuts/cashurpc"
 )
 
 type BlindedMessages []*cashurpc.BlindedMessage
