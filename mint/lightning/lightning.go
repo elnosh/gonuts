@@ -9,9 +9,10 @@ const (
 	LND = "Lnd"
 )
 
+// Client interface to interact with a Lightning backend
 type Client interface {
 	CreateInvoice(amount uint64) (Invoice, error)
-	InvoiceSettled(hash string) bool
+	InvoiceSettled(hash string) (bool, error)
 	FeeReserve(request string) (uint64, uint64, error)
 	SendPayment(request string) (string, error)
 }
@@ -28,7 +29,7 @@ func NewLightningClient() Client {
 		return lndClient
 
 	default:
-		log.Fatal("please specify a lignting backend")
+		log.Fatal("please specify a lightning  backend")
 	}
 
 	return nil

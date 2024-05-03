@@ -12,12 +12,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/joho/godotenv"
+	decodepay "github.com/nbd-wtf/ln-decodepay"
 	"github.com/urfave/cli/v2"
 )
 
@@ -44,9 +46,6 @@ func walletConfig() wallet.Config {
 			config.CurrentMintURL = getMintURL()
 		}
 	}
-
-	domainSeparation, _ := strconv.ParseBool(os.Getenv("WALLET_DOMAIN_SEPARATION"))
-	config.DomainSeparation = domainSeparation
 
 	return config
 }
@@ -125,11 +124,13 @@ func getBalance(ctx *cli.Context) error {
 	fmt.Printf("Balance by mint:\n\n")
 	totalBalance := uint64(0)
 
-	i := 1
-	for mint, balance := range balanceByMints {
-		fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i, mint, balance)
+	mints := nutw.TrustedMints()
+	slices.Sort(mints)
+
+	for i, mint := range mints {
+		balance := balanceByMints[mint]
+		fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i+1, mint, balance)
 		totalBalance += balance
-		i++
 	}
 
 	fmt.Printf("\nTotal balance: %v sats\n", totalBalance)
@@ -156,9 +157,10 @@ func receive(ctx *cli.Context) error {
 
 	swap := true
 	trustedMints := nutw.TrustedMints()
-	mintURL := "localhost:3889"
-	_, ok := trustedMints[mintURL]
-	if !ok {
+	mintURL := token.Token[0].Mint
+
+	isTrusted := slices.Contains(trustedMints, mintURL)
+	if !isTrusted {
 		fmt.Printf("Token received comes from an untrusted mint: %v. Do you wish to trust this mint? (y/n) ", mintURL)
 
 		reader := bufio.NewReader(os.Stdin)
@@ -242,7 +244,10 @@ func requestMint(ctx context.Context, amountStr string) error {
 }
 
 func mintTokens(ctx context.Context, paymentRequest string) error {
-	invoice := nutw.GetInvoice(paymentRequest)
+	invoice, err := nutw.GetInvoiceByPaymentRequest(paymentRequest)
+	if err != nil {
+		return err
+	}
 	if invoice == nil {
 		return errors.New("invoice not found")
 	}
@@ -307,10 +312,15 @@ func pay(ctx *cli.Context) error {
 	if args.Len() < 1 {
 		printErr(errors.New("specify a lightning invoice to pay"))
 	}
+	invoice := args.First()
 
+	// check invoice passed is valid
+	_, err := decodepay.Decodepay(invoice)
+	if err != nil {
+		printErr(fmt.Errorf("invalid invoice: %v", err))
+	}
 	selectedMint := promptMintSelection("pay invoice")
 
-	invoice := args.First()
 	meltRequest := &cashuv1.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
 	meltResponse, err := nutw.Melt(ctx.Context, meltRequest.Request, selectedMint)
 	if err != nil {
@@ -325,16 +335,15 @@ func promptMintSelection(action string) string {
 	balanceByMints := nutw.GetBalanceByMints()
 	mintsLen := len(balanceByMints)
 
-	mintsMap := make(map[int]string)
+	mints := nutw.TrustedMints()
+	slices.Sort(mints)
 	selectedMint := nutw.CurrentMint()
 	if mintsLen > 1 {
 		fmt.Printf("You have balances in %v mints: \n\n", mintsLen)
 
-		i := 1
-		for mint, balance := range balanceByMints {
-			fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i, mint, balance)
-			mintsMap[i] = mint
-			i++
+		for i, mint := range mints {
+			balance := balanceByMints[mint]
+			fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i+1, mint, balance)
 		}
 
 		fmt.Printf("\nSelect from which mint (1-%v) you wish to %v: ", mintsLen, action)
@@ -349,7 +358,11 @@ func promptMintSelection(action string) string {
 		if err != nil {
 			printErr(errors.New("invalid number provided"))
 		}
-		selectedMint = mintsMap[num]
+
+		if num <= 0 || num > len(mints) {
+			printErr(errors.New("invalid mint selected"))
+		}
+		selectedMint = mints[num-1]
 	}
 
 	return selectedMint

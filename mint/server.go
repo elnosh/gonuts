@@ -50,7 +50,7 @@ func SetupMintServer(config Config) (*Server, error) {
 	return mintServer, nil
 }
 
-func getLogger() *slog.Logger {
+func setupLogger() (*slog.Logger, error) {
 	replacer := func(groups []string, a slog.Attr) slog.Attr {
 		if a.Key == slog.SourceKey {
 			source := a.Value.Any().(*slog.Source)
@@ -60,7 +60,14 @@ func getLogger() *slog.Logger {
 		return a
 	}
 
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer}))
+	mintPath := mintPath()
+	logFile, err := os.OpenFile(filepath.Join(mintPath, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("error opening log file: %v", err)
+	}
+	logWriter := io.MultiWriter(os.Stdout, logFile)
+
+	return slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer})), nil
 }
 
 func (ms *Server) LogInfo(format string, v ...any) {

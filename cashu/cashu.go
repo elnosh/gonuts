@@ -1,3 +1,5 @@
+// Package cashu contains the core structs and logic
+// of the Cashu protocol.
 package cashu
 
 import (
@@ -53,6 +55,7 @@ func DecodeToken(tokenstr string) (*cashurpc.TokenV3, error) {
 
 type CashuErrCode int
 
+// Error represents an error to be returned by the mint
 type Error struct {
 	Detail string       `json:"detail"`
 	Code   CashuErrCode `json:"code"`
@@ -66,6 +69,7 @@ func (e Error) Error() string {
 	return e.Detail
 }
 
+// Common error codes
 const (
 	StandardErrCode CashuErrCode = 1000 + iota
 	KeysetErrCode

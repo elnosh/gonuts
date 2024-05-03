@@ -15,4 +15,5 @@ type DB interface {
 	GetKeysets() crypto.KeysetsMap
 	SaveInvoice(lightning.Invoice) error
 	GetInvoice(string) *lightning.Invoice
+	GetInvoices() []lightning.Invoice
 }

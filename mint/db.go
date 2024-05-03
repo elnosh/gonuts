@@ -112,7 +112,7 @@ type dbproof struct {
 
 func (db *BoltDB) GetProof(secret string) *cashurpc.Proof {
 	var proof *cashurpc.Proof
-	Y := crypto.HashToCurve([]byte(secret))
+	Y := crypto.HashToCurveDeprecated([]byte(secret))
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
@@ -127,7 +127,7 @@ func (db *BoltDB) GetProof(secret string) *cashurpc.Proof {
 }
 
 func (b *BoltDB) SaveProof(proof *cashurpc.Proof) error {
-	Y := crypto.HashToCurve([]byte(proof.Secret))
+	Y := crypto.HashToCurveDeprecated([]byte(secret))
 
 	dbproof := dbproof{
 		Y:      Y.SerializeCompressed(),
@@ -141,7 +141,7 @@ func (b *BoltDB) SaveProof(proof *cashurpc.Proof) error {
 		return fmt.Errorf("invalid proof format: %v", err)
 	}
 
-	if err := b.bolt.Update(func(tx *bolt.Tx) error {
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 		return proofsb.Put(Y.SerializeCompressed(), jsonProof)
 	}); err != nil {
@@ -150,13 +150,13 @@ func (b *BoltDB) SaveProof(proof *cashurpc.Proof) error {
 	return nil
 }
 
-func (b *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
+func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 	jsonbytes, err := json.Marshal(invoice)
 	if err != nil {
 		return fmt.Errorf("invalid invoice: %v", err)
 	}
 
-	if err := b.bolt.Update(func(tx *bolt.Tx) error {
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
 		key := []byte(invoice.Id)
 		err := invoicesb.Put(key, jsonbytes)
@@ -167,10 +167,10 @@ func (b *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 	return nil
 }
 
-func (b *BoltDB) GetInvoice(id string) *lightning.Invoice {
+func (db *BoltDB) GetInvoice(id string) *lightning.Invoice {
 	var invoice *lightning.Invoice
 
-	b.bolt.View(func(tx *bolt.Tx) error {
+	db.bolt.View(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
 		invoiceBytes := invoicesb.Get([]byte(id))
 		err := json.Unmarshal(invoiceBytes, &invoice)
@@ -183,13 +183,13 @@ func (b *BoltDB) GetInvoice(id string) *lightning.Invoice {
 	return invoice
 }
 
-func (b *BoltDB) SaveMeltQuote(quote MeltQuote) error {
+func (db *BoltDB) SaveMeltQuote(quote MeltQuote) error {
 	jsonbytes, err := json.Marshal(quote)
 	if err != nil {
 		return fmt.Errorf("invalid quote: %v", err)
 	}
 
-	if err := b.bolt.Update(func(tx *bolt.Tx) error {
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		meltQuotesb := tx.Bucket([]byte(quotesBucket))
 		key := []byte(quote.Id)
 		err := meltQuotesb.Put(key, jsonbytes)
@@ -200,10 +200,10 @@ func (b *BoltDB) SaveMeltQuote(quote MeltQuote) error {
 	return nil
 }
 
-func (b *BoltDB) GetMeltQuote(quoteId string) *MeltQuote {
+func (db *BoltDB) GetMeltQuote(quoteId string) *MeltQuote {
 	var quote *MeltQuote
 
-	b.bolt.View(func(tx *bolt.Tx) error {
+	db.bolt.View(func(tx *bolt.Tx) error {
 		meltQuotesb := tx.Bucket([]byte(quotesBucket))
 		quoteBytes := meltQuotesb.Get([]byte(quoteId))
 		err := json.Unmarshal(quoteBytes, &quote)

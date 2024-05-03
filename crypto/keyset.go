@@ -14,7 +14,7 @@ import (
 
 const maxOrder = 64
 
-// mint url to map of keyset id to keyset
+// KeysetsMap maps a mint url to map of string keyset id to keyset
 type KeysetsMap map[string]map[string]Keyset
 
 type Keyset struct {
@@ -43,6 +43,13 @@ func GenerateKeyset(seed, derivationPath string) *Keyset {
 	return &Keyset{Id: keysetId, Unit: "sat", Active: true, Keys: keys}
 }
 
+// DeriveKeysetId returns the string ID derived from the map keyset
+// The steps to derive the ID are:
+// - sort public keys by their amount in ascending order
+// - concatenate all public keys to one byte array
+// - HASH_SHA256 the concatenated public keys
+// - take the first 14 characters of the hex-encoded hash
+// - prefix it with a keyset ID version byte
 func DeriveKeysetId(keyset map[uint64]KeyPair) string {
 	type pubkey struct {
 		amount uint64
@@ -68,6 +75,8 @@ func DeriveKeysetId(keyset map[uint64]KeyPair) string {
 	return "00" + hex.EncodeToString(hash.Sum(nil))[:14]
 }
 
+// DerivePublic returns the keyset's public keys as
+// a map of amounts uint64 to strings that represents the public key
 func (ks *Keyset) DerivePublic() map[uint64]string {
 	pubkeys := make(map[uint64]string)
 	for amount, key := range ks.Keys {
@@ -139,10 +148,10 @@ func (kp *KeyPair) MarshalJSON() ([]byte, error) {
 
 	if kp.PrivateKey != nil {
 		privKey = append(privKey, kp.PrivateKey.Serialize()...)
-	} 	
+	}
 	res := KeyPairTemp{
 		PrivateKey: privKey,
-		PublicKey: kp.PublicKey.SerializeCompressed(),
+		PublicKey:  kp.PublicKey.SerializeCompressed(),
 	}
 	return json.Marshal(res)
 }
