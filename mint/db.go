@@ -1,11 +1,11 @@
 package mint
 
 import (
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 
-	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -110,8 +110,8 @@ type dbproof struct {
 	C      string `json:"C"`
 }
 
-func (db *BoltDB) GetProof(secret string) *cashu.Proof {
-	var proof *cashu.Proof
+func (db *BoltDB) GetProof(secret string) *cashurpc.Proof {
+	var proof *cashurpc.Proof
 	Y := crypto.HashToCurveDeprecated([]byte(secret))
 
 	db.bolt.View(func(tx *bolt.Tx) error {
@@ -126,17 +126,17 @@ func (db *BoltDB) GetProof(secret string) *cashu.Proof {
 	return proof
 }
 
-func (db *BoltDB) SaveProof(proof cashu.Proof) error {
+func (db *BoltDB) SaveProof(proof *cashurpc.Proof) error {
 	Y := crypto.HashToCurveDeprecated([]byte(proof.Secret))
 
-	dbproof := dbproof{
+	proofToSave := dbproof{
 		Y:      Y.SerializeCompressed(),
 		Amount: proof.Amount,
 		Id:     proof.Id,
 		Secret: proof.Secret,
 		C:      proof.C,
 	}
-	jsonProof, err := json.Marshal(dbproof)
+	jsonProof, err := json.Marshal(proofToSave)
 	if err != nil {
 		return fmt.Errorf("invalid proof format: %v", err)
 	}

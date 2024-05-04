@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 )
 
 const (
@@ -117,7 +116,8 @@ func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 
 	invoice := Invoice{PaymentRequest: res.PaymentRequest, PaymentHash: hash,
 		Amount: amount,
-		Expiry: time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()}
+		//Expiry: time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()
+	}
 	return invoice, nil
 }
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/elnosh/gonuts/cashu"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
@@ -59,17 +59,17 @@ func (db *BoltDB) initWalletBuckets() error {
 }
 
 // return all proofs from db
-func (db *BoltDB) GetProofs() cashu.Proofs {
-	proofs := cashu.Proofs{}
+func (db *BoltDB) GetProofs() []*cashurpc.Proof {
+	proofs := make([]*cashurpc.Proof, 0)
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var proof cashu.Proof
+			var proof *cashurpc.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
-				proofs = cashu.Proofs{}
+				proofs = make([]*cashurpc.Proof, 0)
 				return nil
 			}
 			proofs = append(proofs, proof)
@@ -79,15 +79,15 @@ func (db *BoltDB) GetProofs() cashu.Proofs {
 	return proofs
 }
 
-func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
-	proofs := cashu.Proofs{}
+func (db *BoltDB) GetProofsByKeysetId(id string) []*cashurpc.Proof {
+	proofs := make([]*cashurpc.Proof, 0)
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var proof cashu.Proof
+			var proof *cashurpc.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
 				return fmt.Errorf("error getting proofs: %v", err)
 			}
@@ -98,13 +98,13 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
 		}
 		return nil
 	}); err != nil {
-		return cashu.Proofs{}
+		return make([]*cashurpc.Proof, 0)
 	}
 
 	return proofs
 }
 
-func (db *BoltDB) SaveProof(proof cashu.Proof) error {
+func (db *BoltDB) SaveProof(proof *cashurpc.Proof) error {
 	jsonProof, err := json.Marshal(proof)
 	if err != nil {
 		return fmt.Errorf("invalid proof format: %v", err)
@@ -193,7 +193,7 @@ func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 		key := []byte(invoice.PaymentHash)
 		return invoicesb.Put(key, jsonbytes)
 	}); err != nil {
-		return fmt.Errorf("error saving invoice: %v", err)
+		return fmt.Errorf("error saving invoice!: %v", err)
 	}
 	return nil
 }

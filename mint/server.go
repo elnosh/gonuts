@@ -1,11 +1,15 @@
 package mint
 
 import (
+	"buf.build/gen/go/cashu/rpc/grpc-ecosystem/gateway/v2/cashu/cashuv1gateway"
+	"buf.build/gen/go/cashu/rpc/grpc/go/cashuv1grpc"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/elnosh/gonuts/mint/rpc"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,27 +17,28 @@ import (
 	"strings"
 
 	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/cashu/nuts/nut01"
-	"github.com/elnosh/gonuts/cashu/nuts/nut02"
-	"github.com/elnosh/gonuts/cashu/nuts/nut03"
-	"github.com/elnosh/gonuts/cashu/nuts/nut04"
-	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/crypto"
-	"github.com/gorilla/mux"
 )
 
-type MintServer struct {
-	httpServer *http.Server
-	mint       *Mint
-	logger     *slog.Logger
+const bolt11 = "bolt11"
+
+type Server struct {
+	cashuv1grpc.UnimplementedMintServer
+	rpc    *rpc.Server
+	mint   *Mint
+	logger *slog.Logger
 }
 
-func StartMintServer(server *MintServer) {
-	server.logger.Info("mint server listening on: " + server.httpServer.Addr)
-	log.Fatal(server.httpServer.ListenAndServe())
+func StartMintServer(server *Server) error {
+	server.rpc = rpc.NewServer(
+		rpc.WithServiceHandlerFromEndpointRegistration(cashuv1gateway.RegisterMintHandlerFromEndpoint),
+	)
+	server.rpc.RegisterService(server.rpc.GRPC, &cashuv1grpc.Mint_ServiceDesc, server)
+
+	return server.rpc.Serve()
 }
 
-func SetupMintServer(config Config) (*MintServer, error) {
+func SetupMintServer(config Config) (*Server, error) {
 	mint, err := LoadMint(config)
 	if err != nil {
 		return nil, err
@@ -43,8 +48,8 @@ func SetupMintServer(config Config) (*MintServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	mintServer := &MintServer{mint: mint, logger: logger}
-	mintServer.setupHttpServer()
+	mintServer := &Server{mint: mint, logger: logger}
+	//mintServer.setupHttpServer()
 	return mintServer, nil
 }
 
@@ -58,8 +63,8 @@ func setupLogger() (*slog.Logger, error) {
 		return a
 	}
 
-	mintPath := mintPath()
-	logFile, err := os.OpenFile(filepath.Join(mintPath, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+	path := mintPath()
+	logFile, err := os.OpenFile(filepath.Join(path, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("error opening log file: %v", err)
 	}
@@ -68,312 +73,108 @@ func setupLogger() (*slog.Logger, error) {
 	return slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer})), nil
 }
 
-func (ms *MintServer) LogInfo(format string, v ...any) {
+func (ms *Server) LogInfo(format string, v ...any) {
 	msg := fmt.Sprintf(format, v...)
 	ms.logger.Info(msg)
 }
 
-// func (m *Mint) LogError(format string, v ...any) {
-// 	msg := fmt.Sprintf(format, v...)
-// 	m.logger.Error(msg)
-// }
+func (ms *Server) Keys(ctx context.Context, request *cashurpc.KeysRequest) (*cashurpc.KeysResponse, error) {
+	return buildKeysResponse(ms.mint.Keysets), nil
 
-func (ms *MintServer) setupHttpServer() {
-	r := mux.NewRouter()
-
-	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet)
-	r.HandleFunc("/v1/keysets", ms.getKeysetsList).Methods(http.MethodGet)
-	r.HandleFunc("/v1/keys/{id}", ms.getKeysetById).Methods(http.MethodGet)
-	r.HandleFunc("/v1/mint/quote/{method}", ms.mintRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.mintQuoteState).Methods(http.MethodGet)
-	r.HandleFunc("/v1/mint/{method}", ms.mintTokensRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet)
-	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost)
-	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet)
-
-	server := &http.Server{
-		Addr:    "127.0.0.1:3338",
-		Handler: r,
-	}
-
-	ms.httpServer = server
 }
 
-func (ms *MintServer) writeResponse(rw http.ResponseWriter, req *http.Request,
-	response []byte, logmsg string) {
-	ms.logger.Info(logmsg, slog.Group("request", slog.String("method", req.Method),
-		slog.String("url", req.URL.String()), slog.Int("code", http.StatusOK)))
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Write(response)
+func (ms *Server) KeySets(ctx context.Context, request *cashurpc.KeysRequest) (*cashurpc.KeysResponse, error) {
+	//TODO implement me
+	return ms.buildAllKeysetsResponse(), nil
+
 }
 
-func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, err error) {
-	code := http.StatusBadRequest
-	ms.logger.Error(err.Error(), slog.Group("request", slog.String("method", req.Method),
-		slog.String("url", req.URL.String()), slog.Int("code", code)))
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(code)
-	errRes, _ := json.Marshal(err)
-	rw.Write(errRes)
+func (ms *Server) Swap(ctx context.Context, request *cashurpc.SwapRequest) (*cashurpc.SwapResponse, error) {
+	response, err := ms.mint.Swap(request.Inputs, request.Outputs)
+	if err != nil {
+		return nil, err
+	}
+	return &cashurpc.SwapResponse{
+		Signatures: response,
+	}, nil
 }
 
-func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request) {
-	getKeysResponse := buildKeysResponse(ms.mint.ActiveKeysets)
-	jsonRes, err := json.Marshal(getKeysResponse)
+func (ms *Server) MintQuoteState(ctx context.Context, request *cashurpc.GetQuoteBolt11StateRequest) (*cashurpc.PostMintQuoteBolt11Response, error) {
+	response, err := ms.mint.GetMintQuoteState(bolt11, request.QuoteId)
 	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
+		return nil, err
 	}
-
-	ms.writeResponse(rw, req, jsonRes, "returning active keysets")
+	return response, nil
 }
 
-func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) {
-	getKeysetsResponse := ms.buildAllKeysetsResponse()
-	jsonRes, err := json.Marshal(getKeysetsResponse)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
+func (ms *Server) MintQuote(ctx context.Context, request *cashurpc.PostMintQuoteBolt11Request) (*cashurpc.PostMintQuoteBolt11Response, error) {
+	return ms.mint.RequestMintQuote(bolt11, request.Amount, request.Unit)
 
-	ms.writeResponse(rw, req, jsonRes, "returning all keysets")
 }
 
-func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	ks, ok := ms.mint.Keysets[id]
-	if !ok {
-		ms.writeErr(rw, req, cashu.KeysetNotExistErr)
-		return
-	}
-
-	getKeysResponse := buildKeysResponse(map[string]crypto.Keyset{ks.Id: ks})
-	jsonRes, err := json.Marshal(getKeysResponse)
+func (ms *Server) Mint(ctx context.Context, request *cashurpc.PostMintBolt11Request) (*cashurpc.PostMintBolt11Response, error) {
+	signatures, err := ms.mint.MintTokens(bolt11, request.Quote, request.Outputs)
 	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
+		return nil, err
 	}
-
-	ms.writeResponse(rw, req, jsonRes, "returned keyset with id: "+id)
+	return &cashurpc.PostMintBolt11Response{
+		Signatures: signatures,
+	}, nil
 }
 
-func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	method := vars["method"]
-
-	var mintReq nut04.PostMintQuoteBolt11Request
-	err := decodeJsonReqBody(req, &mintReq)
+func (ms *Server) MeltQuoteState(ctx context.Context, request *cashurpc.GetQuoteBolt11StateRequest) (*cashurpc.PostMeltQuoteBolt11Response, error) {
+	melt, err := ms.mint.GetMeltQuoteState(bolt11, request.QuoteId)
 	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
+		return nil, err
 	}
-
-	reqMintResponse, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.BuildCashuError(err.Error(), cashu.InvoiceErrCode))
-		return
-	}
-
-	jsonRes, err := json.Marshal(reqMintResponse)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-
-	logmsg := fmt.Sprintf("mint request for %v %v", mintReq.Amount, mintReq.Unit)
-	ms.writeResponse(rw, req, jsonRes, logmsg)
+	return melt.PostMeltQuoteBolt11Response, nil
 }
 
-func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	method := vars["method"]
-	quoteId := vars["quote_id"]
-
-	mintQuoteStateResponse, err := ms.mint.GetMintQuoteState(method, quoteId)
+func (ms *Server) MeltQuote(ctx context.Context, request *cashurpc.PostMeltQuoteBolt11Request) (*cashurpc.PostMeltQuoteBolt11Response, error) {
+	melt, err := ms.mint.MeltRequest(bolt11, request.Request, request.Unit)
 	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
+		return nil, err
 	}
-	jsonRes, err := json.Marshal(mintQuoteStateResponse)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-
-	ms.writeResponse(rw, req, jsonRes, "")
+	return melt.PostMeltQuoteBolt11Response, nil
 }
 
-func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	method := vars["method"]
-
-	var mintReq nut04.PostMintBolt11Request
-	err := decodeJsonReqBody(req, &mintReq)
+func (ms *Server) Melt(ctx context.Context, request *cashurpc.PostMeltBolt11Request) (*cashurpc.PostMeltBolt11Response, error) {
+	melt, err := ms.mint.MeltTokens(bolt11, request.Quote, request.Inputs)
 	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
+		return nil, err
 	}
-
-	blindedSignatures, err := ms.mint.MintTokens(method, mintReq.Quote, mintReq.Outputs)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-	signatures := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
-
-	jsonRes, err := json.Marshal(signatures)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-	ms.writeResponse(rw, req, jsonRes, "returned signatures on mint tokens request")
+	return melt, nil
 }
 
-func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
-	var swapReq nut03.PostSwapRequest
-	err := decodeJsonReqBody(req, &swapReq)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	blindedSignatures, err := ms.mint.Swap(swapReq.Inputs, swapReq.Outputs)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	signatures := nut03.PostSwapResponse{Signatures: blindedSignatures}
-	jsonRes, err := json.Marshal(signatures)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-	ms.writeResponse(rw, req, jsonRes, "returned signatures on swap request")
+func (ms *Server) Info(ctx context.Context, request *cashurpc.InfoRequest) (*cashurpc.InfoResponse, error) {
+	return ms.mint.MintInfo, nil
 }
 
-func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	method := vars["method"]
-
-	var meltRequest nut05.PostMeltQuoteBolt11Request
-	err := decodeJsonReqBody(req, &meltRequest)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	meltQuote, err := ms.mint.MeltRequest(method, meltRequest.Request, meltRequest.Unit)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	quoteResponse := nut05.PostMeltQuoteBolt11Response{
-		Quote:      meltQuote.Id,
-		Amount:     meltQuote.Amount,
-		FeeReserve: meltQuote.FeeReserve,
-		Paid:       meltQuote.Paid,
-		Expiry:     meltQuote.Expiry,
-	}
-
-	jsonRes, err := json.Marshal(quoteResponse)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-
-	ms.writeResponse(rw, req, jsonRes, "melt quote request")
+func (ms *Server) CheckState(ctx context.Context, request *cashurpc.PostCheckStateRequest) (*cashurpc.PostCheckStateResponse, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
-func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	method := vars["method"]
-	quoteId := vars["quote_id"]
-
-	meltQuote, err := ms.mint.GetMeltQuoteState(method, quoteId)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	quoteState := nut05.PostMeltQuoteBolt11Response{
-		Quote:      meltQuote.Id,
-		Amount:     meltQuote.Amount,
-		FeeReserve: meltQuote.FeeReserve,
-		Paid:       meltQuote.Paid,
-		Expiry:     meltQuote.Expiry,
-	}
-
-	jsonRes, err := json.Marshal(quoteState)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-
-	ms.writeResponse(rw, req, jsonRes, "")
-}
-
-func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	method := vars["method"]
-
-	var meltTokensRequest nut05.PostMeltBolt11Request
-	err := decodeJsonReqBody(req, &meltTokensRequest)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	meltQuote, err := ms.mint.MeltTokens(method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
-	if err != nil {
-		ms.writeErr(rw, req, err)
-		return
-	}
-
-	meltTokenResponse := nut05.PostMeltBolt11Response{
-		Paid:     meltQuote.Paid,
-		Preimage: meltQuote.Preimage,
-	}
-
-	jsonRes, err := json.Marshal(meltTokenResponse)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-	ms.writeResponse(rw, req, jsonRes, "")
-}
-
-func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
-	jsonRes, err := json.Marshal(ms.mint.MintInfo)
-	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
-		return
-	}
-	ms.writeResponse(rw, req, jsonRes, "returning mint info")
-}
-
-func buildKeysResponse(keysets map[string]crypto.Keyset) nut01.GetKeysResponse {
-	keysResponse := nut01.GetKeysResponse{}
+func buildKeysResponse(keysets map[string]crypto.Keyset) *cashurpc.KeysResponse {
+	keysResponse := &cashurpc.KeysResponse{}
 
 	for _, keyset := range keysets {
+		if !keyset.Active {
+			continue
+		}
 		pks := keyset.DerivePublic()
-		keyRes := nut01.Keyset{Id: keyset.Id, Unit: keyset.Unit, Keys: pks}
+		keyRes := &cashurpc.Keyset{Id: keyset.Id, Unit: keyset.Unit, Keys: pks}
 		keysResponse.Keysets = append(keysResponse.Keysets, keyRes)
 	}
 
 	return keysResponse
 }
 
-func (ms *MintServer) buildAllKeysetsResponse() nut02.GetKeysetsResponse {
-	keysetsResponse := nut02.GetKeysetsResponse{}
+func (ms *Server) buildAllKeysetsResponse() *cashurpc.KeysResponse {
+	keysetsResponse := &cashurpc.KeysResponse{}
 
 	for _, keyset := range ms.mint.Keysets {
-		keysetRes := nut02.Keyset{Id: keyset.Id, Unit: keyset.Unit, Active: keyset.Active}
+		keysetRes := &cashurpc.Keyset{Id: keyset.Id, Unit: keyset.Unit, Active: keyset.Active}
 		keysetsResponse.Keysets = append(keysetsResponse.Keysets, keysetRes)
 	}
 

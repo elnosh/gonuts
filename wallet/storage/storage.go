@@ -1,15 +1,15 @@
 package storage
 
 import (
-	"github.com/elnosh/gonuts/cashu"
+	cashurpc "buf.build/gen/go/cashu/rpc/protocolbuffers/go"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 )
 
 type DB interface {
-	SaveProof(cashu.Proof) error
-	GetProofsByKeysetId(string) cashu.Proofs
-	GetProofs() cashu.Proofs
+	SaveProof(*cashurpc.Proof) error
+	GetProofsByKeysetId(string) []*cashurpc.Proof
+	GetProofs() []*cashurpc.Proof
 	DeleteProof(string) error
 	SaveKeyset(*crypto.Keyset) error
 	GetKeysets() crypto.KeysetsMap
