@@ -38,7 +38,7 @@ type walletMint struct {
 
 // get mint keysets
 func mintInfo(ctx context.Context, mintURL string) (*walletMint, error) {
-	activeKeysets, err := GetMintActiveKeysets(ctx, mintURL)
+	activeKeysets, err := GetMintKeysets(ctx, mintURL)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func LoadWallet(ctx context.Context, config Config) (*Wallet, error) {
 	return wallet, nil
 }
 
-func GetMintActiveKeysets(ctx context.Context, mintURL string) (map[string]crypto.Keyset, error) {
+func GetMintKeysets(ctx context.Context, mintURL string) (map[string]crypto.Keyset, error) {
 	keysetsResponse, err := GetAllKeysets(ctx, mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting active keyset from mint: %v", err)
@@ -457,8 +457,8 @@ func (w *Wallet) getProofsForAmount(ctx context.Context, amount uint64, mintURL 
 	// use proofs from inactive keysets first
 	for _, proof := range mintProofs {
 		isInactive := false
-		for _, inactiveKeyset := range selectedMint.activeKeysets {
-			if proof.Id == inactiveKeyset.Id && !inactiveKeyset.Active {
+		for _, keyset := range selectedMint.activeKeysets {
+			if proof.Id == keyset.Id && !keyset.Active {
 				isInactive = true
 				break
 			}
