@@ -22,6 +22,14 @@ type BlindedMessage struct {
 
 type BlindedMessages []BlindedMessage
 
+func (bm BlindedMessages) Amount() uint64 {
+	var totalAmount uint64 = 0
+	for _, msg := range bm {
+		totalAmount += msg.Amount
+	}
+	return totalAmount
+}
+
 // Cashu BlindedSignature. See https://github.com/cashubtc/nuts/blob/main/00.md#blindsignature
 type BlindedSignature struct {
 	Amount uint64 `json:"amount"`
