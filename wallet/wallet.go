@@ -272,7 +272,7 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	}
 
 	// unblind the signatures from the promises and build the proofs
-	proofs, err := w.ConstructProofs(mintResponse.Signatures, secrets, rs, &activeKeyset)
+	proofs, err := constructProofs(mintResponse.Signatures, secrets, rs, &activeKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}
@@ -348,7 +348,7 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 		}
 
 		// unblind signatures to get proofs and save them to db
-		proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
+		proofs, err := constructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
 		if err != nil {
 			return 0, fmt.Errorf("wallet.ConstructProofs: %v", err)
 		}
@@ -581,7 +581,7 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 		w.db.DeleteProof(proof.Secret)
 	}
 
-	proofs, err := w.ConstructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
+	proofs, err := constructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
@@ -648,11 +648,11 @@ func createBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMe
 	return blindedMessages, secrets, rs, nil
 }
 
-// ConstructProofs unblinds the blindedSignatures and returns the proofs
-func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
+// constructProofs unblinds the blindedSignatures and returns the proofs
+func constructProofs(blindedSignatures cashu.BlindedSignatures,
 	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
 
-	if len(blindedSignatures) != len(secrets) && len(blindedSignatures) != len(rs) {
+	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
 	}
 
@@ -667,8 +667,12 @@ func (w *Wallet) ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 			return nil, err
 		}
 
-		K := keyset.Keys[blindedSignature.Amount].PublicKey
-		C := crypto.UnblindSignature(C_, rs[i], K)
+		keyp, ok := keyset.Keys[blindedSignature.Amount]
+		if !ok {
+			return nil, errors.New("key not found")
+		}
+
+		C := crypto.UnblindSignature(C_, rs[i], keyp.PublicKey)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 
 		proof := cashu.Proof{Amount: blindedSignature.Amount,
