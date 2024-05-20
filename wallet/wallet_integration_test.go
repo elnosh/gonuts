@@ -4,6 +4,7 @@ package wallet
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -56,6 +57,23 @@ func testMain(m *testing.M) int {
 		log.Println(err)
 		return 1
 	}
+	defer func() {
+		bitcoind.Terminate(ctx)
+		lnd1.Terminate(ctx)
+		lnd2.Terminate(ctx)
+	}()
+
+	err = testutils.FundLndNode(ctx, bitcoind, lnd1)
+	if err != nil {
+		log.Println(err)
+		return 1
+	}
+
+	err = testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 15000000)
+	if err != nil {
+		log.Println(err)
+		return 1
+	}
 
 	mintConfig := mint.Config{
 		PrivateKey:     "mykey",
@@ -99,18 +117,9 @@ func testMain(m *testing.M) int {
 }
 
 func TestMintTokens(t *testing.T) {
-	err := testutils.FundLndNode(ctx, bitcoind, lnd1)
-	if err != nil {
-		t.Fatalf("error funding node: %v", err)
-	}
-
-	err = testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 15000000)
-	if err != nil {
-		t.Fatalf("error opening channel: %v", err)
-	}
-
+	var mintAmount uint64 = 10000
 	// check no err
-	mintRes, err := testWallet.RequestMint(100)
+	mintRes, err := testWallet.RequestMint(mintAmount)
 	if err != nil {
 		t.Fatalf("error requesting mint: %v", err)
 	}
@@ -129,29 +138,43 @@ func TestMintTokens(t *testing.T) {
 		t.Fatal("got unexpected nil invoice")
 	}
 
-	proofs, err := testWallet.MintTokens(mintInvoice.Id)
+	proofs, err := testWallet.MintTokens(mintRes.Quote)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-	if proofs.Amount() != 100 {
-		t.Fatalf("expected proofs amount of: '%v' but got '%v' instead", 100, proofs.Amount())
-	}
-	if testWallet.GetBalance() != 100 {
-		t.Fatalf("expected wallet balance of: '%v' but got '%v' instead", 100, testWallet.GetBalance())
+
+	if proofs.Amount() != mintAmount {
+		t.Fatalf("expected proofs amount of '%v' but got '%v' instead", mintAmount, proofs.Amount())
 	}
 
-	// Clean up the container after the test is complete
-	t.Cleanup(func() {
-		if err := bitcoind.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
-		}
+	// non-existent quote
+	_, err = testWallet.MintTokens("id198274")
+	if err == nil {
+		t.Fatalf("expected error but got nil")
+	}
+}
 
-		if err := lnd1.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
-		}
+func TestSend(t *testing.T) {
+	mintURL := "http://127.0.0.1:3338"
 
-		if err := lnd2.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
-		}
-	})
+	var sendAmount uint64 = 4200
+	token, err := testWallet.Send(sendAmount, mintURL)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+	if token.TotalAmount() != sendAmount {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount, token.TotalAmount())
+	}
+
+	// test with invalid mint
+	_, err = testWallet.Send(sendAmount, "http://nonexistent.mint")
+	if !errors.Is(err, ErrMintNotExist) {
+		t.Fatalf("expected error '%v' but got error '%v'", ErrMintNotExist, err)
+	}
+
+	// insufficient balance in wallet
+	_, err = testWallet.Send(2000000, mintURL)
+	if !errors.Is(err, ErrInsufficientMintBalance) {
+		t.Fatalf("expected error '%v' but got error '%v'", ErrInsufficientMintBalance, err)
+	}
 }
