@@ -16,7 +16,7 @@ import (
 )
 
 func GetActiveKeysets(mintURL string) (*nut01.GetKeysResponse, error) {
-	resp, err := http.Get(mintURL + "/v1/keys")
+	resp, err := get(mintURL + "/v1/keys")
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func GetActiveKeysets(mintURL string) (*nut01.GetKeysResponse, error) {
 }
 
 func GetAllKeysets(mintURL string) (*nut02.GetKeysetsResponse, error) {
-	resp, err := http.Get(mintURL + "/v1/keysets")
+	resp, err := get(mintURL + "/v1/keysets")
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func PostMintQuoteBolt11(mintURL string, mintQuoteRequest nut04.PostMintQuoteBol
 }
 
 func GetMintQuoteState(mintURL, quoteId string) (*nut04.PostMintQuoteBolt11Response, error) {
-	resp, err := http.Get(mintURL + "/v1/mint/quote/bolt11/" + quoteId)
+	resp, err := get(mintURL + "/v1/mint/quote/bolt11/" + quoteId)
 	if err != nil {
 		return nil, err
 	}
@@ -174,20 +174,33 @@ func PostMeltBolt11(mintURL string, meltRequest nut05.PostMeltBolt11Request) (
 	return meltResponse, nil
 }
 
+func get(url string) (*http.Response, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	return parse(resp)
+}
+
 func httpPost(url, contentType string, body io.Reader) (*http.Response, error) {
 	resp, err := http.Post(url, contentType, body)
 	if err != nil {
 		return nil, err
 	}
 
-	if resp.StatusCode == 400 {
+	return parse(resp)
+}
+
+func parse(response *http.Response) (*http.Response, error) {
+	if response.StatusCode == 400 {
 		var errResponse cashu.Error
-		err = json.NewDecoder(resp.Body).Decode(&errResponse)
+		err := json.NewDecoder(response.Body).Decode(&errResponse)
 		if err != nil {
 			return nil, fmt.Errorf("could not decode error response from mint: %v", err)
 		}
 		return nil, errResponse
 	}
 
-	return resp, nil
+	return response, nil
 }

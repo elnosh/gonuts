@@ -20,6 +20,11 @@ import (
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
 
+var (
+	ErrMintNotExist            = errors.New("mint does not exist")
+	ErrInsufficientMintBalance = errors.New("not enough funds in selected mint")
+)
+
 type Wallet struct {
 	db storage.DB
 
@@ -425,7 +430,7 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Response, error) {
 	selectedMint, ok := w.mints[mint]
 	if !ok {
-		return nil, errors.New("mint does not exist")
+		return nil, ErrMintNotExist
 	}
 
 	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
@@ -454,7 +459,7 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 func (w *Wallet) GetProofsByMint(mintURL string) (cashu.Proofs, error) {
 	selectedMint, ok := w.mints[mintURL]
 	if !ok {
-		return nil, errors.New("mint does not exist")
+		return nil, ErrMintNotExist
 	}
 
 	proofs := cashu.Proofs{}
@@ -476,13 +481,13 @@ func (w *Wallet) GetProofsByMint(mintURL string) (cashu.Proofs, error) {
 func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs, error) {
 	selectedMint, ok := w.mints[mintURL]
 	if !ok {
-		return nil, errors.New("mint does not exist")
+		return nil, ErrMintNotExist
 	}
 
 	balanceByMints := w.GetBalanceByMints()
 	balance := balanceByMints[mintURL]
 	if balance < amount {
-		return nil, errors.New("not enough funds in selected mint")
+		return nil, ErrInsufficientMintBalance
 	}
 
 	activeKeysetProofs := cashu.Proofs{}
