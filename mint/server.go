@@ -44,7 +44,7 @@ func SetupMintServer(config Config) (*MintServer, error) {
 		return nil, err
 	}
 	mintServer := &MintServer{mint: mint, logger: logger}
-	mintServer.setupHttpServer()
+	mintServer.setupHttpServer(config.Port)
 	return mintServer, nil
 }
 
@@ -78,7 +78,7 @@ func (ms *MintServer) LogInfo(format string, v ...any) {
 // 	m.logger.Error(msg)
 // }
 
-func (ms *MintServer) setupHttpServer() {
+func (ms *MintServer) setupHttpServer(port string) {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet)
@@ -93,8 +93,11 @@ func (ms *MintServer) setupHttpServer() {
 	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost)
 	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet)
 
+	if len(port) == 0 {
+		port = "3338"
+	}
 	server := &http.Server{
-		Addr:    "127.0.0.1:3338",
+		Addr:    "127.0.0.1:" + port,
 		Handler: r,
 	}
 

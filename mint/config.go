@@ -13,12 +13,16 @@ import (
 type Config struct {
 	PrivateKey     string
 	DerivationPath string
+	Port           string
+	DBPath         string
 }
 
 func GetConfig() Config {
 	return Config{
 		PrivateKey:     os.Getenv("MINT_PRIVATE_KEY"),
 		DerivationPath: os.Getenv("MINT_DERIVATION_PATH"),
+		Port:           os.Getenv("MINT_PORT"),
+		DBPath:         os.Getenv("MINT_DB_PATH"),
 	}
 }
 
