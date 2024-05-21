@@ -219,6 +219,9 @@ func (lnd *LndClient) SendPayment(request string) (string, error) {
 	if len(res.PaymentError) > 0 {
 		return "", fmt.Errorf("unable to make payment: %v", res.PaymentError)
 	}
+	if len(res.PaymentPreimage) == 0 {
+		return "", errors.New("could not make payment")
+	}
 
 	return res.PaymentPreimage, nil
 }

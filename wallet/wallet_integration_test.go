@@ -325,3 +325,73 @@ func TestMelt(t *testing.T) {
 	}
 
 }
+
+// check balance is correct after certain operations
+func TestWalletBalance(t *testing.T) {
+	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testwalletbalance")
+	balanceTestWallet, err := createTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	// test balance after mint request
+	var mintAmount uint64 = 20000
+	mintRequest, err := balanceTestWallet.RequestMint(mintAmount)
+	if err != nil {
+		t.Fatalf("unexpected error in mint request: %v", err)
+	}
+
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: mintRequest.Request,
+	}
+	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	}
+	_, err = balanceTestWallet.MintTokens(mintRequest.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error in mint tokens: %v", err)
+	}
+
+	if balanceTestWallet.GetBalance() != mintAmount {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", mintAmount, balanceTestWallet.GetBalance())
+	}
+	mintBalance := balanceTestWallet.GetBalanceByMints()[mintURL]
+	if mintBalance != mintAmount {
+		t.Fatalf("expected mint balance of '%v' but got '%v' instead", mintAmount, mintBalance)
+	}
+
+	balance := balanceTestWallet.GetBalance()
+	// test balance after send
+	var sendAmount uint64 = 1200
+	_, err = balanceTestWallet.Send(sendAmount, mintURL)
+	if err != nil {
+		t.Fatalf("unexpected error in send: %v", err)
+	}
+	if balanceTestWallet.GetBalance() != balance-sendAmount {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", balance-sendAmount, balanceTestWallet.GetBalance())
+	}
+
+	// test balance is same after failed melt request
+	invoice := lnrpc.Invoice{Value: 5000}
+	addInvoiceResponse, err := lnd1.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	balanceBeforeMelt := balanceTestWallet.GetBalance()
+	// doing self-payment so this should make melt request fail
+	_, err = balanceTestWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
+	if err == nil {
+		t.Fatal("expected error in melt request but got nil")
+	}
+
+	// check balance is same after failed melt
+	if balanceTestWallet.GetBalance() != balanceBeforeMelt {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", balanceBeforeMelt, balanceTestWallet.GetBalance())
+	}
+}
