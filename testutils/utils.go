@@ -5,15 +5,65 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/gonuts/mint"
+	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const NUM_BLOCKS int64 = 110
+
+func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
+	if err := os.MkdirAll(walletpath, 0750); err != nil {
+		return nil, err
+	}
+	walletConfig := wallet.Config{
+		WalletPath:     walletpath,
+		CurrentMintURL: defaultMint,
+	}
+	testWallet, err := wallet.LoadWallet(walletConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return testWallet, nil
+}
+
+func CreateTestMint(
+	lnd *btcdocker.Lnd,
+	key string,
+	port string,
+	dbpath string,
+) (*mint.MintServer, error) {
+	if err := os.MkdirAll(dbpath, 0750); err != nil {
+		return nil, err
+	}
+	mintConfig := mint.Config{
+		PrivateKey:     key,
+		DerivationPath: "0/0/0",
+		Port:           port,
+		DBPath:         dbpath,
+	}
+	nodeDir := lnd.LndDir
+
+	os.Setenv("LIGHTNING_BACKEND", "Lnd")
+	os.Setenv("LND_REST_HOST", "https://"+lnd.Host+":"+lnd.RestPort)
+	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
+	os.Setenv("LND_MACAROON_PATH", filepath.Join(nodeDir, "/data/chain/bitcoin/regtest/admin.macaroon"))
+
+	mintServer, err := mint.SetupMintServer(mintConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return mintServer, nil
+}
 
 func MineBlocks(bitcoind *btcdocker.Bitcoind, numBlocks int64) error {
 	address, err := bitcoind.Client.GetNewAddress("")

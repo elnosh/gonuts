@@ -1,6 +1,6 @@
 //go:build integration
 
-package wallet
+package wallet_test
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
+	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -23,54 +24,8 @@ var (
 	bitcoind   *btcdocker.Bitcoind
 	lnd1       *btcdocker.Lnd
 	lnd2       *btcdocker.Lnd
-	testWallet *Wallet
+	testWallet *wallet.Wallet
 )
-
-func createTestWallet(walletpath, defaultMint string) (*Wallet, error) {
-	if err := os.MkdirAll(walletpath, 0750); err != nil {
-		return nil, err
-	}
-	walletConfig := Config{
-		WalletPath:     walletpath,
-		CurrentMintURL: defaultMint,
-	}
-	testWallet, err := LoadWallet(walletConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return testWallet, nil
-}
-
-func createTestMint(
-	lnd *btcdocker.Lnd,
-	key string,
-	port string,
-	dbpath string,
-) (*mint.MintServer, error) {
-	if err := os.MkdirAll(dbpath, 0750); err != nil {
-		return nil, err
-	}
-	mintConfig := mint.Config{
-		PrivateKey:     key,
-		DerivationPath: "0/0/0",
-		Port:           port,
-		DBPath:         dbpath,
-	}
-	nodeDir := lnd.LndDir
-
-	os.Setenv("LIGHTNING_BACKEND", "Lnd")
-	os.Setenv("LND_REST_HOST", "https://"+lnd.Host+":"+lnd.RestPort)
-	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
-	os.Setenv("LND_MACAROON_PATH", filepath.Join(nodeDir, "/data/chain/bitcoin/regtest/admin.macaroon"))
-
-	mintServer, err := mint.SetupMintServer(mintConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return mintServer, nil
-}
 
 func TestMain(m *testing.M) {
 	os.Exit(testMain(m))
@@ -123,7 +78,7 @@ func testMain(m *testing.M) int {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err := createTestMint(lnd1, "mykey", "3338", testMintPath)
+	testMint, err := testutils.CreateTestMint(lnd1, "mykey", "3338", testMintPath)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -134,7 +89,7 @@ func testMain(m *testing.M) int {
 	go mint.StartMintServer(testMint)
 
 	testWalletPath := filepath.Join(".", "/testwallet1")
-	testWallet, err = createTestWallet(testWalletPath, "http://127.0.0.1:3338")
+	testWallet, err = testutils.CreateTestWallet(testWalletPath, "http://127.0.0.1:3338")
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -198,20 +153,20 @@ func TestSend(t *testing.T) {
 
 	// test with invalid mint
 	_, err = testWallet.Send(sendAmount, "http://nonexistent.mint")
-	if !errors.Is(err, ErrMintNotExist) {
-		t.Fatalf("expected error '%v' but got error '%v'", ErrMintNotExist, err)
+	if !errors.Is(err, wallet.ErrMintNotExist) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
 
 	// insufficient balance in wallet
 	_, err = testWallet.Send(2000000, mintURL)
-	if !errors.Is(err, ErrInsufficientMintBalance) {
-		t.Fatalf("expected error '%v' but got error '%v'", ErrInsufficientMintBalance, err)
+	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
 }
 
 func TestReceive(t *testing.T) {
 	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := createTestMint(lnd2, "mykey", "3339", testMintPath)
+	testMint, err := testutils.CreateTestMint(lnd2, "mykey", "3339", testMintPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +177,7 @@ func TestReceive(t *testing.T) {
 
 	mint2URL := "http://127.0.0.1:3339"
 	testWalletPath := filepath.Join(".", "/testwallet2")
-	testWallet2, err := createTestWallet(testWalletPath, mint2URL)
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath, mint2URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,13 +270,13 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 	_, err = testWallet.Melt(addInvoiceResponse.PaymentRequest, defaultMint)
-	if !errors.Is(err, ErrInsufficientMintBalance) {
-		t.Fatalf("expected error '%v' but got error '%v'", ErrInsufficientMintBalance, err)
+	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
 
 	_, err = testWallet.Melt(addInvoiceResponse.PaymentRequest, "http://nonexistent.mint")
-	if !errors.Is(err, ErrMintNotExist) {
-		t.Fatalf("expected error '%v' but got error '%v'", ErrMintNotExist, err)
+	if !errors.Is(err, wallet.ErrMintNotExist) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
 
 }
@@ -330,7 +285,7 @@ func TestMelt(t *testing.T) {
 func TestWalletBalance(t *testing.T) {
 	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testwalletbalance")
-	balanceTestWallet, err := createTestWallet(testWalletPath, mintURL)
+	balanceTestWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
 	if err != nil {
 		t.Fatal(err)
 	}
