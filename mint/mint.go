@@ -208,8 +208,8 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		blindedMessagesAmount += msg.Amount
 	}
 
-	if proofsAmount != blindedMessagesAmount {
-		return nil, cashu.AmountsDoNotMatch
+	if proofsAmount < blindedMessagesAmount {
+		return nil, cashu.InputsBelowOutputs
 	}
 
 	valid, err := m.VerifyProofs(proofs)
@@ -221,7 +221,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	// by adding them to the db
 	blindedSignatures, err := m.signBlindedMessages(blindedMessages)
 	if err != nil {
-		return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+		return nil, err
 	}
 
 	for _, proof := range proofs {

@@ -172,7 +172,7 @@ var (
 	InvoiceTokensIssuedErr   = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
 	ProofAlreadyUsedErr      = Error{Detail: "proofs already used", Code: ProofsErrCode}
 	InvalidProofErr          = Error{Detail: "invalid proof", Code: ProofsErrCode}
-	AmountsDoNotMatch        = Error{Detail: "amounts do not match", Code: ProofsErrCode}
+	InputsBelowOutputs       = Error{Detail: "amount of input proofs is below amount of outputs", Code: ProofsErrCode}
 	MeltQuoteNotExistErr     = Error{Detail: "melt quote does not exist", Code: QuoteErrCode}
 	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}
 	InvalidKeysetProof       = Error{Detail: "proof from an invalid keyset", Code: ProofsErrCode}
