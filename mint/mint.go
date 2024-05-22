@@ -181,7 +181,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 		var err error
 		blindedSignatures, err = m.signBlindedMessages(blindedMessages)
 		if err != nil {
-			return nil, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return nil, err
 		}
 
 		// mark invoice as redeemed after signing the blinded messages

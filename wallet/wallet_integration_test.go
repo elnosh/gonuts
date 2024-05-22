@@ -78,7 +78,7 @@ func testMain(m *testing.M) int {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err := testutils.CreateTestMint(lnd1, "mykey", "3338", testMintPath)
+	testMint, err := testutils.CreateTestMintServer(lnd1, "mykey", "3338", testMintPath)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -166,7 +166,7 @@ func TestSend(t *testing.T) {
 
 func TestReceive(t *testing.T) {
 	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := testutils.CreateTestMint(lnd2, "mykey", "3339", testMintPath)
+	testMint, err := testutils.CreateTestMintServer(lnd2, "mykey", "3339", testMintPath)
 	if err != nil {
 		t.Fatal(err)
 	}

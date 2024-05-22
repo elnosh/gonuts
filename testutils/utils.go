@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,59 +12,16 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const NUM_BLOCKS int64 = 110
-
-func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
-	if err := os.MkdirAll(walletpath, 0750); err != nil {
-		return nil, err
-	}
-	walletConfig := wallet.Config{
-		WalletPath:     walletpath,
-		CurrentMintURL: defaultMint,
-	}
-	testWallet, err := wallet.LoadWallet(walletConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return testWallet, nil
-}
-
-func CreateTestMint(
-	lnd *btcdocker.Lnd,
-	key string,
-	port string,
-	dbpath string,
-) (*mint.MintServer, error) {
-	if err := os.MkdirAll(dbpath, 0750); err != nil {
-		return nil, err
-	}
-	mintConfig := mint.Config{
-		PrivateKey:     key,
-		DerivationPath: "0/0/0",
-		Port:           port,
-		DBPath:         dbpath,
-	}
-	nodeDir := lnd.LndDir
-
-	os.Setenv("LIGHTNING_BACKEND", "Lnd")
-	os.Setenv("LND_REST_HOST", "https://"+lnd.Host+":"+lnd.RestPort)
-	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
-	os.Setenv("LND_MACAROON_PATH", filepath.Join(nodeDir, "/data/chain/bitcoin/regtest/admin.macaroon"))
-
-	mintServer, err := mint.SetupMintServer(mintConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return mintServer, nil
-}
 
 func MineBlocks(bitcoind *btcdocker.Bitcoind, numBlocks int64) error {
 	address, err := bitcoind.Client.GetNewAddress("")
@@ -171,4 +129,122 @@ func SyncLndNode(ctx context.Context, lnd *btcdocker.Lnd) error {
 	}
 
 	return errors.New("could not sync LND")
+}
+
+func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
+	if err := os.MkdirAll(walletpath, 0750); err != nil {
+		return nil, err
+	}
+	walletConfig := wallet.Config{
+		WalletPath:     walletpath,
+		CurrentMintURL: defaultMint,
+	}
+	testWallet, err := wallet.LoadWallet(walletConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return testWallet, nil
+}
+
+func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, error) {
+	if err := os.MkdirAll(dbpath, 0750); err != nil {
+		return nil, err
+	}
+	mintConfig := &mint.Config{
+		PrivateKey:     key,
+		DerivationPath: "0/0/0",
+		Port:           port,
+		DBPath:         dbpath,
+	}
+	nodeDir := lnd.LndDir
+
+	os.Setenv("LIGHTNING_BACKEND", "Lnd")
+	os.Setenv("LND_REST_HOST", "https://"+lnd.Host+":"+lnd.RestPort)
+	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
+	os.Setenv("LND_MACAROON_PATH", filepath.Join(nodeDir, "/data/chain/bitcoin/regtest/admin.macaroon"))
+
+	return mintConfig, nil
+}
+
+func CreateTestMint(
+	lnd *btcdocker.Lnd,
+	key string,
+	port string,
+	dbpath string,
+) (*mint.Mint, error) {
+	config, err := mintConfig(lnd, key, port, dbpath)
+	if err != nil {
+		return nil, err
+	}
+
+	mint, err := mint.LoadMint(*config)
+	if err != nil {
+		return nil, err
+	}
+	return mint, nil
+}
+
+func CreateTestMintServer(
+	lnd *btcdocker.Lnd,
+	key string,
+	port string,
+	dbpath string,
+) (*mint.MintServer, error) {
+	config, err := mintConfig(lnd, key, port, dbpath)
+	if err != nil {
+		return nil, err
+	}
+
+	mintServer, err := mint.SetupMintServer(*config)
+	if err != nil {
+		return nil, err
+	}
+
+	return mintServer, nil
+}
+
+func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.BlindedMessage {
+	B_str := hex.EncodeToString(B_.SerializeCompressed())
+	return cashu.BlindedMessage{Amount: amount, B_: B_str, Id: id}
+}
+
+func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
+	splitAmounts := cashu.AmountSplit(amount)
+	splitLen := len(splitAmounts)
+
+	blindedMessages := make(cashu.BlindedMessages, splitLen)
+	secrets := make([]string, splitLen)
+	rs := make([]*secp256k1.PrivateKey, splitLen)
+
+	for i, amt := range splitAmounts {
+		// generate new private key r
+		r, err := secp256k1.GeneratePrivateKey()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		var B_ *secp256k1.PublicKey
+		var secret string
+		// generate random secret until it finds valid point
+		for {
+			secretBytes := make([]byte, 32)
+			_, err = rand.Read(secretBytes)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			secret = hex.EncodeToString(secretBytes)
+			B_, r, err = crypto.BlindMessage(secret, r)
+			if err == nil {
+				break
+			}
+		}
+
+		blindedMessage := newBlindedMessage(keyset.Id, amt, B_)
+		blindedMessages[i] = blindedMessage
+		secrets[i] = secret
+		rs[i] = r
+	}
+
+	return blindedMessages, secrets, rs, nil
 }
