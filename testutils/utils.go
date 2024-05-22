@@ -21,7 +21,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-const NUM_BLOCKS int64 = 110
+const (
+	NUM_BLOCKS    int64 = 110
+	BOLT11_METHOD       = "bolt11"
+	SAT_UNIT            = "sat"
+)
 
 func MineBlocks(bitcoind *btcdocker.Bitcoind, numBlocks int64) error {
 	address, err := bitcoind.Client.GetNewAddress("")
@@ -247,4 +251,79 @@ func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMe
 	}
 
 	return blindedMessages, secrets, rs, nil
+}
+
+func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
+	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
+
+	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
+		return nil, errors.New("lengths do not match")
+	}
+
+	proofs := make(cashu.Proofs, len(blindedSignatures))
+	for i, blindedSignature := range blindedSignatures {
+		C_bytes, err := hex.DecodeString(blindedSignature.C_)
+		if err != nil {
+			return nil, err
+		}
+		C_, err := secp256k1.ParsePubKey(C_bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		keyp, ok := keyset.Keys[blindedSignature.Amount]
+		if !ok {
+			return nil, errors.New("key not found")
+		}
+
+		C := crypto.UnblindSignature(C_, rs[i], keyp.PublicKey)
+		Cstr := hex.EncodeToString(C.SerializeCompressed())
+
+		proof := cashu.Proof{Amount: blindedSignature.Amount,
+			Secret: secrets[i], C: Cstr, Id: blindedSignature.Id}
+
+		proofs[i] = proof
+	}
+
+	return proofs, nil
+}
+
+func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) (cashu.Proofs, error) {
+	mintQuoteResponse, err := mint.RequestMintQuote(BOLT11_METHOD, amount, SAT_UNIT)
+	if err != nil {
+		return nil, fmt.Errorf("error requesting mint quote: %v", err)
+	}
+
+	var keyset crypto.Keyset
+	for _, k := range mint.ActiveKeysets {
+		keyset = k
+		break
+	}
+
+	blindedMessages, secrets, rs, err := CreateBlindedMessages(amount, keyset)
+	if err != nil {
+		return nil, fmt.Errorf("error creating blinded message: %v", err)
+	}
+
+	ctx := context.Background()
+	//pay invoice
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: mintQuoteResponse.Request,
+	}
+	response, _ := payer.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		return nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
+	}
+
+	blindedSignatures, err := mint.MintTokens(BOLT11_METHOD, mintQuoteResponse.Quote, blindedMessages)
+	if err != nil {
+		return nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
+	}
+
+	proofs, err := ConstructProofs(blindedSignatures, secrets, rs, &keyset)
+	if err != nil {
+		return nil, fmt.Errorf("error constructing proofs: %v", err)
+	}
+
+	return proofs, nil
 }

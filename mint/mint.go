@@ -314,16 +314,16 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 		return MeltQuote{}, cashu.MeltQuoteNotExistErr
 	}
 
-	valid, err := m.VerifyProofs(proofs)
-	if err != nil || !valid {
-		return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-	}
-
 	proofsAmount := proofs.Amount()
 
 	// checks if amount in proofs is enough
 	if proofsAmount < meltQuote.Amount+meltQuote.FeeReserve {
 		return MeltQuote{}, cashu.InsufficientProofsAmount
+	}
+
+	valid, err := m.VerifyProofs(proofs)
+	if err != nil || !valid {
+		return MeltQuote{}, err
 	}
 
 	// if proofs are valid, ask the lightning backend
