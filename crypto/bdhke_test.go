@@ -38,7 +38,6 @@ func TestHashToCurve(t *testing.T) {
 	}
 }
 
-
 func TestBlindMessage(t *testing.T) {
 	tests := []struct {
 		secret         string
@@ -170,8 +169,7 @@ func TestVerify(t *testing.T) {
 	}
 }
 
-
-// Tests for deprecated HashToCurve 
+// Tests for deprecated HashToCurve
 func TestHashToCurveDeprecated(t *testing.T) {
 	tests := []struct {
 		message  string
