@@ -162,11 +162,26 @@ func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, err
 		DBPath:         dbpath,
 	}
 	nodeDir := lnd.LndDir
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("error getting current dir: %v", err)
+	}
+
+	macaroonPath := filepath.Join(currentDir, "/admin.macaroon")
+	file, err := os.Create(macaroonPath)
+	if err != nil {
+		return nil, fmt.Errorf("error creating macaroon file: %v", err)
+	}
+
+	_, err = file.Write(lnd.AdminMacaroon)
+	if err != nil {
+		return nil, fmt.Errorf("error writing to macaroon file: %v", err)
+	}
 
 	os.Setenv("LIGHTNING_BACKEND", "Lnd")
 	os.Setenv("LND_REST_HOST", "https://"+lnd.Host+":"+lnd.RestPort)
 	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
-	os.Setenv("LND_MACAROON_PATH", filepath.Join(nodeDir, "/data/chain/bitcoin/regtest/admin.macaroon"))
+	os.Setenv("LND_MACAROON_PATH", macaroonPath)
 
 	return mintConfig, nil
 }

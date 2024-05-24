@@ -1,0 +1,31 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+jobs:
+    ci:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v4
+
+        - name: Set up Go
+          uses: actions/setup-go@v4
+          with:
+            go-version: 1.22.2
+        
+        - name: Go Fmt
+          run: go fmt ./...
+
+        - name: Go Vet
+          run: go vet ./...
+
+        - name: Tests
+          run: go test -v ./...
+
+        - name: Integration Tests
+          run: go test -v --tags=integration ./mint
+        - run: go test -v --tags=integration ./wallet
