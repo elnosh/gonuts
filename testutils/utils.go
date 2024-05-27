@@ -162,12 +162,8 @@ func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, err
 		DBPath:         dbpath,
 	}
 	nodeDir := lnd.LndDir
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("error getting current dir: %v", err)
-	}
 
-	macaroonPath := filepath.Join(currentDir, "/admin.macaroon")
+	macaroonPath := filepath.Join(dbpath, "/admin.macaroon")
 	file, err := os.Create(macaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("error creating macaroon file: %v", err)
