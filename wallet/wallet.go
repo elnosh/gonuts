@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
@@ -14,7 +15,6 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/crypto"
-	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet/storage"
 
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -214,12 +214,16 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 		return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)
 	}
 
-	invoice := lightning.Invoice{
-		Id:             mintResponse.Quote,
-		PaymentRequest: mintResponse.Request,
-		PaymentHash:    bolt11.PaymentHash,
-		Amount:         amount,
-		Expiry:         mintResponse.Expiry,
+	invoice := storage.Invoice{
+		TransactionType: storage.Mint,
+		QuoteAmount:     amount,
+		Id:              mintResponse.Quote,
+		PaymentRequest:  mintResponse.Request,
+		PaymentHash:     bolt11.PaymentHash,
+		CreatedAt:       int64(bolt11.CreatedAt),
+		Paid:            false,
+		InvoiceAmount:   uint64(bolt11.MSatoshi / 1000),
+		QuoteExpiry:     mintResponse.Expiry,
 	}
 
 	err = w.db.SaveInvoice(invoice)
@@ -264,7 +268,7 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 
 	// create blinded messages
 	activeKeyset := w.GetActiveSatKeyset()
-	blindedMessages, secrets, rs, err := createBlindedMessages(invoice.Amount, activeKeyset)
+	blindedMessages, secrets, rs, err := createBlindedMessages(invoice.QuoteAmount, activeKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("error creating blinded messages: %v", err)
 	}
@@ -283,8 +287,8 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	}
 
 	// mark invoice as redeemed
-	invoice.Settled = true
-	invoice.Redeemed = true
+	invoice.Paid = true
+	invoice.SettledAt = time.Now().Unix()
 	err = w.db.SaveInvoice(*invoice)
 	if err != nil {
 		return nil, err
@@ -450,6 +454,30 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 	if err != nil || !meltBolt11Response.Paid {
 		// save proofs if invoice was not paid
 		w.saveProofs(proofs)
+	} else if meltBolt11Response.Paid { // save invoice to db
+		bolt11, err := decodepay.Decodepay(invoice)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)
+		}
+
+		invoice := storage.Invoice{
+			TransactionType: storage.Melt,
+			QuoteAmount:     amountNeeded,
+			Id:              meltQuoteResponse.Quote,
+			PaymentRequest:  invoice,
+			PaymentHash:     bolt11.PaymentHash,
+			Preimage:        meltBolt11Response.Preimage,
+			CreatedAt:       int64(bolt11.CreatedAt),
+			Paid:            true,
+			SettledAt:       time.Now().Unix(),
+			InvoiceAmount:   uint64(bolt11.MSatoshi / 1000),
+			QuoteExpiry:     meltQuoteResponse.Expiry,
+		}
+
+		err = w.db.SaveInvoice(invoice)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return meltBolt11Response, err
 }
@@ -746,7 +774,7 @@ func (w *Wallet) saveProofs(proofs cashu.Proofs) error {
 	return nil
 }
 
-func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*lightning.Invoice, error) {
+func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*storage.Invoice, error) {
 	bolt11, err := decodepay.Decodepay(pr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid payment request: %v", err)
@@ -755,10 +783,10 @@ func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*lightning.Invoice, erro
 	return w.db.GetInvoice(bolt11.PaymentHash), nil
 }
 
-func (w *Wallet) GetInvoiceByPaymentHash(hash string) *lightning.Invoice {
+func (w *Wallet) GetInvoiceByPaymentHash(hash string) *storage.Invoice {
 	return w.db.GetInvoice(hash)
 }
 
-func (w *Wallet) GetAllInvoices() []lightning.Invoice {
+func (w *Wallet) GetAllInvoices() []storage.Invoice {
 	return w.db.GetInvoices()
 }
