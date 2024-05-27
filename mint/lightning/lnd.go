@@ -223,5 +223,11 @@ func (lnd *LndClient) SendPayment(request string) (string, error) {
 		return "", errors.New("could not make payment")
 	}
 
-	return res.PaymentPreimage, nil
+	preimageBytes, err := base64.StdEncoding.DecodeString(res.PaymentPreimage)
+	if err != nil {
+		return "", fmt.Errorf("invalid preimage: %v", err)
+	}
+	preimage := hex.EncodeToString(preimageBytes)
+
+	return preimage, nil
 }
