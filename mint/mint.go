@@ -22,6 +22,8 @@ import (
 
 const (
 	QuoteExpiryMins = 10
+	BOLT11_METHOD   = "bolt11"
+	SAT_UNIT        = "sat"
 )
 
 type Mint struct {
@@ -93,11 +95,11 @@ func mintPath() string {
 // NUT-04 here: https://github.com/cashubtc/nuts/blob/main/04.md.
 func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut04.PostMintQuoteBolt11Response, error) {
 	// only support bolt11
-	if method != "bolt11" {
+	if method != BOLT11_METHOD {
 		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
 	}
 	// only support sat unit
-	if unit != "sat" {
+	if unit != SAT_UNIT {
 		return nut04.PostMintQuoteBolt11Response{}, cashu.UnitNotSupportedErr
 	}
 
@@ -126,7 +128,7 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut0
 // GetMintQuoteState returns the state of a mint quote.
 // Used to check whether a mint quote has been paid.
 func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBolt11Response, error) {
-	if method != "bolt11" {
+	if method != BOLT11_METHOD {
 		return nut04.PostMintQuoteBolt11Response{}, cashu.PaymentMethodNotSupportedErr
 	}
 
@@ -150,7 +152,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 // MintTokens verifies whether the mint quote with id has been paid and proceeds to
 // sign the blindedMessages and return the BlindedSignatures if it was paid.
 func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
-	if method != "bolt11" {
+	if method != BOLT11_METHOD {
 		return nil, cashu.PaymentMethodNotSupportedErr
 	}
 
@@ -244,10 +246,10 @@ type MeltQuote struct {
 // MeltRequest will process a request to melt tokens and return a MeltQuote.
 // A melt is requested by a wallet to request the mint to pay an invoice.
 func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
-	if method != "bolt11" {
+	if method != BOLT11_METHOD {
 		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
-	if unit != "sat" {
+	if unit != SAT_UNIT {
 		return MeltQuote{}, cashu.UnitNotSupportedErr
 	}
 
@@ -290,7 +292,7 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 // GetMeltQuoteState returns the state of a melt quote.
 // Used to check whether a melt quote has been paid.
 func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
-	if method != "bolt11" {
+	if method != BOLT11_METHOD {
 		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
 
@@ -305,7 +307,7 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 // MeltTokens verifies whether proofs provided are valid
 // and proceeds to attempt payment.
 func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuote, error) {
-	if method != "bolt11" {
+	if method != BOLT11_METHOD {
 		return MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
 
