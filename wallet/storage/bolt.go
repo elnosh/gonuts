@@ -131,7 +131,7 @@ func (db *BoltDB) DeleteProof(secret string) error {
 	})
 }
 
-func (db *BoltDB) SaveKeyset(keyset *crypto.Keyset) error {
+func (db *BoltDB) SaveKeyset(keyset crypto.WalletKeyset) error {
 	jsonKeyset, err := json.Marshal(keyset)
 	if err != nil {
 		return fmt.Errorf("invalid keyset format: %v", err)
@@ -157,13 +157,13 @@ func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 		keysetsb := tx.Bucket([]byte(keysetsBucket))
 
 		return keysetsb.ForEach(func(mintURL, v []byte) error {
-			mintKeysets := make(map[string]crypto.Keyset)
+			mintKeysets := make(map[string]crypto.WalletKeyset)
 
 			mintBucket := keysetsb.Bucket(mintURL)
 			c := mintBucket.Cursor()
 
 			for k, v := c.First(); k != nil; k, v = c.Next() {
-				var keyset crypto.Keyset
+				var keyset crypto.WalletKeyset
 				if err := json.Unmarshal(v, &keyset); err != nil {
 					return err
 				}
@@ -179,6 +179,34 @@ func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 	}
 
 	return keysets
+
+}
+
+func (db *BoltDB) IncrementKeysetCounter(keysetId string) error {
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		keysetBytes := keysetsb.Get([]byte(keysetId))
+		if keysetBytes == nil {
+			return errors.New("keyset does not exist")
+		}
+
+		var keyset crypto.WalletKeyset
+		err := json.Unmarshal(keysetBytes, &keyset)
+		if err != nil {
+			return fmt.Errorf("error reading keyset from db: %v", err)
+		}
+		keyset.Counter += 1
+
+		jsonBytes, err := json.Marshal(keyset)
+		if err != nil {
+			return err
+		}
+		return keysetsb.Put([]byte(keysetId), jsonBytes)
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (db *BoltDB) SaveInvoice(invoice Invoice) error {

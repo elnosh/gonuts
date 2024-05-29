@@ -28,8 +28,9 @@ type DB interface {
 	GetProofsByKeysetId(string) cashu.Proofs
 	GetProofs() cashu.Proofs
 	DeleteProof(string) error
-	SaveKeyset(*crypto.Keyset) error
+	SaveKeyset(crypto.WalletKeyset) error
 	GetKeysets() crypto.KeysetsMap
+	IncrementKeysetCounter(string) error
 	SaveInvoice(Invoice) error
 	GetInvoice(string) *Invoice
 	GetInvoices() []Invoice

@@ -14,15 +14,12 @@ import (
 
 const maxOrder = 64
 
-// KeysetsMap maps a mint url to map of string keyset id to keyset
-type KeysetsMap map[string]map[string]Keyset
-
 type Keyset struct {
-	Id      string
-	MintURL string
-	Unit    string
-	Active  bool
-	Keys    map[uint64]KeyPair
+	Id string
+	//MintURL string
+	Unit   string
+	Active bool
+	Keys   map[uint64]KeyPair
 }
 
 type KeyPair struct {
@@ -30,16 +27,30 @@ type KeyPair struct {
 	PublicKey  *secp256k1.PublicKey
 }
 
+// KeysetsMap maps a mint url to map of string keyset id to keyset
+type KeysetsMap map[string]map[string]WalletKeyset
+
+type WalletKeyset struct {
+	Id         string
+	MintURL    string
+	Unit       string
+	Active     bool
+	PublicKeys map[uint64]*secp256k1.PublicKey
+	Counter    uint64
+}
+
 func GenerateKeyset(seed, derivationPath string) *Keyset {
 	keys := make(map[uint64]KeyPair, maxOrder)
 
+	pks := make(map[uint64]*secp256k1.PublicKey)
 	for i := 0; i < maxOrder; i++ {
 		amount := uint64(math.Pow(2, float64(i)))
 		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
 		privKey, pubKey := btcec.PrivKeyFromBytes(hash[:])
 		keys[amount] = KeyPair{PrivateKey: privKey, PublicKey: pubKey}
+		pks[amount] = pubKey
 	}
-	keysetId := DeriveKeysetId(keys)
+	keysetId := DeriveKeysetId(pks)
 	return &Keyset{Id: keysetId, Unit: "sat", Active: true, Keys: keys}
 }
 
@@ -50,7 +61,7 @@ func GenerateKeyset(seed, derivationPath string) *Keyset {
 // - HASH_SHA256 the concatenated public keys
 // - take the first 14 characters of the hex-encoded hash
 // - prefix it with a keyset ID version byte
-func DeriveKeysetId(keyset map[uint64]KeyPair) string {
+func DeriveKeysetId(keyset map[uint64]*secp256k1.PublicKey) string {
 	type pubkey struct {
 		amount uint64
 		pk     *secp256k1.PublicKey
@@ -58,7 +69,7 @@ func DeriveKeysetId(keyset map[uint64]KeyPair) string {
 	pubkeys := make([]pubkey, len(keyset))
 	i := 0
 	for amount, key := range keyset {
-		pubkeys[i] = pubkey{amount, key.PublicKey}
+		pubkeys[i] = pubkey{amount, key}
 		i++
 	}
 	sort.Slice(pubkeys, func(i, j int) bool {
@@ -87,19 +98,17 @@ func (ks *Keyset) DerivePublic() map[uint64]string {
 }
 
 type KeysetTemp struct {
-	Id      string
-	MintURL string
-	Unit    string
-	Active  bool
-	Keys    map[uint64]json.RawMessage
+	Id     string
+	Unit   string
+	Active bool
+	Keys   map[uint64]json.RawMessage
 }
 
 func (ks *Keyset) MarshalJSON() ([]byte, error) {
 	temp := &KeysetTemp{
-		Id:      ks.Id,
-		MintURL: ks.MintURL,
-		Unit:    ks.Unit,
-		Active:  ks.Active,
+		Id:     ks.Id,
+		Unit:   ks.Unit,
+		Active: ks.Active,
 		Keys: func() map[uint64]json.RawMessage {
 			m := make(map[uint64]json.RawMessage)
 			for k, v := range ks.Keys {
@@ -121,7 +130,7 @@ func (ks *Keyset) UnmarshalJSON(data []byte) error {
 	}
 
 	ks.Id = temp.Id
-	ks.MintURL = temp.MintURL
+	//ks.MintURL = temp.MintURL
 	ks.Unit = temp.Unit
 	ks.Active = temp.Active
 

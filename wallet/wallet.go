@@ -37,9 +37,9 @@ type Wallet struct {
 type walletMint struct {
 	mintURL string
 	// active keysets from mint
-	activeKeysets map[string]crypto.Keyset
+	activeKeysets map[string]crypto.WalletKeyset
 	// list of inactive keysets (if any) from mint
-	inactiveKeysets map[string]crypto.Keyset
+	inactiveKeysets map[string]crypto.WalletKeyset
 }
 
 func InitStorage(path string) (storage.DB, error) {
@@ -71,7 +71,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		wallet.currentMint = mint
 	} else { // if mint is already known, check if active keyset has changed
 		// get last stored active sat keyset
-		var lastActiveSatKeyset crypto.Keyset
+		var lastActiveSatKeyset crypto.WalletKeyset
 		for _, keyset := range walletMint.activeKeysets {
 			if keyset.Unit == "sat" {
 				lastActiveSatKeyset = keyset
@@ -92,7 +92,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 
 				// there is new keyset, change last active to inactive
 				lastActiveSatKeyset.Active = false
-				db.SaveKeyset(&lastActiveSatKeyset)
+				db.SaveKeyset(lastActiveSatKeyset)
 				break
 			}
 		}
@@ -104,7 +104,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 				return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 			}
 			for _, keyset := range activeKeysets {
-				db.SaveKeyset(&keyset)
+				db.SaveKeyset(keyset)
 			}
 			walletMint.activeKeysets = activeKeysets
 		}
@@ -143,27 +143,27 @@ func (w *Wallet) addMint(mint string) (*walletMint, error) {
 	}
 
 	for _, keyset := range mintInfo.activeKeysets {
-		w.db.SaveKeyset(&keyset)
+		w.db.SaveKeyset(keyset)
 	}
 	for _, keyset := range mintInfo.inactiveKeysets {
-		w.db.SaveKeyset(&keyset)
+		w.db.SaveKeyset(keyset)
 	}
 	w.mints[mintURL] = *mintInfo
 
 	return mintInfo, nil
 }
 
-func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
+func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error) {
 	keysetsResponse, err := GetActiveKeysets(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting active keyset from mint: %v", err)
 	}
 
-	activeKeysets := make(map[string]crypto.Keyset)
+	activeKeysets := make(map[string]crypto.WalletKeyset)
 	for i, keyset := range keysetsResponse.Keysets {
 		if keyset.Unit == "sat" {
-			activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
-			keys := make(map[uint64]crypto.KeyPair)
+			activeKeyset := crypto.WalletKeyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
+			keys := make(map[uint64]*secp256k1.PublicKey)
 			for amount, key := range keysetsResponse.Keysets[i].Keys {
 				pkbytes, err := hex.DecodeString(key)
 				if err != nil {
@@ -173,10 +173,10 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 				if err != nil {
 					return nil, err
 				}
-				keys[amount] = crypto.KeyPair{PublicKey: pubkey}
+				keys[amount] = pubkey
 			}
-			activeKeyset.Keys = keys
-			id := crypto.DeriveKeysetId(activeKeyset.Keys)
+			activeKeyset.PublicKeys = keys
+			id := crypto.DeriveKeysetId(activeKeyset.PublicKeys)
 			activeKeyset.Id = id
 			activeKeysets[id] = activeKeyset
 		}
@@ -185,17 +185,16 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 	return activeKeysets, nil
 }
 
-func GetMintInactiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
+func GetMintInactiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error) {
 	keysetsResponse, err := GetAllKeysets(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 	}
 
-	inactiveKeysets := make(map[string]crypto.Keyset)
-
+	inactiveKeysets := make(map[string]crypto.WalletKeyset)
 	for _, keysetRes := range keysetsResponse.Keysets {
 		if !keysetRes.Active && keysetRes.Unit == "sat" {
-			keyset := crypto.Keyset{
+			keyset := crypto.WalletKeyset{
 				Id:      keysetRes.Id,
 				MintURL: mintURL,
 				Unit:    keysetRes.Unit,
@@ -375,7 +374,7 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 			walletMint = *mint
 		}
 
-		var activeSatKeyset crypto.Keyset
+		var activeSatKeyset crypto.WalletKeyset
 		for _, k := range walletMint.activeKeysets {
 			activeSatKeyset = k
 			break
@@ -583,7 +582,7 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 		return selectedProofs, nil
 	}
 
-	var activeSatKeyset crypto.Keyset
+	var activeSatKeyset crypto.WalletKeyset
 	for _, k := range selectedMint.activeKeysets {
 		activeSatKeyset = k
 		break
@@ -659,7 +658,7 @@ func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.
 }
 
 // returns Blinded messages, secrets - [][]byte, and list of r
-func createBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
+func createBlindedMessages(amount uint64, keyset crypto.WalletKeyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
 	splitAmounts := cashu.AmountSplit(amount)
 	splitLen := len(splitAmounts)
 
@@ -701,7 +700,7 @@ func createBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMe
 
 // constructProofs unblinds the blindedSignatures and returns the proofs
 func constructProofs(blindedSignatures cashu.BlindedSignatures,
-	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
+	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.WalletKeyset) (cashu.Proofs, error) {
 
 	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
@@ -718,12 +717,12 @@ func constructProofs(blindedSignatures cashu.BlindedSignatures,
 			return nil, err
 		}
 
-		keyp, ok := keyset.Keys[blindedSignature.Amount]
+		pubkey, ok := keyset.PublicKeys[blindedSignature.Amount]
 		if !ok {
 			return nil, errors.New("key not found")
 		}
 
-		C := crypto.UnblindSignature(C_, rs[i], keyp.PublicKey)
+		C := crypto.UnblindSignature(C_, rs[i], pubkey)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 
 		proof := cashu.Proof{Amount: blindedSignature.Amount,
@@ -735,8 +734,8 @@ func constructProofs(blindedSignatures cashu.BlindedSignatures,
 	return proofs, nil
 }
 
-func (w *Wallet) GetActiveSatKeyset() crypto.Keyset {
-	var activeKeyset crypto.Keyset
+func (w *Wallet) GetActiveSatKeyset() crypto.WalletKeyset {
+	var activeKeyset crypto.WalletKeyset
 	for _, keyset := range w.currentMint.activeKeysets {
 		if keyset.Unit == "sat" {
 			activeKeyset = keyset
@@ -751,8 +750,8 @@ func (w *Wallet) getWalletMints() map[string]walletMint {
 
 	keysets := w.db.GetKeysets()
 	for k, mintKeysets := range keysets {
-		activeKeysets := make(map[string]crypto.Keyset)
-		inactiveKeysets := make(map[string]crypto.Keyset)
+		activeKeysets := make(map[string]crypto.WalletKeyset)
+		inactiveKeysets := make(map[string]crypto.WalletKeyset)
 		for _, keyset := range mintKeysets {
 			if keyset.Active {
 				activeKeysets[keyset.Id] = keyset
