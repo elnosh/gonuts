@@ -3,8 +3,25 @@ package storage
 import (
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
-	"github.com/elnosh/gonuts/mint/lightning"
 )
+
+type QuoteType int
+
+const (
+	Mint QuoteType = iota + 1
+	Melt
+)
+
+func (quote QuoteType) String() string {
+	switch quote {
+	case Mint:
+		return "Mint"
+	case Melt:
+		return "Melt"
+	default:
+		return "unknown"
+	}
+}
 
 type DB interface {
 	SaveProof(cashu.Proof) error
@@ -13,7 +30,22 @@ type DB interface {
 	DeleteProof(string) error
 	SaveKeyset(*crypto.Keyset) error
 	GetKeysets() crypto.KeysetsMap
-	SaveInvoice(lightning.Invoice) error
-	GetInvoice(string) *lightning.Invoice
-	GetInvoices() []lightning.Invoice
+	SaveInvoice(Invoice) error
+	GetInvoice(string) *Invoice
+	GetInvoices() []Invoice
+}
+
+type Invoice struct {
+	TransactionType QuoteType
+	// mint or melt quote id
+	Id             string
+	QuoteAmount    uint64
+	PaymentRequest string
+	PaymentHash    string
+	Preimage       string
+	CreatedAt      int64
+	Paid           bool
+	SettledAt      int64
+	InvoiceAmount  uint64
+	QuoteExpiry    int64
 }

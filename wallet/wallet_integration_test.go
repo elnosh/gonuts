@@ -123,7 +123,7 @@ func TestMintTokens(t *testing.T) {
 		t.Fatal("got unexpected nil invoice")
 	}
 
-	proofs, err := testWallet.MintTokens(mintRes.Quote)
+	proofs, err := testWallet.MintTokens(mintInvoice.Id)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}

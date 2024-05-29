@@ -8,7 +8,6 @@ import (
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
-	"github.com/elnosh/gonuts/mint/lightning"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -182,7 +181,7 @@ func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 	return keysets
 }
 
-func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
+func (db *BoltDB) SaveInvoice(invoice Invoice) error {
 	jsonbytes, err := json.Marshal(invoice)
 	if err != nil {
 		return fmt.Errorf("invalid invoice: %v", err)
@@ -198,8 +197,8 @@ func (db *BoltDB) SaveInvoice(invoice lightning.Invoice) error {
 	return nil
 }
 
-func (db *BoltDB) GetInvoice(paymentHash string) *lightning.Invoice {
-	var invoice *lightning.Invoice
+func (db *BoltDB) GetInvoice(paymentHash string) *Invoice {
+	var invoice *Invoice
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
@@ -214,17 +213,17 @@ func (db *BoltDB) GetInvoice(paymentHash string) *lightning.Invoice {
 	return invoice
 }
 
-func (db *BoltDB) GetInvoices() []lightning.Invoice {
-	var invoices []lightning.Invoice
+func (db *BoltDB) GetInvoices() []Invoice {
+	var invoices []Invoice
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		invoicesb := tx.Bucket([]byte(invoicesBucket))
 
 		c := invoicesb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			var invoice lightning.Invoice
+			var invoice Invoice
 			if err := json.Unmarshal(v, &invoice); err != nil {
-				invoices = []lightning.Invoice{}
+				invoices = []Invoice{}
 				return nil
 			}
 			invoices = append(invoices, invoice)
