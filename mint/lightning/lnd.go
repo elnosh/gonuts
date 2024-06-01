@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -22,8 +22,8 @@ const (
 )
 
 const (
-	InvoiceExpiryMins = 10
-	FeePercent        = 1
+	InvoiceExpiryMins         = 10
+	FeePercent        float64 = 0.01
 )
 
 type LndClient struct {
@@ -152,36 +152,9 @@ func (lnd *LndClient) InvoiceSettled(hash string) (bool, error) {
 	return settled == "SETTLED", nil
 }
 
-func (lnd *LndClient) FeeReserve(request string) (uint64, uint64, error) {
-	url := lnd.host + "/v1/payreq/" + request
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
-
-	resp, err := lnd.client.Do(req)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer resp.Body.Close()
-
-	var res map[string]any
-	json.NewDecoder(resp.Body).Decode(&res)
-
-	var satAmount int64
-	if amt, ok := res["num_satoshis"]; !ok {
-		return 0, 0, errors.New("invoice has no amount")
-	} else {
-		satAmount, err = strconv.ParseInt(amt.(string), 10, 64)
-		if err != nil {
-			return 0, 0, fmt.Errorf("invalid amount: %v", err)
-		}
-
-	}
-
-	return uint64(satAmount), uint64(satAmount * FeePercent / 100), nil
+func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
+	fee := math.Ceil(float64(amount) * FeePercent)
+	return uint64(fee)
 }
 
 type SendPaymentResponse struct {

@@ -254,7 +254,7 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 	}
 
 	// check invoice passed is valid
-	_, err := decodepay.Decodepay(request)
+	bolt11, err := decodepay.Decodepay(request)
 	if err != nil {
 		msg := fmt.Sprintf("invalid invoice: %v", err)
 		return MeltQuote{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
@@ -268,18 +268,15 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 	}
 	hash := sha256.Sum256(randomBytes)
 
-	// Fee reserved that is required by the mint
-	amount, fee, err := m.LightningClient.FeeReserve(request)
-	if err != nil {
-		msg := fmt.Sprintf("melt request error: %v", err)
-		return MeltQuote{}, cashu.BuildCashuError(msg, cashu.StandardErrCode)
-	}
+	satAmount := uint64(bolt11.MSatoshi) / 1000
+	// Fee reserve that is required by the mint
+	fee := m.LightningClient.FeeReserve(satAmount)
 	expiry := time.Now().Add(time.Minute * QuoteExpiryMins).Unix()
 
 	meltQuote := MeltQuote{
 		Id:             hex.EncodeToString(hash[:]),
 		InvoiceRequest: request,
-		Amount:         amount,
+		Amount:         satAmount,
 		FeeReserve:     fee,
 		Paid:           false,
 		Expiry:         expiry,

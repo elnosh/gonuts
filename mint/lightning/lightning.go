@@ -13,7 +13,7 @@ const (
 type Client interface {
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceSettled(hash string) (bool, error)
-	FeeReserve(request string) (uint64, uint64, error)
+	FeeReserve(amount uint64) uint64
 	SendPayment(request string) (string, error)
 }
 
