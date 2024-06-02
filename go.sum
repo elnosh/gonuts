@@ -90,8 +90,8 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20240404104514-b2f31f9045fb h1:qoIOlBPRZWtfpcbQlNFf67Wz8ZlXo+mxQc9Pnbm/iqU=
-github.com/btcsuite/btcwallet v0.16.10-0.20240404104514-b2f31f9045fb/go.mod h1:2C3Q/MhYAKmk7F+Tey6LfKtKRTdQsrCf8AAAzzDPmH4=
+github.com/btcsuite/btcwallet v0.16.10-0.20240127010340-16b422a2e8bf h1:eNjj5R0tKP48NQxDkuKr+C9frZsdzTAemEwu75ZDQg0=
+github.com/btcsuite/btcwallet v0.16.10-0.20240127010340-16b422a2e8bf/go.mod h1:LzcW/LYkQLgDufv6Ouw4cOIW0YsY+A60MTtc61/OZTU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 h1:poyHFf7+5+RdxNp5r2T6IBRD7RyraUsYARYbp/7t4D8=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4/go.mod h1:GETGDQuyq+VFfH1S/+/7slLM/9aNa4l7P4ejX6dJfb0=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.1 h1:UZo7YRzdHbwhK7Rhv3PO9bXgTxiOH45edK5qdsdiatk=
@@ -183,8 +183,8 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/elnosh/btc-docker-test v0.0.0-20240523211148-14c62fc20775 h1:d49YXlSBmcVjc6ZeUfhvQjK+2aNQ2vKBlz9w6TRzphg=
-github.com/elnosh/btc-docker-test v0.0.0-20240523211148-14c62fc20775/go.mod h1:5GQRdR6yg5zIuTV8ZM6bPsp1R10d7XJNQHys/knsXsg=
+github.com/elnosh/btc-docker-test v0.0.0-20240602161019-ac58a1896987 h1:FkDUi3qv5o9fXu8ogVzWHap8kwjO6/Yr9mtftMn7zWg=
+github.com/elnosh/btc-docker-test v0.0.0-20240602161019-ac58a1896987/go.mod h1:d8Davq0wBSo4IZRelaqRgGGq/DS+Bk3hh28ZiEtl/e0=
 github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=
@@ -444,8 +444,8 @@ github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display h1:pRdza2wl
 github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display/go.mod h1:HV8QOd/L58Z+nl8r43ehVNZIU/HEI6OcFqwMG9pJV4I=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f h1:Pua7+5TcFEJXIIZ1I2YAUapmbcttmLj4TTi786bIi3s=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f/go.mod h1:c0kvRShutpj3l6B9WtTsNTBUtjSmjZXbJd9ZBRQOSKI=
-github.com/lightningnetwork/lnd v0.17.4-beta.rc1 h1:z2rb3MlSvwLMgjRl/IEMCmWCBZeFeM6cJtMxBlrgX1E=
-github.com/lightningnetwork/lnd v0.17.4-beta.rc1/go.mod h1:S5hugoB/FWyF9Up9sjEnOsA/ohmhXzIqRHHMLlrtyFk=
+github.com/lightningnetwork/lnd v0.17.4-beta h1:BXYbETYZWtcNrYcAosGGXnWsq4Nr5R9PRqlRuEA9AUs=
+github.com/lightningnetwork/lnd v0.17.4-beta/go.mod h1:S5hugoB/FWyF9Up9sjEnOsA/ohmhXzIqRHHMLlrtyFk=
 github.com/lightningnetwork/lnd/clock v1.1.1 h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsDIBjgjWdZgA0=
 github.com/lightningnetwork/lnd/clock v1.1.1/go.mod h1:mGnAhPyjYZQJmebS7aevElXKTFDuO+uNFFfMXK1W8xQ=
 github.com/lightningnetwork/lnd/fn v1.0.5 h1:ffDgMSn83avw6rNzxhbt6w5/2oIrwQKTPGfyaLupZtE=
