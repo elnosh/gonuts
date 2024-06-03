@@ -7,7 +7,7 @@ require (
 	github.com/btcsuite/btcd/btcec/v2 v2.3.3
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
-	github.com/elnosh/btc-docker-test v0.0.0-20240602161019-ac58a1896987
+	github.com/elnosh/btc-docker-test v0.0.0-20240603173859-3daaf662be72
 	github.com/gorilla/mux v1.8.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lightningnetwork/lnd v0.17.4-beta
