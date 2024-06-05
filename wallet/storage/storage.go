@@ -24,13 +24,17 @@ func (quote QuoteType) String() string {
 }
 
 type DB interface {
+	SaveSeed([]byte)
+	GetSeed() []byte
 	SaveProof(cashu.Proof) error
 	GetProofsByKeysetId(string) cashu.Proofs
 	GetProofs() cashu.Proofs
 	DeleteProof(string) error
-	SaveKeyset(crypto.WalletKeyset) error
+	SaveKeyset(*crypto.WalletKeyset) error
 	GetKeysets() crypto.KeysetsMap
-	IncrementKeysetCounter(string) error
+	GetKeyset(string) *crypto.WalletKeyset
+	IncrementKeysetCounter(string, uint32) error
+	GetKeysetCounter(string) uint32
 	SaveInvoice(Invoice) error
 	GetInvoice(string) *Invoice
 	GetInvoices() []Invoice

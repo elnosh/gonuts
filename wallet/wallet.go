@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -9,13 +8,18 @@ import (
 	"slices"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/storage"
+	"github.com/tyler-smith/go-bip39"
 
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
@@ -26,11 +30,12 @@ var (
 )
 
 type Wallet struct {
-	db storage.DB
+	db        storage.DB
+	masterKey *hdkeychain.ExtendedKey
 
 	// default mint
 	currentMint *walletMint
-	// array of mints that have been trusted
+	// list of mints that have been trusted
 	mints map[string]walletMint
 }
 
@@ -53,8 +58,35 @@ func LoadWallet(config Config) (*Wallet, error) {
 		return nil, fmt.Errorf("InitStorage: %v", err)
 	}
 
-	wallet := &Wallet{db: db}
-	wallet.mints = wallet.getWalletMints()
+	// create new seed if none exists
+	seed := db.GetSeed()
+	if len(seed) == 0 {
+		// create and save new seed
+		entropy, err := bip39.NewEntropy(128)
+		if err != nil {
+			return nil, fmt.Errorf("error generating seed: %v", err)
+		}
+
+		mnemonic, err := bip39.NewMnemonic(entropy)
+		if err != nil {
+			return nil, fmt.Errorf("error generating seed: %v", err)
+		}
+
+		seed = bip39.NewSeed(mnemonic, "")
+		db.SaveSeed(seed)
+	}
+
+	// TODO: what's the point of chain params here?
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	wallet := &Wallet{db: db, masterKey: masterKey}
+	wallet.mints, err = wallet.getWalletMints()
+	if err != nil {
+		return nil, err
+	}
 	url, err := url.Parse(config.CurrentMintURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid mint url: %v", err)
@@ -84,27 +116,37 @@ func LoadWallet(config Config) (*Wallet, error) {
 			return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 		}
 
-		newKeyset := false
+		activeKeysetChanged := false
 		for _, keyset := range keysetsResponse.Keysets {
 			// check if last active recorded keyset is not active anymore
 			if keyset.Id == lastActiveSatKeyset.Id && !keyset.Active {
-				newKeyset = true
+				activeKeysetChanged = true
 
 				// there is new keyset, change last active to inactive
 				lastActiveSatKeyset.Active = false
-				db.SaveKeyset(lastActiveSatKeyset)
+				wallet.db.SaveKeyset(&lastActiveSatKeyset)
 				break
 			}
 		}
 
-		// if there is new active keyset, save it
-		if newKeyset {
+		// if active keyset changed, save accordingly
+		if activeKeysetChanged {
 			activeKeysets, err := GetMintActiveKeysets(walletMint.mintURL)
 			if err != nil {
-				return nil, fmt.Errorf("error getting keysets from mint: %v", err)
+				return nil, fmt.Errorf("error getting keyset from mint: %v", err)
 			}
-			for _, keyset := range activeKeysets {
-				db.SaveKeyset(keyset)
+
+			for i, keyset := range activeKeysets {
+				storedKeyset := db.GetKeyset(keyset.Id)
+				// save new keyset
+				if storedKeyset == nil {
+					db.SaveKeyset(&keyset)
+				} else { // if not new, change active to true
+					keyset.Active = true
+					keyset.Counter = storedKeyset.Counter
+					activeKeysets[i] = keyset
+					wallet.db.SaveKeyset(&keyset)
+				}
 			}
 			walletMint.activeKeysets = activeKeysets
 		}
@@ -143,10 +185,10 @@ func (w *Wallet) addMint(mint string) (*walletMint, error) {
 	}
 
 	for _, keyset := range mintInfo.activeKeysets {
-		w.db.SaveKeyset(keyset)
+		w.db.SaveKeyset(&keyset)
 	}
 	for _, keyset := range mintInfo.inactiveKeysets {
-		w.db.SaveKeyset(keyset)
+		w.db.SaveKeyset(&keyset)
 	}
 	w.mints[mintURL] = *mintInfo
 
@@ -160,21 +202,14 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error
 	}
 
 	activeKeysets := make(map[string]crypto.WalletKeyset)
-	for i, keyset := range keysetsResponse.Keysets {
+	for _, keyset := range keysetsResponse.Keysets {
 		if keyset.Unit == "sat" {
 			activeKeyset := crypto.WalletKeyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
-			keys := make(map[uint64]*secp256k1.PublicKey)
-			for amount, key := range keysetsResponse.Keysets[i].Keys {
-				pkbytes, err := hex.DecodeString(key)
-				if err != nil {
-					return nil, err
-				}
-				pubkey, err := secp256k1.ParsePubKey(pkbytes)
-				if err != nil {
-					return nil, err
-				}
-				keys[amount] = pubkey
+			keys, err := mapPubKeys(keysetsResponse.Keysets[0].Keys)
+			if err != nil {
+				return nil, err
 			}
+
 			activeKeyset.PublicKeys = keys
 			id := crypto.DeriveKeysetId(activeKeyset.PublicKeys)
 			activeKeyset.Id = id
@@ -300,9 +335,11 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 		return nil, errors.New("invoice not found")
 	}
 
-	// create blinded messages
 	activeKeyset := w.GetActiveSatKeyset()
-	blindedMessages, secrets, rs, err := createBlindedMessages(invoice.QuoteAmount, activeKeyset)
+	// get counter for keyset
+	counter := w.counterForKeyset(activeKeyset.Id)
+
+	blindedMessages, secrets, rs, err := w.createBlindedMessages(invoice.QuoteAmount, activeKeyset.Id, counter)
 	if err != nil {
 		return nil, fmt.Errorf("error creating blinded messages: %v", err)
 	}
@@ -320,18 +357,24 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}
 
+	// store proofs in db
+	err = w.saveProofs(proofs)
+	if err != nil {
+		return nil, fmt.Errorf("error storing proofs: %v", err)
+	}
+
+	// only increase counter if mint was successful
+	err = w.incrementKeysetCounter(activeKeyset.Id, uint32(len(blindedMessages)))
+	if err != nil {
+		return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+	}
+
 	// mark invoice as redeemed
 	invoice.Paid = true
 	invoice.SettledAt = time.Now().Unix()
 	err = w.db.SaveInvoice(*invoice)
 	if err != nil {
 		return nil, err
-	}
-
-	// store proofs in db
-	err = w.saveProofs(proofs)
-	if err != nil {
-		return nil, fmt.Errorf("error storing proofs: %v", err)
 	}
 
 	return proofs, nil
@@ -380,10 +423,12 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 			break
 		}
 
+		counter := w.counterForKeyset(activeSatKeyset.Id)
+
 		// create blinded messages
-		outputs, secrets, rs, err := createBlindedMessages(token.TotalAmount(), activeSatKeyset)
+		outputs, secrets, rs, err := w.createBlindedMessages(token.TotalAmount(), activeSatKeyset.Id, counter)
 		if err != nil {
-			return 0, fmt.Errorf("CreateBlindedMessages: %v", err)
+			return 0, fmt.Errorf("createBlindedMessages: %v", err)
 		}
 
 		// make swap request to mint
@@ -400,6 +445,12 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 		}
 
 		w.saveProofs(proofs)
+
+		err = w.incrementKeysetCounter(activeSatKeyset.Id, uint32(len(outputs)))
+		if err != nil {
+			return 0, fmt.Errorf("error incrementing keyset counter: %v", err)
+		}
+
 		return proofs.Amount(), nil
 	}
 }
@@ -587,20 +638,26 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 		activeSatKeyset = k
 		break
 	}
+
+	counter := w.counterForKeyset(activeSatKeyset.Id)
+
 	// blinded messages for send amount
-	send, secrets, rs, err := createBlindedMessages(amount, activeSatKeyset)
+	send, secrets, rs, err := w.createBlindedMessages(amount, activeSatKeyset.Id, counter)
 	if err != nil {
 		return nil, err
 	}
 
-	// blinded messages for change amount
-	change, changeSecrets, changeRs, err := createBlindedMessages(currentProofsAmount-amount, activeSatKeyset)
-	if err != nil {
-		return nil, err
-	}
+	counter += uint32(len(send))
 
 	blindedMessages := make(cashu.BlindedMessages, len(send))
 	copy(blindedMessages, send)
+
+	// blinded messages for change amount
+	change, changeSecrets, changeRs, err := w.createBlindedMessages(currentProofsAmount-amount, activeSatKeyset.Id, counter)
+	if err != nil {
+		return nil, err
+	}
+
 	blindedMessages = append(blindedMessages, change...)
 	secrets = append(secrets, changeSecrets...)
 	rs = append(rs, changeRs...)
@@ -649,6 +706,12 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 
 	// remaining proofs are change proofs to save to db
 	w.saveProofs(proofs)
+
+	err = w.incrementKeysetCounter(activeSatKeyset.Id, uint32(len(blindedMessages)))
+	if err != nil {
+		return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+	}
+
 	return proofsToSend, nil
 }
 
@@ -658,7 +721,7 @@ func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.
 }
 
 // returns Blinded messages, secrets - [][]byte, and list of r
-func createBlindedMessages(amount uint64, keyset crypto.WalletKeyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
+func (w *Wallet) createBlindedMessages(amount uint64, keysetId string, counter uint32) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
 	splitAmounts := cashu.AmountSplit(amount)
 	splitLen := len(splitAmounts)
 
@@ -666,30 +729,30 @@ func createBlindedMessages(amount uint64, keyset crypto.WalletKeyset) (cashu.Bli
 	secrets := make([]string, splitLen)
 	rs := make([]*secp256k1.PrivateKey, splitLen)
 
+	keysetDerivationPath, err := nut13.DeriveKeysetPath(w.masterKey, keysetId)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	for i, amt := range splitAmounts {
-		// generate new private key r
-		r, err := secp256k1.GeneratePrivateKey()
+		r, err := nut13.DeriveBlindingFactor(keysetDerivationPath, counter)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
 		var B_ *secp256k1.PublicKey
-		var secret string
-		// generate random secret until it finds valid point
-		for {
-			secretBytes := make([]byte, 32)
-			_, err = rand.Read(secretBytes)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			secret = hex.EncodeToString(secretBytes)
-			B_, r, err = crypto.BlindMessage(secret, r)
-			if err == nil {
-				break
-			}
+		secret, err := nut13.DeriveSecret(keysetDerivationPath, counter)
+		if err != nil {
+			return nil, nil, nil, err
 		}
 
-		blindedMessage := newBlindedMessage(keyset.Id, amt, B_)
+		B_, r, err = crypto.BlindMessage(secret, r)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		counter += 1
+
+		blindedMessage := newBlindedMessage(keysetId, amt, B_)
 		blindedMessages[i] = blindedMessage
 		secrets[i] = secret
 		rs[i] = r
@@ -699,8 +762,12 @@ func createBlindedMessages(amount uint64, keyset crypto.WalletKeyset) (cashu.Bli
 }
 
 // constructProofs unblinds the blindedSignatures and returns the proofs
-func constructProofs(blindedSignatures cashu.BlindedSignatures,
-	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.WalletKeyset) (cashu.Proofs, error) {
+func constructProofs(
+	blindedSignatures cashu.BlindedSignatures,
+	secrets []string,
+	rs []*secp256k1.PrivateKey,
+	keyset *crypto.WalletKeyset,
+) (cashu.Proofs, error) {
 
 	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
@@ -725,13 +792,30 @@ func constructProofs(blindedSignatures cashu.BlindedSignatures,
 		C := crypto.UnblindSignature(C_, rs[i], pubkey)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 
-		proof := cashu.Proof{Amount: blindedSignature.Amount,
-			Secret: secrets[i], C: Cstr, Id: blindedSignature.Id}
+		proof := cashu.Proof{
+			Amount: blindedSignature.Amount,
+			Secret: secrets[i],
+			C:      Cstr,
+			Id:     blindedSignature.Id,
+		}
 
 		proofs[i] = proof
 	}
 
 	return proofs, nil
+}
+
+func (w *Wallet) incrementKeysetCounter(keysetId string, num uint32) error {
+	err := w.db.IncrementKeysetCounter(keysetId, num)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// keyset passed should exist in wallet
+func (w *Wallet) counterForKeyset(keysetId string) uint32 {
+	return w.db.GetKeysetCounter(keysetId)
 }
 
 func (w *Wallet) GetActiveSatKeyset() crypto.WalletKeyset {
@@ -745,7 +829,7 @@ func (w *Wallet) GetActiveSatKeyset() crypto.WalletKeyset {
 	return activeKeyset
 }
 
-func (w *Wallet) getWalletMints() map[string]walletMint {
+func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 	walletMints := make(map[string]walletMint)
 
 	keysets := w.db.GetKeysets()
@@ -753,16 +837,64 @@ func (w *Wallet) getWalletMints() map[string]walletMint {
 		activeKeysets := make(map[string]crypto.WalletKeyset)
 		inactiveKeysets := make(map[string]crypto.WalletKeyset)
 		for _, keyset := range mintKeysets {
+			if len(keyset.PublicKeys) == 0 {
+				publicKeys, err := getKeysetKeys(keyset.MintURL, keyset.Id)
+				if err != nil {
+					return nil, err
+				}
+				keyset.PublicKeys = publicKeys
+				w.db.SaveKeyset(&keyset)
+			}
+
 			if keyset.Active {
 				activeKeysets[keyset.Id] = keyset
 			} else {
 				inactiveKeysets[keyset.Id] = keyset
 			}
 		}
-		walletMints[k] = walletMint{mintURL: k, activeKeysets: activeKeysets, inactiveKeysets: inactiveKeysets}
+
+		walletMints[k] = walletMint{
+			mintURL:         k,
+			activeKeysets:   activeKeysets,
+			inactiveKeysets: inactiveKeysets,
+		}
 	}
 
-	return walletMints
+	return walletMints, nil
+}
+
+func getKeysetKeys(mintURL, id string) (map[uint64]*secp256k1.PublicKey, error) {
+	keysetsResponse, err := GetKeysetById(mintURL, id)
+	if err != nil {
+		return nil, fmt.Errorf("error getting keyset from mint: %v", err)
+	}
+
+	var keys map[uint64]*secp256k1.PublicKey
+	if len(keysetsResponse.Keysets) > 0 && keysetsResponse.Keysets[0].Unit == "sat" {
+		var err error
+		keys, err = mapPubKeys(keysetsResponse.Keysets[0].Keys)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return keys, nil
+}
+
+func mapPubKeys(keys nut01.KeysMap) (map[uint64]*secp256k1.PublicKey, error) {
+	publicKeys := make(map[uint64]*secp256k1.PublicKey)
+	for amount, key := range keys {
+		pkbytes, err := hex.DecodeString(key)
+		if err != nil {
+			return nil, err
+		}
+		pubkey, err := secp256k1.ParsePubKey(pkbytes)
+		if err != nil {
+			return nil, err
+		}
+		publicKeys[amount] = pubkey
+	}
+	return publicKeys, nil
 }
 
 // CurrentMint returns the current mint url

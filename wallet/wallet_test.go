@@ -3,29 +3,41 @@
 package wallet
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
+	"math"
 	"reflect"
+	"strconv"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 )
 
 func TestCreateBlindedMessages(t *testing.T) {
-	keyset := crypto.Keyset{Id: "009a1f293253e41e"}
+	keyset := crypto.WalletKeyset{Id: "009a1f293253e41e"}
+
+	seed, _ := hdkeychain.GenerateSeed(16)
+	master, _ := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+
+	testWallet := &Wallet{masterKey: master}
 
 	tests := []struct {
+		wallet *Wallet
 		amount uint64
-		keyset crypto.Keyset
+		keyset crypto.WalletKeyset
 	}{
-		{420, keyset},
-		{10000000, keyset},
-		{2500, keyset},
+		{testWallet, 420, keyset},
+		{testWallet, 10000000, keyset},
+		{testWallet, 2500, keyset},
 	}
 
 	for _, test := range tests {
-		blindedMessages, _, _, _ := createBlindedMessages(test.amount, test.keyset)
+		blindedMessages, _, _, _ := test.wallet.createBlindedMessages(test.amount, test.keyset.Id, 0)
 		amount := blindedMessages.Amount()
 		if amount != test.amount {
 			t.Errorf("expected '%v' but got '%v' instead", test.amount, amount)
@@ -61,7 +73,7 @@ func TestConstructProofs(t *testing.T) {
 		"6cc59e6effb48d89a56ff7052dc31ef09fc3a531ac1e2236da167fa4b9d008ab",
 		"172233d8212522a84a1f6ff5472cabd949c2388f98420c222ef5e1229ac090bd",
 	}
-	keyset := crypto.GenerateKeyset("mysecretkey", "0/0/0")
+	keyset := generateWalletKeyset("mysecretkey", "0/0/0")
 
 	expected := cashu.Proofs{
 		{
@@ -99,13 +111,13 @@ func TestConstructProofs(t *testing.T) {
 }
 
 func TestConstructProofsError(t *testing.T) {
-	keyset := crypto.GenerateKeyset("mysecretkey", "0/0/0")
+	keyset := generateWalletKeyset("mysecretkey", "0/0/0")
 
 	tests := []struct {
 		signatures cashu.BlindedSignatures
 		secrets    []string
 		r_str      []string
-		keyset     *crypto.Keyset
+		keyset     *crypto.WalletKeyset
 	}{
 		{
 			signatures: cashu.BlindedSignatures{
@@ -166,4 +178,17 @@ func TestConstructProofsError(t *testing.T) {
 			t.Error("expected error but got nil")
 		}
 	}
+}
+
+func generateWalletKeyset(seed, derivationPath string) *crypto.WalletKeyset {
+	keys := make(map[uint64]*secp256k1.PublicKey, 64)
+
+	for i := 0; i < 64; i++ {
+		amount := uint64(math.Pow(2, float64(i)))
+		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
+		_, pubKey := btcec.PrivKeyFromBytes(hash[:])
+		keys[amount] = pubKey
+	}
+	keysetId := crypto.DeriveKeysetId(keys)
+	return &crypto.WalletKeyset{Id: keysetId, Unit: "sat", Active: true, PublicKeys: keys}
 }
