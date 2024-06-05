@@ -42,6 +42,78 @@ type walletMint struct {
 	inactiveKeysets map[string]crypto.Keyset
 }
 
+func InitStorage(path string) (storage.DB, error) {
+	// bolt db atm
+	return storage.InitBolt(path)
+}
+
+func LoadWallet(config Config) (*Wallet, error) {
+	db, err := InitStorage(config.WalletPath)
+	if err != nil {
+		return nil, fmt.Errorf("InitStorage: %v", err)
+	}
+
+	wallet := &Wallet{db: db}
+	wallet.mints = wallet.getWalletMints()
+	url, err := url.Parse(config.CurrentMintURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mint url: %v", err)
+	}
+	mintURL := url.String()
+
+	// if mint is new, add it
+	walletMint, ok := wallet.mints[mintURL]
+	if !ok {
+		mint, err := wallet.addMint(mintURL)
+		if err != nil {
+			return nil, fmt.Errorf("error adding new mint: %v", err)
+		}
+		wallet.currentMint = mint
+	} else { // if mint is already known, check if active keyset has changed
+		// get last stored active sat keyset
+		var lastActiveSatKeyset crypto.Keyset
+		for _, keyset := range walletMint.activeKeysets {
+			if keyset.Unit == "sat" {
+				lastActiveSatKeyset = keyset
+				break
+			}
+		}
+
+		keysetsResponse, err := GetAllKeysets(walletMint.mintURL)
+		if err != nil {
+			return nil, fmt.Errorf("error getting keysets from mint: %v", err)
+		}
+
+		newKeyset := false
+		for _, keyset := range keysetsResponse.Keysets {
+			// check if last active recorded keyset is not active anymore
+			if keyset.Id == lastActiveSatKeyset.Id && !keyset.Active {
+				newKeyset = true
+
+				// there is new keyset, change last active to inactive
+				lastActiveSatKeyset.Active = false
+				db.SaveKeyset(&lastActiveSatKeyset)
+				break
+			}
+		}
+
+		// if there is new active keyset, save it
+		if newKeyset {
+			activeKeysets, err := GetMintActiveKeysets(walletMint.mintURL)
+			if err != nil {
+				return nil, fmt.Errorf("error getting keysets from mint: %v", err)
+			}
+			for _, keyset := range activeKeysets {
+				db.SaveKeyset(&keyset)
+			}
+			walletMint.activeKeysets = activeKeysets
+		}
+		wallet.currentMint = &walletMint
+	}
+
+	return wallet, nil
+}
+
 // get mint keysets
 func mintInfo(mintURL string) (*walletMint, error) {
 	activeKeysets, err := GetMintActiveKeysets(mintURL)
@@ -79,45 +151,6 @@ func (w *Wallet) addMint(mint string) (*walletMint, error) {
 	w.mints[mintURL] = *mintInfo
 
 	return mintInfo, nil
-}
-
-func InitStorage(path string) (storage.DB, error) {
-	// bolt db atm
-	return storage.InitBolt(path)
-}
-
-func LoadWallet(config Config) (*Wallet, error) {
-	db, err := InitStorage(config.WalletPath)
-	if err != nil {
-		return nil, fmt.Errorf("InitStorage: %v", err)
-	}
-
-	wallet := &Wallet{db: db}
-	wallet.mints = wallet.getWalletMints()
-	url, err := url.Parse(config.CurrentMintURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid mint url: %v", err)
-	}
-	mintURL := url.String()
-
-	currentMint, err := mintInfo(mintURL)
-	if err != nil {
-		return nil, err
-	}
-	wallet.currentMint = currentMint
-
-	_, ok := wallet.mints[mintURL]
-	if !ok {
-		for _, keyset := range currentMint.activeKeysets {
-			db.SaveKeyset(&keyset)
-		}
-		for _, keyset := range currentMint.inactiveKeysets {
-			db.SaveKeyset(&keyset)
-		}
-	}
-	wallet.mints[mintURL] = *currentMint
-
-	return wallet, nil
 }
 
 func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
