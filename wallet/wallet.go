@@ -515,13 +515,20 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 	return meltBolt11Response, err
 }
 
-// GetProofsByMint will return an array of proofs that are from
-// the passed mint
-func (w *Wallet) GetProofsByMint(mintURL string) (cashu.Proofs, error) {
-	selectedMint, ok := w.mints[mintURL]
-	if !ok {
-		return nil, ErrMintNotExist
+func (w *Wallet) getInactiveProofsByMint(mintURL string) cashu.Proofs {
+	selectedMint := w.mints[mintURL]
+
+	proofs := cashu.Proofs{}
+	for _, keyset := range selectedMint.inactiveKeysets {
+		keysetProofs := w.db.GetProofsByKeysetId(keyset.Id)
+		proofs = append(proofs, keysetProofs...)
 	}
+
+	return proofs
+}
+
+func (w *Wallet) getActiveProofsByMint(mintURL string) cashu.Proofs {
+	selectedMint := w.mints[mintURL]
 
 	proofs := cashu.Proofs{}
 	for _, keyset := range selectedMint.activeKeysets {
@@ -529,12 +536,7 @@ func (w *Wallet) GetProofsByMint(mintURL string) (cashu.Proofs, error) {
 		proofs = append(proofs, keysetProofs...)
 	}
 
-	for _, keyset := range selectedMint.inactiveKeysets {
-		keysetProofs := w.db.GetProofsByKeysetId(keyset.Id)
-		proofs = append(proofs, keysetProofs...)
-	}
-
-	return proofs, nil
+	return proofs
 }
 
 // getProofsForAmount will return proofs from mint that equal to given amount.
@@ -551,52 +553,30 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 		return nil, ErrInsufficientMintBalance
 	}
 
-	activeKeysetProofs := cashu.Proofs{}
-	inactiveKeysetProofs := cashu.Proofs{}
-	mintProofs, err := w.GetProofsByMint(mintURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// use proofs from inactive keysets first
-	for _, proof := range mintProofs {
-		isInactive := false
-		for _, inactiveKeyset := range selectedMint.inactiveKeysets {
-			if proof.Id == inactiveKeyset.Id {
-				isInactive = true
-				break
-			}
-		}
-
-		if isInactive {
-			inactiveKeysetProofs = append(inactiveKeysetProofs, proof)
-		} else {
-			activeKeysetProofs = append(activeKeysetProofs, proof)
-		}
-	}
-
 	selectedProofs := cashu.Proofs{}
 	var currentProofsAmount uint64 = 0
 	addKeysetProofs := func(proofs cashu.Proofs) {
-		if currentProofsAmount < amount {
-			for _, proof := range proofs {
-				selectedProofs = append(selectedProofs, proof)
-				currentProofsAmount += proof.Amount
-
-				if currentProofsAmount == amount {
-					for _, proof := range selectedProofs {
-						w.db.DeleteProof(proof.Secret)
-					}
-				} else if currentProofsAmount > amount {
-					break
-				}
-
+		for _, proof := range proofs {
+			if currentProofsAmount >= amount {
+				break
 			}
+
+			selectedProofs = append(selectedProofs, proof)
+			currentProofsAmount += proof.Amount
 		}
 	}
 
-	addKeysetProofs(inactiveKeysetProofs)
-	addKeysetProofs(activeKeysetProofs)
+	// use proofs from inactive keysets first
+	addKeysetProofs(w.getInactiveProofsByMint(mintURL))
+	addKeysetProofs(w.getActiveProofsByMint(mintURL))
+
+	// if proofs stored fulfill amount, delete them from db and return them
+	if currentProofsAmount == amount {
+		for _, proof := range selectedProofs {
+			w.db.DeleteProof(proof.Secret)
+		}
+		return selectedProofs, nil
+	}
 
 	var activeSatKeyset crypto.Keyset
 	for _, k := range selectedMint.activeKeysets {
