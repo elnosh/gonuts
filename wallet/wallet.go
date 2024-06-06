@@ -161,23 +161,25 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 
 	activeKeysets := make(map[string]crypto.Keyset)
 	for i, keyset := range keysetsResponse.Keysets {
-		activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
-		keys := make(map[uint64]crypto.KeyPair)
-		for amount, key := range keysetsResponse.Keysets[i].Keys {
-			pkbytes, err := hex.DecodeString(key)
-			if err != nil {
-				return nil, err
+		if keyset.Unit == "sat" {
+			activeKeyset := crypto.Keyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
+			keys := make(map[uint64]crypto.KeyPair)
+			for amount, key := range keysetsResponse.Keysets[i].Keys {
+				pkbytes, err := hex.DecodeString(key)
+				if err != nil {
+					return nil, err
+				}
+				pubkey, err := secp256k1.ParsePubKey(pkbytes)
+				if err != nil {
+					return nil, err
+				}
+				keys[amount] = crypto.KeyPair{PublicKey: pubkey}
 			}
-			pubkey, err := secp256k1.ParsePubKey(pkbytes)
-			if err != nil {
-				return nil, err
-			}
-			keys[amount] = crypto.KeyPair{PublicKey: pubkey}
+			activeKeyset.Keys = keys
+			id := crypto.DeriveKeysetId(activeKeyset.Keys)
+			activeKeyset.Id = id
+			activeKeysets[id] = activeKeyset
 		}
-		activeKeyset.Keys = keys
-		id := crypto.DeriveKeysetId(activeKeyset.Keys)
-		activeKeyset.Id = id
-		activeKeysets[id] = activeKeyset
 	}
 
 	return activeKeysets, nil
@@ -192,7 +194,7 @@ func GetMintInactiveKeysets(mintURL string) (map[string]crypto.Keyset, error) {
 	inactiveKeysets := make(map[string]crypto.Keyset)
 
 	for _, keysetRes := range keysetsResponse.Keysets {
-		if !keysetRes.Active {
+		if !keysetRes.Active && keysetRes.Unit == "sat" {
 			keyset := crypto.Keyset{
 				Id:      keysetRes.Id,
 				MintURL: mintURL,
@@ -362,16 +364,19 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 			proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
 		}
 
-		// add mint to list of trusted mints
 		tokenMintURL := token.Token[0].Mint
-		mint, err := w.addMint(tokenMintURL)
-		if err != nil {
-			return 0, err
+		// only add mint if not previously trusted
+		walletMint, ok := w.mints[tokenMintURL]
+		if !ok {
+			mint, err := w.addMint(tokenMintURL)
+			if err != nil {
+				return 0, err
+			}
+			walletMint = *mint
 		}
 
 		var activeSatKeyset crypto.Keyset
-		// for now just taking first keyset val from map and assign it as sat keyset
-		for _, k := range mint.activeKeysets {
+		for _, k := range walletMint.activeKeysets {
 			activeSatKeyset = k
 			break
 		}
