@@ -151,6 +151,29 @@ func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
 	return testWallet, nil
 }
 
+func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.Lnd, amount uint64) error {
+	mintRes, err := wallet.RequestMint(amount)
+	if err != nil {
+		return fmt.Errorf("error requesting mint: %v", err)
+	}
+
+	//pay invoice
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: mintRes.Request,
+	}
+	response, _ := lnd.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		return fmt.Errorf("error paying invoice: %v", response.PaymentError)
+	}
+
+	_, err = wallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		return fmt.Errorf("got unexpected error: %v", err)
+	}
+
+	return nil
+}
+
 func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, error) {
 	if err := os.MkdirAll(dbpath, 0750); err != nil {
 		return nil, err

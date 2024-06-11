@@ -20,11 +20,10 @@ import (
 )
 
 var (
-	ctx        context.Context
-	bitcoind   *btcdocker.Bitcoind
-	lnd1       *btcdocker.Lnd
-	lnd2       *btcdocker.Lnd
-	testWallet *wallet.Wallet
+	ctx      context.Context
+	bitcoind *btcdocker.Bitcoind
+	lnd1     *btcdocker.Lnd
+	lnd2     *btcdocker.Lnd
 )
 
 func TestMain(m *testing.M) {
@@ -88,21 +87,20 @@ func testMain(m *testing.M) int {
 	}()
 	go mint.StartMintServer(testMint)
 
-	testWalletPath := filepath.Join(".", "/testwallet1")
-	testWallet, err = testutils.CreateTestWallet(testWalletPath, "http://127.0.0.1:3338")
+	return m.Run()
+}
+
+func TestMintTokens(t *testing.T) {
+	testWalletPath := filepath.Join(".", "/testmintwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, "http://127.0.0.1:3338")
 	if err != nil {
-		log.Println(err)
-		return 1
+		t.Fatal(err)
 	}
 	defer func() {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	return m.Run()
-}
-
-func TestMintTokens(t *testing.T) {
-	var mintAmount uint64 = 300000
+	var mintAmount uint64 = 30000
 	// check no err
 	mintRes, err := testWallet.RequestMint(mintAmount)
 	if err != nil {
@@ -141,6 +139,19 @@ func TestMintTokens(t *testing.T) {
 
 func TestSend(t *testing.T) {
 	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testsendwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
 
 	var sendAmount uint64 = 4200
 	token, err := testWallet.Send(sendAmount, mintURL)
@@ -165,6 +176,21 @@ func TestSend(t *testing.T) {
 }
 
 func TestReceive(t *testing.T) {
+	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testreceivewallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
 	testMintPath := filepath.Join(".", "testmint2")
 	testMint, err := testutils.CreateTestMintServer(lnd2, "mykey", "3339", testMintPath)
 	if err != nil {
@@ -176,32 +202,18 @@ func TestReceive(t *testing.T) {
 	go mint.StartMintServer(testMint)
 
 	mint2URL := "http://127.0.0.1:3339"
-	testWalletPath := filepath.Join(".", "/testwallet2")
-	testWallet2, err := testutils.CreateTestWallet(testWalletPath, mint2URL)
+	testWalletPath2 := filepath.Join(".", "/testreceivewallet2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mint2URL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		os.RemoveAll(testWalletPath)
+		os.RemoveAll(testWalletPath2)
 	}()
 
-	mintResponse, err := testWallet2.RequestMint(15000)
+	err = testutils.FundCashuWallet(ctx, testWallet2, lnd1, 15000)
 	if err != nil {
-		t.Fatalf("error requesting mint: %v", err)
-	}
-
-	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintResponse.Request,
-	}
-	response, _ := lnd1.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
-	}
-
-	_, err = testWallet2.MintTokens(mintResponse.Quote)
-	if err != nil {
-		t.Fatalf("got unexpected error in mint tokens: %v", err)
+		t.Fatalf("error funding wallet: %v", err)
 	}
 
 	token, err := testWallet2.Send(1500, mint2URL)
@@ -247,6 +259,21 @@ func TestReceive(t *testing.T) {
 }
 
 func TestMelt(t *testing.T) {
+	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testmeltwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
 	// create invoice for melt request
 	invoice := lnrpc.Invoice{Value: 10000}
 	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
@@ -254,8 +281,7 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
-	defaultMint := "http://127.0.0.1:3338"
-	meltResponse, err := testWallet.Melt(addInvoiceResponse.PaymentRequest, defaultMint)
+	meltResponse, err := testWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
@@ -269,7 +295,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	_, err = testWallet.Melt(addInvoiceResponse.PaymentRequest, defaultMint)
+	_, err = testWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
