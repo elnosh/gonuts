@@ -47,6 +47,22 @@ func GetAllKeysets(mintURL string) (*nut02.GetKeysetsResponse, error) {
 	return keysetsRes, nil
 }
 
+func GetKeysetById(mintURL, id string) (*nut01.GetKeysResponse, error) {
+	resp, err := get(mintURL + "/v1/keys/" + id)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var keysetRes *nut01.GetKeysResponse
+	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return keysetRes, nil
+}
+
 func PostMintQuoteBolt11(mintURL string, mintQuoteRequest nut04.PostMintQuoteBolt11Request) (
 	*nut04.PostMintQuoteBolt11Response, error) {
 	requestBody, err := json.Marshal(mintQuoteRequest)
