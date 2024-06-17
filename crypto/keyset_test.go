@@ -93,7 +93,7 @@ func TestDeriveKeysetId(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		keys := make(map[uint64]KeyPair)
+		keys := make(map[uint64]*secp256k1.PublicKey)
 
 		for amount, pubkey := range test.pubkeys {
 			pubkeyBytes, _ := hex.DecodeString(pubkey)
@@ -102,8 +102,7 @@ func TestDeriveKeysetId(t *testing.T) {
 				t.Errorf("error parsing pub key: %v", err)
 			}
 
-			keyPair := KeyPair{PublicKey: publicKey}
-			keys[amount] = keyPair
+			keys[amount] = publicKey
 		}
 
 		id := DeriveKeysetId(keys)
