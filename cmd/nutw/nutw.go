@@ -24,7 +24,7 @@ var nutw *wallet.Wallet
 func walletConfig() wallet.Config {
 	path := setWalletPath()
 	// default config
-	config := wallet.Config{WalletPath: path, CurrentMintURL: "https://8333.space:3338"}
+	config := wallet.Config{WalletPath: path, CurrentMintURL: "http://127.0.0.1:3338"}
 
 	envPath := filepath.Join(path, ".env")
 	if _, err := os.Stat(envPath); err != nil {

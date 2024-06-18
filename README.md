@@ -33,9 +33,7 @@ With [Go](https://go.dev/doc/install) installed, you can run the following comma
 go install github.com/elnosh/gonuts/cmd/nutw@latest
 ```
 
-**_Warning_: By default, the wallet will be setup with the mint `https://8333.space:3338`. That is a public test mint for demonstration purposes and could vanish at any moment.**
-
-To setup the wallet with a different mint, create a `.env` file at ~/.gonuts/wallet/.env and setup your preferred mint.
+To setup a mint for the wallet, create a `.env` file at ~/.gonuts/wallet/.env and setup your preferred mint.
 
 ## Using the wallet
 
