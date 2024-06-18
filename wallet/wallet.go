@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
+	"github.com/elnosh/gonuts/cashu/nuts/nut09"
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/storage"
@@ -73,7 +77,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		}
 
 		seed = bip39.NewSeed(mnemonic, "")
-		db.SaveSeed(seed)
+		db.SaveMnemonicSeed(mnemonic, seed)
 	}
 
 	// TODO: what's the point of chain params here?
@@ -707,11 +711,6 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 	return proofsToSend, nil
 }
 
-func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.BlindedMessage {
-	B_str := hex.EncodeToString(B_.SerializeCompressed())
-	return cashu.BlindedMessage{Amount: amount, B_: B_str, Id: id}
-}
-
 // returns Blinded messages, secrets - [][]byte, and list of r
 func (w *Wallet) createBlindedMessages(amount uint64, keysetId string, counter uint32) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
 	splitAmounts := cashu.AmountSplit(amount)
@@ -727,30 +726,47 @@ func (w *Wallet) createBlindedMessages(amount uint64, keysetId string, counter u
 	}
 
 	for i, amt := range splitAmounts {
-		r, err := nut13.DeriveBlindingFactor(keysetDerivationPath, counter)
+		B_, secret, r, err := blindMessage(keysetDerivationPath, counter)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
-		var B_ *secp256k1.PublicKey
-		secret, err := nut13.DeriveSecret(keysetDerivationPath, counter)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		B_, r, err = crypto.BlindMessage(secret, r)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		counter += 1
-
-		blindedMessage := newBlindedMessage(keysetId, amt, B_)
-		blindedMessages[i] = blindedMessage
+		blindedMessages[i] = newBlindedMessage(keysetId, amt, B_)
 		secrets[i] = secret
 		rs[i] = r
+		counter++
 	}
 
 	return blindedMessages, secrets, rs, nil
+}
+
+func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.BlindedMessage {
+	B_str := hex.EncodeToString(B_.SerializeCompressed())
+	return cashu.BlindedMessage{Amount: amount, B_: B_str, Id: id}
+}
+
+func blindMessage(path *hdkeychain.ExtendedKey, counter uint32) (
+	*secp256k1.PublicKey,
+	string,
+	*secp256k1.PrivateKey,
+	error,
+) {
+	r, err := nut13.DeriveBlindingFactor(path, counter)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	secret, err := nut13.DeriveSecret(path, counter)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	B_, r, err := crypto.BlindMessage(secret, r)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return B_, secret, r, nil
 }
 
 // constructProofs unblinds the blindedSignatures and returns the proofs
@@ -767,34 +783,44 @@ func constructProofs(
 
 	proofs := make(cashu.Proofs, len(blindedSignatures))
 	for i, blindedSignature := range blindedSignatures {
-		C_bytes, err := hex.DecodeString(blindedSignature.C_)
-		if err != nil {
-			return nil, err
-		}
-		C_, err := secp256k1.ParsePubKey(C_bytes)
-		if err != nil {
-			return nil, err
-		}
-
 		pubkey, ok := keyset.PublicKeys[blindedSignature.Amount]
 		if !ok {
 			return nil, errors.New("key not found")
 		}
 
-		C := crypto.UnblindSignature(C_, rs[i], pubkey)
-		Cstr := hex.EncodeToString(C.SerializeCompressed())
+		C, err := unblindSignature(blindedSignature.C_, rs[i], pubkey)
+		if err != nil {
+			return nil, err
+		}
 
 		proof := cashu.Proof{
 			Amount: blindedSignature.Amount,
 			Secret: secrets[i],
-			C:      Cstr,
+			C:      C,
 			Id:     blindedSignature.Id,
 		}
-
 		proofs[i] = proof
 	}
 
 	return proofs, nil
+}
+
+func unblindSignature(C_str string, r *secp256k1.PrivateKey, key *secp256k1.PublicKey) (
+	string,
+	error,
+) {
+	C_bytes, err := hex.DecodeString(C_str)
+	if err != nil {
+		return "", err
+	}
+	C_, err := secp256k1.ParsePubKey(C_bytes)
+	if err != nil {
+		return "", err
+	}
+
+	C := crypto.UnblindSignature(C_, r, key)
+	Cstr := hex.EncodeToString(C.SerializeCompressed())
+	return Cstr, nil
 }
 
 func (w *Wallet) incrementKeysetCounter(keysetId string, num uint32) error {
@@ -915,6 +941,193 @@ func (w *Wallet) TrustedMints() []string {
 		i++
 	}
 	return trustedMints
+}
+
+func (w *Wallet) Mnemonic() string {
+	return w.db.GetMnemonic()
+}
+
+func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs, error) {
+	// check if wallet db already exists, if there is one, throw error.
+	dbpath := filepath.Join(walletPath, "wallet.db")
+	_, err := os.Stat(dbpath)
+	if err == nil {
+		return nil, errors.New("wallet already exists")
+	}
+
+	// create wallet db
+	db, err := InitStorage(walletPath)
+	if err != nil {
+		return nil, fmt.Errorf("error restoring wallet: %v", err)
+	}
+
+	// check mnemonic is valid
+	if !bip39.IsMnemonicValid(mnemonic) {
+		return nil, errors.New("invalid mnemonic")
+	}
+
+	seed := bip39.NewSeed(mnemonic, "")
+	// get master key from seed
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+	db.SaveMnemonicSeed(mnemonic, seed)
+
+	proofsRestored := cashu.Proofs{}
+
+	// for each mint get the keysets and do restore process for each keyset
+	for _, mint := range mintsToRestore {
+		mintInfo, err := GetMintInfo(mint)
+		if err != nil {
+			return nil, fmt.Errorf("error getting info from mint: %v", err)
+		}
+
+		nut7 := mintInfo.Nuts[7].(map[string]interface{})
+		nut9 := mintInfo.Nuts[9].(map[string]interface{})
+		if nut7["supported"] != true || nut9["supported"] != true {
+			fmt.Println("mint does not support the necessary operations to restore wallet")
+			continue
+		}
+
+		// call to get mint keysets
+		keysetsResponse, err := GetAllKeysets(mint)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, keyset := range keysetsResponse.Keysets {
+			if keyset.Unit != "sat" {
+				break
+			}
+
+			_, err := hex.DecodeString(keyset.Id)
+			// ignore keysets with non-hex ids
+			if err != nil {
+				continue
+			}
+
+			var counter uint32 = 0
+
+			keysetKeys, err := getKeysetKeys(mint, keyset.Id)
+			if err != nil {
+				return nil, err
+			}
+
+			walletKeyset := crypto.WalletKeyset{
+				Id:         keyset.Id,
+				MintURL:    mint,
+				Unit:       keyset.Unit,
+				Active:     keyset.Active,
+				PublicKeys: keysetKeys,
+				Counter:    counter,
+			}
+
+			if err := db.SaveKeyset(&walletKeyset); err != nil {
+				return nil, err
+			}
+
+			keysetDerivationPath, err := nut13.DeriveKeysetPath(masterKey, keyset.Id)
+			if err != nil {
+				return nil, err
+			}
+
+			// stop when it reaches 3 consecutive empty batches
+			emptyBatches := 0
+			for emptyBatches < 3 {
+
+				blindedMessages := make(cashu.BlindedMessages, 100)
+				rs := make([]*secp256k1.PrivateKey, 100)
+				secrets := make([]string, 100)
+
+				// loop and create batch of 100 blinded messages here
+				for i := 0; i < 100; i++ {
+					B_, secret, r, err := blindMessage(keysetDerivationPath, counter)
+					if err != nil {
+						return nil, err
+					}
+
+					B_str := hex.EncodeToString(B_.SerializeCompressed())
+					blindedMessages[i] = cashu.BlindedMessage{B_: B_str, Id: keyset.Id}
+					rs[i] = r
+					secrets[i] = secret
+					counter++
+				}
+
+				// call signature restore endpoint. if response has signatures, unblind them and check proof states
+				restoreRequest := nut09.PostRestoreRequest{Outputs: blindedMessages}
+				restoreResponse, err := PostRestore(mint, restoreRequest)
+				if err != nil {
+					return nil, fmt.Errorf("error restoring signatures from mint '%v': %v", mint, err)
+				}
+
+				if len(restoreResponse.Signatures) == 0 {
+					emptyBatches++
+					break
+				}
+
+				Ys := make([]string, len(restoreResponse.Signatures))
+				proofs := make(map[string]cashu.Proof, len(restoreResponse.Signatures))
+
+				// unblind signatures
+				for i, signature := range restoreResponse.Signatures {
+					pubkey, ok := keysetKeys[signature.Amount]
+					if !ok {
+						return nil, errors.New("key not found")
+					}
+
+					C, err := unblindSignature(signature.C_, rs[i], pubkey)
+					if err != nil {
+						return nil, err
+					}
+
+					Y, err := crypto.HashToCurve([]byte(secrets[i]))
+					if err != nil {
+						return nil, err
+					}
+					Yhex := hex.EncodeToString(Y.SerializeCompressed())
+					Ys[i] = Yhex
+
+					proof := cashu.Proof{
+						Amount: signature.Amount,
+						Secret: secrets[i],
+						C:      C,
+						Id:     signature.Id,
+					}
+					proofs[Yhex] = proof
+				}
+
+				proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
+				proofStateResponse, err := PostCheckProofState(mint, proofStateRequest)
+				if err != nil {
+					return nil, err
+				}
+
+				for _, proofState := range proofStateResponse.States {
+					// NUT-07 can also respond with witness data. Since not supporting this yet, ignore proofs that have witness
+					if len(proofState.Witness) > 0 {
+						break
+					}
+
+					// save unspent proofs
+					if proofState.State == nut07.Unspent {
+						proof := proofs[proofState.Y]
+						db.SaveProof(proof)
+						proofsRestored = append(proofsRestored, proof)
+					}
+				}
+
+				// save wallet keyset with latest counter moving forward for wallet
+				if err := db.IncrementKeysetCounter(keyset.Id, counter); err != nil {
+					return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+				}
+				emptyBatches = 0
+			}
+
+		}
+	}
+
+	return proofsRestored, nil
 }
 
 func (w *Wallet) saveProofs(proofs cashu.Proofs) error {

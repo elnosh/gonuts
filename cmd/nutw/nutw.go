@@ -101,6 +101,8 @@ func main() {
 			sendCmd,
 			receiveCmd,
 			payCmd,
+			mnemonicCmd,
+			restoreCmd,
 		},
 	}
 
@@ -311,6 +313,40 @@ func pay(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("invoice paid: %v\n", meltResponse.Paid)
+	return nil
+}
+
+var mnemonicCmd = &cli.Command{
+	Name:   "mnemonic",
+	Before: setupWallet,
+	Action: mnemonic,
+}
+
+func mnemonic(ctx *cli.Context) error {
+	mnemonic := nutw.Mnemonic()
+	fmt.Printf("mnemonic: %v\n", mnemonic)
+	return nil
+}
+
+var restoreCmd = &cli.Command{
+	Name:   "restore",
+	Action: restore,
+}
+
+func restore(ctx *cli.Context) error {
+	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("specify mnemonic"))
+	}
+	mnemonic := args.First()
+	config := walletConfig()
+
+	proofs, err := wallet.Restore(config.WalletPath, mnemonic, []string{config.CurrentMintURL})
+	if err != nil {
+		printErr(fmt.Errorf("error restoring wallet: %v", err))
+	}
+
+	fmt.Printf("restored proofs for amount of: %v\n", proofs.Amount())
 	return nil
 }
 

@@ -16,6 +16,7 @@ const (
 	proofsBucket   = "proofs"
 	invoicesBucket = "invoices"
 	seedBucket     = "seed"
+	mnemonicKey    = "mnemonic"
 )
 
 type BoltDB struct {
@@ -63,12 +64,23 @@ func (db *BoltDB) initWalletBuckets() error {
 	})
 }
 
-func (db *BoltDB) SaveSeed(seed []byte) {
+func (db *BoltDB) SaveMnemonicSeed(mnemonic string, seed []byte) {
 	db.bolt.Update(func(tx *bolt.Tx) error {
 		seedb := tx.Bucket([]byte(seedBucket))
 		seedb.Put([]byte(seedBucket), seed)
+		seedb.Put([]byte(mnemonicKey), []byte(mnemonic))
 		return nil
 	})
+}
+
+func (db *BoltDB) GetMnemonic() string {
+	var mnemonic string
+	db.bolt.View(func(tx *bolt.Tx) error {
+		seedb := tx.Bucket([]byte(seedBucket))
+		mnemonic = string(seedb.Get([]byte(mnemonicKey)))
+		return nil
+	})
+	return mnemonic
 }
 
 func (db *BoltDB) GetSeed() []byte {
