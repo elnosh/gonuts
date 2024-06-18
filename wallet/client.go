@@ -13,7 +13,26 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut06"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
+	"github.com/elnosh/gonuts/cashu/nuts/nut09"
 )
+
+func GetMintInfo(mintURL string) (*nut06.MintInfo, error) {
+	resp, err := get(mintURL + "/v1/info")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var mintInfo *nut06.MintInfo
+	err = json.NewDecoder(resp.Body).Decode(&mintInfo)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return mintInfo, nil
+}
 
 func GetActiveKeysets(mintURL string) (*nut01.GetKeysResponse, error) {
 	resp, err := get(mintURL + "/v1/keys")
@@ -188,6 +207,52 @@ func PostMeltBolt11(mintURL string, meltRequest nut05.PostMeltBolt11Request) (
 	}
 
 	return meltResponse, nil
+}
+
+func PostCheckProofState(mintURL string, stateRequest nut07.PostCheckStateRequest) (
+	*nut07.PostCheckStateResponse, error) {
+
+	requestBody, err := json.Marshal(stateRequest)
+	if err != nil {
+		return nil, fmt.Errorf("json.Marshal: %v", err)
+	}
+
+	resp, err := httpPost(mintURL+"/v1/checkstate", "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var stateResponse *nut07.PostCheckStateResponse
+	err = json.NewDecoder(resp.Body).Decode(&stateResponse)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return stateResponse, nil
+}
+
+func PostRestore(mintURL string, restoreRequest nut09.PostRestoreRequest) (
+	*nut09.PostRestoreResponse, error) {
+
+	requestBody, err := json.Marshal(restoreRequest)
+	if err != nil {
+		return nil, fmt.Errorf("json.Marshal: %v", err)
+	}
+
+	resp, err := httpPost(mintURL+"/v1/restore", "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var restoreResponse *nut09.PostRestoreResponse
+	err = json.NewDecoder(resp.Body).Decode(&restoreResponse)
+	if err != nil {
+		return nil, fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return restoreResponse, nil
 }
 
 func get(url string) (*http.Response, error) {
