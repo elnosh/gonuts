@@ -42,11 +42,17 @@ func getMintInfo() (*nut06.MintInfo, error) {
 	mintInfo.Pubkey = hex.EncodeToString(privateKey.PubKey().SerializeCompressed())
 
 	contact := os.Getenv("MINT_CONTACT_INFO")
-	var mintContactInfo [][]string
+	var mintContactInfo []nut06.ContactInfo
 	if len(contact) > 0 {
-		err := json.Unmarshal([]byte(contact), &mintContactInfo)
+		var infoArr [][]string
+		err := json.Unmarshal([]byte(contact), &infoArr)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing contact info: %v", err)
+		}
+
+		for _, info := range infoArr {
+			contactInfo := nut06.ContactInfo{Method: info[0], Info: info[1]}
+			mintContactInfo = append(mintContactInfo, contactInfo)
 		}
 	}
 	mintInfo.Contact = mintContactInfo
