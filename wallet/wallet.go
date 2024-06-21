@@ -955,15 +955,15 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 		return nil, errors.New("wallet already exists")
 	}
 
+	// check mnemonic is valid
+	if !bip39.IsMnemonicValid(mnemonic) {
+		return nil, errors.New("invalid mnemonic")
+	}
+
 	// create wallet db
 	db, err := InitStorage(walletPath)
 	if err != nil {
 		return nil, fmt.Errorf("error restoring wallet: %v", err)
-	}
-
-	// check mnemonic is valid
-	if !bip39.IsMnemonicValid(mnemonic) {
-		return nil, errors.New("invalid mnemonic")
 	}
 
 	seed := bip39.NewSeed(mnemonic, "")
@@ -1035,12 +1035,11 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 			// stop when it reaches 3 consecutive empty batches
 			emptyBatches := 0
 			for emptyBatches < 3 {
-
 				blindedMessages := make(cashu.BlindedMessages, 100)
 				rs := make([]*secp256k1.PrivateKey, 100)
 				secrets := make([]string, 100)
 
-				// loop and create batch of 100 blinded messages here
+				// create batch of 100 blinded messages
 				for i := 0; i < 100; i++ {
 					B_, secret, r, err := blindMessage(keysetDerivationPath, counter)
 					if err != nil {
@@ -1054,7 +1053,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 					counter++
 				}
 
-				// call signature restore endpoint. if response has signatures, unblind them and check proof states
+				// if response has signatures, unblind them and check proof states
 				restoreRequest := nut09.PostRestoreRequest{Outputs: blindedMessages}
 				restoreResponse, err := PostRestore(mint, restoreRequest)
 				if err != nil {
@@ -1123,7 +1122,6 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 				}
 				emptyBatches = 0
 			}
-
 		}
 	}
 

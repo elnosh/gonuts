@@ -376,3 +376,78 @@ func TestWalletBalance(t *testing.T) {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", balanceBeforeMelt, balanceTestWallet.GetBalance())
 	}
 }
+
+func TestWalletRestore(t *testing.T) {
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
+
+	mintURL := nutshellMint.Host
+
+	testWalletPath := filepath.Join(".", "/testrestorewallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testWalletPath2 := filepath.Join(".", "/testrestorewallet2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	var mintAmount uint64 = 20000
+	mintRequest, err := testWallet.RequestMint(mintAmount)
+	if err != nil {
+		t.Fatalf("unexpected error in mint request: %v", err)
+	}
+	_, err = testWallet.MintTokens(mintRequest.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error in mint tokens: %v", err)
+	}
+
+	var sendAmount1 uint64 = 5000
+	token, err := testWallet.Send(sendAmount1, mintURL)
+	if err != nil {
+		t.Fatalf("unexpected error in send: %v", err)
+	}
+
+	_, err = testWallet2.Receive(*token, false)
+	if err != nil {
+		t.Fatalf("got unexpected error in receive: %v", err)
+	}
+
+	var sendAmount2 uint64 = 1000
+	token, err = testWallet.Send(sendAmount2, mintURL)
+	if err != nil {
+		t.Fatalf("unexpected error in send: %v", err)
+	}
+
+	_, err = testWallet2.Receive(*token, false)
+	if err != nil {
+		t.Fatalf("got unexpected error in receive: %v", err)
+	}
+
+	mnemonic := testWallet.Mnemonic()
+
+	// delete wallet db to restore
+	os.RemoveAll(filepath.Join(testWalletPath, "wallet.db"))
+
+	proofs, err := wallet.Restore(testWalletPath, mnemonic, []string{mintURL})
+	if err != nil {
+		t.Fatalf("error restoring wallet: %v\n", err)
+	}
+
+	expectedAmount := mintAmount - sendAmount1 - sendAmount2
+	if proofs.Amount() != expectedAmount {
+		t.Fatalf("restored proofs amount '%v' does not match to expected amount '%v'", proofs.Amount(), expectedAmount)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+}

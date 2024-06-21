@@ -334,12 +334,15 @@ var restoreCmd = &cli.Command{
 }
 
 func restore(ctx *cli.Context) error {
-	args := ctx.Args()
-	if args.Len() < 1 {
-		printErr(errors.New("specify mnemonic"))
-	}
-	mnemonic := args.First()
 	config := walletConfig()
+	fmt.Printf("enter mnemonic: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	mnemonic, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatal("error reading input, please try again")
+	}
+	mnemonic = mnemonic[:len(mnemonic)-1]
 
 	proofs, err := wallet.Restore(config.WalletPath, mnemonic, []string{config.CurrentMintURL})
 	if err != nil {

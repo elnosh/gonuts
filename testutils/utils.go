@@ -19,6 +19,8 @@ import (
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
@@ -360,4 +362,54 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 	}
 
 	return proofs, nil
+}
+
+type NutshellMintContainer struct {
+	testcontainers.Container
+	Host string
+}
+
+func CreateNutshellMintContainer(ctx context.Context) (*NutshellMintContainer, error) {
+	req := testcontainers.ContainerRequest{
+		Image:        "cashubtc/nutshell:0.15.3",
+		ExposedPorts: []string{"3338"},
+		Cmd: []string{
+			"poetry",
+			"run",
+			"mint",
+		},
+		Env: map[string]string{
+			"MINT_LISTEN_HOST":        "0.0.0.0",
+			"MINT_LISTEN_PORT":        "3338",
+			"MINT_BACKEND_BOLT11_SAT": "FakeWallet",
+			"MINT_PRIVATE_KEY":        "secretkey",
+		},
+		WaitingFor: wait.ForListeningPort("3338"),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ip, err := container.Host(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	mappedPort, err := container.MappedPort(ctx, "3338")
+	if err != nil {
+		return nil, err
+	}
+
+	nutshellHost := "http://" + ip + ":" + mappedPort.Port()
+	nutshellContainer := &NutshellMintContainer{
+		Container: container,
+		Host:      nutshellHost,
+	}
+
+	return nutshellContainer, nil
 }
