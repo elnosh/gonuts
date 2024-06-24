@@ -104,21 +104,34 @@ func (ms *MintServer) setupHttpServer(port string) {
 	ms.httpServer = server
 }
 
-func (ms *MintServer) writeResponse(rw http.ResponseWriter, req *http.Request,
-	response []byte, logmsg string) {
+func (ms *MintServer) writeResponse(
+	rw http.ResponseWriter,
+	req *http.Request,
+	response []byte,
+	logmsg string,
+) {
 	ms.logger.Info(logmsg, slog.Group("request", slog.String("method", req.Method),
 		slog.String("url", req.URL.String()), slog.Int("code", http.StatusOK)))
+
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(response)
 }
 
-func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, err error) {
+func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errResponse error, errLogMsg ...string) {
 	code := http.StatusBadRequest
-	ms.logger.Error(err.Error(), slog.Group("request", slog.String("method", req.Method),
+
+	log := errResponse.Error()
+	// if errLogMsg passed, then log msg different than err response
+	if len(errLogMsg) > 0 {
+		log = errLogMsg[0]
+	}
+
+	ms.logger.Error(log, slog.Group("request", slog.String("method", req.Method),
 		slog.String("url", req.URL.String()), slog.Int("code", code)))
+
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(code)
-	errRes, _ := json.Marshal(err)
+	errRes, _ := json.Marshal(errResponse)
 	rw.Write(errRes)
 }
 
@@ -177,7 +190,14 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 
 	reqMintResponse, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
 	if err != nil {
-		ms.writeErr(rw, req, cashu.BuildCashuError(err.Error(), cashu.InvoiceErrCode))
+		cashuErr, ok := err.(*cashu.Error)
+		// RequestMintQuote will return err from lightning backend if invoice
+		// generation fails. Log that err from backend but return generic response to request
+		if ok && cashuErr.Code == cashu.InvoiceErrCode {
+			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+			return
+		}
+		ms.writeErr(rw, req, err)
 		return
 	}
 
@@ -334,6 +354,11 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 
 	meltQuote, err := ms.mint.MeltTokens(method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
 	if err != nil {
+		cashuErr, ok := err.(*cashu.Error)
+		if ok && cashuErr.Code == cashu.InvoiceErrCode {
+			ms.writeErr(rw, req, cashu.BuildCashuError("unable to send payment", cashu.InvoiceErrCode), cashuErr.Error())
+			return
+		}
 		ms.writeErr(rw, req, err)
 		return
 	}
