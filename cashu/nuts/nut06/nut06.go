@@ -25,6 +25,35 @@ type ContactInfo struct {
 	Info   string `json:"info"`
 }
 
+// custom unmarshal to ignore contact field if on old format
+func (mi *MintInfo) UnmarshalJSON(data []byte) error {
+	var tempInfo struct {
+		Name            string          `json:"name"`
+		Pubkey          string          `json:"pubkey"`
+		Version         string          `json:"version"`
+		Description     string          `json:"description"`
+		LongDescription string          `json:"description_long,omitempty"`
+		Contact         json.RawMessage `json:"contact,omitempty"`
+		Motd            string          `json:"motd,omitempty"`
+		Nuts            NutsMap         `json:"nuts"`
+	}
+
+	if err := json.Unmarshal(data, &tempInfo); err != nil {
+		return err
+	}
+
+	mi.Name = tempInfo.Name
+	mi.Pubkey = tempInfo.Pubkey
+	mi.Version = tempInfo.Version
+	mi.Description = tempInfo.Description
+	mi.LongDescription = tempInfo.LongDescription
+	mi.Motd = tempInfo.Motd
+	mi.Nuts = tempInfo.Nuts
+	json.Unmarshal(tempInfo.Contact, &mi.Contact)
+
+	return nil
+}
+
 type NutSetting struct {
 	Methods  []MethodSetting `json:"methods"`
 	Disabled bool            `json:"disabled"`

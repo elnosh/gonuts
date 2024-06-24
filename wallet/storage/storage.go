@@ -24,8 +24,9 @@ func (quote QuoteType) String() string {
 }
 
 type DB interface {
-	SaveSeed([]byte)
+	SaveMnemonicSeed(string, []byte)
 	GetSeed() []byte
+	GetMnemonic() string
 	SaveProof(cashu.Proof) error
 	GetProofsByKeysetId(string) cashu.Proofs
 	GetProofs() cashu.Proofs
