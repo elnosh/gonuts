@@ -214,8 +214,8 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		return nil, cashu.InputsBelowOutputs
 	}
 
-	valid, err := m.VerifyProofs(proofs)
-	if err != nil || !valid {
+	err := m.verifyProofs(proofs)
+	if err != nil {
 		return nil, err
 	}
 
@@ -320,8 +320,8 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 		return MeltQuote{}, cashu.InsufficientProofsAmount
 	}
 
-	valid, err := m.VerifyProofs(proofs)
-	if err != nil || !valid {
+	err := m.verifyProofs(proofs)
+	if err != nil {
 		return MeltQuote{}, err
 	}
 
@@ -343,42 +343,42 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 	return *meltQuote, nil
 }
 
-func (m *Mint) VerifyProofs(proofs cashu.Proofs) (bool, error) {
+func (m *Mint) verifyProofs(proofs cashu.Proofs) error {
 	for _, proof := range proofs {
 		// if proof is already in db, it means it was already used
 		dbProof := m.db.GetProof(proof.Secret)
 		if dbProof != nil {
-			return false, cashu.ProofAlreadyUsedErr
+			return cashu.ProofAlreadyUsedErr
 		}
 
 		// check that id in the proof matches id of any
 		// of the mint's keyset
 		var k *secp256k1.PrivateKey
 		if keyset, ok := m.Keysets[proof.Id]; !ok {
-			return false, cashu.InvalidKeysetProof
+			return cashu.InvalidKeysetProof
 		} else {
 			if key, ok := keyset.Keys[proof.Amount]; ok {
 				k = key.PrivateKey
 			} else {
-				return false, cashu.InvalidProofErr
+				return cashu.InvalidProofErr
 			}
 		}
 
 		Cbytes, err := hex.DecodeString(proof.C)
 		if err != nil {
-			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
 		C, err := secp256k1.ParsePubKey(Cbytes)
 		if err != nil {
-			return false, cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
 
 		if !crypto.Verify(proof.Secret, k, C) {
-			return false, cashu.InvalidProofErr
+			return cashu.InvalidProofErr
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // signBlindedMessages will sign the blindedMessages and
