@@ -8,7 +8,8 @@ type GetKeysetsResponse struct {
 }
 
 type Keyset struct {
-	Id     string `json:"id"`
-	Unit   string `json:"unit"`
-	Active bool   `json:"active"`
+	Id          string `json:"id"`
+	Unit        string `json:"unit"`
+	Active      bool   `json:"active"`
+	InputFeePpk uint   `json:"input_fee_ppk"`
 }
