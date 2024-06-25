@@ -237,7 +237,7 @@ func TestMintTokens(t *testing.T) {
 	}
 
 	// test with invalid keyset in blinded messages
-	invalidKeyset := crypto.GenerateKeyset("seed", "path")
+	invalidKeyset := crypto.GenerateKeyset("seed", "path", 0)
 	invalidKeysetMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, *invalidKeyset)
 	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Quote, invalidKeysetMessages)
 	if !errors.Is(err, cashu.InvalidSignatureRequest) {
@@ -274,7 +274,7 @@ func TestSwap(t *testing.T) {
 
 	// test blinded messages over proofs amount
 	_, err = testMint.Swap(proofs, overBlindedMessages)
-	if !errors.Is(err, cashu.InputsBelowOutputs) {
+	if !errors.Is(err, cashu.InsufficientProofsAmount) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.OutputsOverInvoiceErr, err)
 	}
 

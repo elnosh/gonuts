@@ -442,7 +442,12 @@ func (ms *MintServer) buildAllKeysetsResponse() nut02.GetKeysetsResponse {
 	keysetsResponse := nut02.GetKeysetsResponse{}
 
 	for _, keyset := range ms.mint.Keysets {
-		keysetRes := nut02.Keyset{Id: keyset.Id, Unit: keyset.Unit, Active: keyset.Active}
+		keysetRes := nut02.Keyset{
+			Id:          keyset.Id,
+			Unit:        keyset.Unit,
+			Active:      keyset.Active,
+			InputFeePpk: keyset.InputFeePpk,
+		}
 		keysetsResponse.Keysets = append(keysetsResponse.Keysets, keysetRes)
 	}
 

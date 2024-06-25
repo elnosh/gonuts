@@ -51,7 +51,7 @@ func LoadMint(config Config) (*Mint, error) {
 		log.Fatalf("error starting mint: %v", err)
 	}
 
-	activeKeyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath)
+	activeKeyset := crypto.GenerateKeyset(config.PrivateKey, config.DerivationPath, config.InputFeePpk)
 	mint := &Mint{db: db, ActiveKeysets: map[string]crypto.Keyset{activeKeyset.Id: *activeKeyset}}
 
 	mint.db.SaveKeyset(activeKeyset)
@@ -240,9 +240,9 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 			}
 		}
 	}
-
-	if proofsAmount < blindedMessagesAmount {
-		return nil, cashu.InputsBelowOutputs
+	fees := m.transactionFees(proofs)
+	if proofsAmount-uint64(fees) < blindedMessagesAmount {
+		return nil, cashu.InsufficientProofsAmount
 	}
 
 	err := m.verifyProofs(proofs)
@@ -351,16 +351,16 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 		return MeltQuote{}, cashu.QuoteAlreadyPaid
 	}
 
-	proofsAmount := proofs.Amount()
-
-	// checks if amount in proofs is enough
-	if proofsAmount < meltQuote.Amount+meltQuote.FeeReserve {
-		return MeltQuote{}, cashu.InsufficientProofsAmount
-	}
-
 	err := m.verifyProofs(proofs)
 	if err != nil {
 		return MeltQuote{}, err
+	}
+
+	proofsAmount := proofs.Amount()
+	fees := m.transactionFees(proofs)
+	// checks if amount in proofs is enough
+	if proofsAmount < meltQuote.Amount+meltQuote.FeeReserve+uint64(fees) {
+		return MeltQuote{}, cashu.InsufficientProofsAmount
 	}
 
 	// if proofs are valid, ask the lightning backend
@@ -481,4 +481,14 @@ func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
 	invoice.Id = hex.EncodeToString(hash[:])
 
 	return &invoice, nil
+}
+
+func (m *Mint) transactionFees(inputs cashu.Proofs) uint {
+	var fees uint = 0
+	for _, proof := range inputs {
+		// note: not checking that proof id is from valid keyset
+		// because already doing that in call to verifyProofs
+		fees += m.Keysets[proof.Id].InputFeePpk
+	}
+	return (fees + 999) / 1000
 }
