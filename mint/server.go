@@ -191,7 +191,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	reqMintResponse, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
-		// RequestMintQuote will return err from lightning backend if invoice
+		// note: RequestMintQuote will return err from lightning backend if invoice
 		// generation fails. Log that err from backend but return generic response to request
 		if ok && cashuErr.Code == cashu.InvoiceErrCode {
 			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
@@ -218,6 +218,12 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 
 	mintQuoteStateResponse, err := ms.mint.GetMintQuoteState(method, quoteId)
 	if err != nil {
+		// if error is from lnd, log it but throw generic response
+		_, ok := err.(*cashu.Error)
+		if !ok {
+			ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		}
+
 		ms.writeErr(rw, req, err)
 		return
 	}
@@ -243,6 +249,12 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 
 	blindedSignatures, err := ms.mint.MintTokens(method, mintReq.Quote, mintReq.Outputs)
 	if err != nil {
+		// if error is from lnd, log it but throw generic response
+		_, ok := err.(*cashu.Error)
+		if !ok {
+			ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		}
+
 		ms.writeErr(rw, req, err)
 		return
 	}

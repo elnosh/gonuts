@@ -99,19 +99,26 @@ func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 	return invoice, nil
 }
 
-func (lnd *LndClient) InvoiceSettled(hash string) (bool, error) {
+func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 	hashBytes, err := hex.DecodeString(hash)
 	if err != nil {
-		return false, errors.New("invalid hash provided")
+		return Invoice{}, errors.New("invalid hash provided")
 	}
 
 	paymentHashRequest := lnrpc.PaymentHash{RHash: hashBytes}
 	lookupInvoiceResponse, err := lnd.grpcClient.LookupInvoice(context.Background(), &paymentHashRequest)
 	if err != nil {
-		return false, fmt.Errorf("error getting invoice status: %v", err)
+		return Invoice{}, err
 	}
 
-	return lookupInvoiceResponse.State == lnrpc.Invoice_SETTLED, nil
+	invoice := Invoice{
+		PaymentRequest: lookupInvoiceResponse.PaymentRequest,
+		PaymentHash:    hash,
+		Settled:        lookupInvoiceResponse.State == lnrpc.Invoice_SETTLED,
+		Amount:         uint64(lookupInvoiceResponse.Value),
+	}
+
+	return invoice, nil
 }
 
 func (lnd *LndClient) FeeReserve(amount uint64) uint64 {

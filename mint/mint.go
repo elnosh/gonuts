@@ -134,18 +134,25 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 
 	invoice := m.db.GetInvoice(quoteId)
 	if invoice == nil {
-		return nut04.PostMintQuoteBolt11Response{}, cashu.InvoiceNotExistErr
+		return nut04.PostMintQuoteBolt11Response{}, cashu.QuoteNotExistErr
 	}
 
 	// check if the invoice has been paid
-	settled, _ := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
-	if settled != invoice.Settled {
-		invoice.Settled = settled
+	status, err := m.LightningClient.InvoiceStatus(invoice.PaymentHash)
+	if err != nil {
+		return nut04.PostMintQuoteBolt11Response{}, fmt.Errorf("error checking invoice status: %v", err)
+	}
+	if status.Settled && status.Settled != invoice.Settled {
+		invoice.Settled = status.Settled
 		m.db.SaveInvoice(*invoice)
 	}
 
-	quoteState := nut04.PostMintQuoteBolt11Response{Quote: invoice.Id,
-		Request: invoice.PaymentRequest, Paid: settled, Expiry: invoice.Expiry}
+	quoteState := nut04.PostMintQuoteBolt11Response{
+		Quote:   invoice.Id,
+		Request: invoice.PaymentRequest,
+		Paid:    invoice.Settled,
+		Expiry:  invoice.Expiry,
+	}
 	return quoteState, nil
 }
 
@@ -163,8 +170,11 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 	var blindedSignatures cashu.BlindedSignatures
 
-	settled, _ := m.LightningClient.InvoiceSettled(invoice.PaymentHash)
-	if settled {
+	status, err := m.LightningClient.InvoiceStatus(invoice.PaymentHash)
+	if err != nil {
+		return nil, fmt.Errorf("error checking invoice status: %v", err)
+	}
+	if status.Settled {
 		if invoice.Redeemed {
 			return nil, cashu.InvoiceTokensIssuedErr
 		}
@@ -295,7 +305,7 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 
 	meltQuote := m.db.GetMeltQuote(quoteId)
 	if meltQuote == nil {
-		return MeltQuote{}, cashu.MeltQuoteNotExistErr
+		return MeltQuote{}, cashu.QuoteNotExistErr
 	}
 
 	return *meltQuote, nil
@@ -310,7 +320,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 
 	meltQuote := m.db.GetMeltQuote(quoteId)
 	if meltQuote == nil {
-		return MeltQuote{}, cashu.MeltQuoteNotExistErr
+		return MeltQuote{}, cashu.QuoteNotExistErr
 	}
 
 	proofsAmount := proofs.Amount()
