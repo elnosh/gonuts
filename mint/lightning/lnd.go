@@ -111,11 +111,17 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 		return Invoice{}, err
 	}
 
+	invoiceSettled := lookupInvoiceResponse.State == lnrpc.Invoice_SETTLED
 	invoice := Invoice{
 		PaymentRequest: lookupInvoiceResponse.PaymentRequest,
 		PaymentHash:    hash,
-		Settled:        lookupInvoiceResponse.State == lnrpc.Invoice_SETTLED,
+		Settled:        invoiceSettled,
 		Amount:         uint64(lookupInvoiceResponse.Value),
+	}
+
+	if invoiceSettled {
+		preimage := hex.EncodeToString(lookupInvoiceResponse.RPreimage)
+		invoice.Preimage = preimage
 	}
 
 	return invoice, nil

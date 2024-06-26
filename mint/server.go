@@ -134,6 +134,8 @@ func (ms *MintServer) writeResponse(
 	rw.Write(response)
 }
 
+// errResponse is the error that will be written in the response
+// errLogMsg is the error to log
 func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errResponse error, errLogMsg ...string) {
 	code := http.StatusBadRequest
 
@@ -326,10 +328,11 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	quoteResponse := nut05.PostMeltQuoteBolt11Response{
+	quoteResponse := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
+		State:      meltQuote.State,
 		Paid:       meltQuote.Paid,
 		Expiry:     meltQuote.Expiry,
 	}
@@ -354,12 +357,14 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	quoteState := nut05.PostMeltQuoteBolt11Response{
+	quoteState := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
+		State:      meltQuote.State,
 		Paid:       meltQuote.Paid,
 		Expiry:     meltQuote.Expiry,
+		Preimage:   meltQuote.Preimage,
 	}
 
 	jsonRes, err := json.Marshal(quoteState)
@@ -386,19 +391,25 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		if ok && cashuErr.Code == cashu.InvoiceErrCode {
-			ms.writeErr(rw, req, cashu.BuildCashuError("unable to send payment", cashu.InvoiceErrCode), cashuErr.Error())
+			responseError := cashu.BuildCashuError("unable to send payment", cashu.InvoiceErrCode)
+			ms.writeErr(rw, req, responseError, cashuErr.Error())
 			return
 		}
 		ms.writeErr(rw, req, err)
 		return
 	}
 
-	meltTokenResponse := nut05.PostMeltBolt11Response{
-		Paid:     meltQuote.Paid,
-		Preimage: meltQuote.Preimage,
+	meltQuoteResponse := &nut05.PostMeltQuoteBolt11Response{
+		Quote:      meltQuote.Id,
+		Amount:     meltQuote.Amount,
+		FeeReserve: meltQuote.FeeReserve,
+		State:      meltQuote.State,
+		Paid:       meltQuote.Paid,
+		Expiry:     meltQuote.Expiry,
+		Preimage:   meltQuote.Preimage,
 	}
 
-	jsonRes, err := json.Marshal(meltTokenResponse)
+	jsonRes, err := json.Marshal(meltQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return

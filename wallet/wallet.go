@@ -525,7 +525,7 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 }
 
 // Melt will request the mint to pay the given invoice
-func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Response, error) {
+func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
 	selectedMint, ok := w.mints[mint]
 	if !ok {
 		return nil, ErrMintNotExist
@@ -548,12 +548,13 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 	if err != nil || !meltBolt11Response.Paid {
 		// save proofs if invoice was not paid
 		w.saveProofs(proofs)
-	} else if meltBolt11Response.Paid { // save invoice to db
+	} else if meltBolt11Response.Paid { // TODO: USE STATE FIELD INSTEAD OF PAID
 		bolt11, err := decodepay.Decodepay(invoice)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)
 		}
 
+		// save invoice to db
 		invoice := storage.Invoice{
 			TransactionType: storage.Melt,
 			QuoteAmount:     amountNeeded,

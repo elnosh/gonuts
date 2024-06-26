@@ -14,6 +14,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -248,9 +249,11 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 type MeltQuote struct {
 	Id             string
 	InvoiceRequest string
+	PaymentHash    string
 	Amount         uint64
 	FeeReserve     uint64
-	Paid           bool
+	State          nut05.State
+	Paid           bool // DEPRECATED: use state instead
 	Expiry         int64
 	Preimage       string
 }
@@ -288,8 +291,10 @@ func (m *Mint) MeltRequest(method, request, unit string) (MeltQuote, error) {
 	meltQuote := MeltQuote{
 		Id:             hex.EncodeToString(hash[:]),
 		InvoiceRequest: request,
+		PaymentHash:    bolt11.PaymentHash,
 		Amount:         satAmount,
 		FeeReserve:     fee,
+		State:          nut05.Unpaid,
 		Paid:           false,
 		Expiry:         expiry,
 	}
@@ -310,6 +315,20 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 		return MeltQuote{}, cashu.QuoteNotExistErr
 	}
 
+	// if quote not paid, check status of payment with backend
+	if meltQuote.State == nut05.Unpaid {
+		invoice, err := m.LightningClient.InvoiceStatus(meltQuote.PaymentHash)
+		if err != nil {
+			return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.StandardErr.Code)
+		}
+		if invoice.Settled {
+			meltQuote.Paid = true
+			meltQuote.State = nut05.Paid
+			meltQuote.Preimage = invoice.Preimage
+			m.db.SaveMeltQuote(*meltQuote)
+		}
+	}
+
 	return *meltQuote, nil
 }
 
@@ -323,6 +342,9 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 	meltQuote := m.db.GetMeltQuote(quoteId)
 	if meltQuote == nil {
 		return MeltQuote{}, cashu.QuoteNotExistErr
+	}
+	if meltQuote.State == nut05.Paid {
+		return MeltQuote{}, cashu.QuoteAlreadyPaid
 	}
 
 	proofsAmount := proofs.Amount()
@@ -346,8 +368,11 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 
 	// if payment succeeded, mark melt quote as paid
 	// and invalidate proofs
+	meltQuote.State = nut05.Paid
+	// Deprecate Paid field in favor of State
 	meltQuote.Paid = true
 	meltQuote.Preimage = preimage
+	m.db.SaveMeltQuote(*meltQuote)
 	for _, proof := range proofs {
 		m.db.SaveProof(proof)
 	}

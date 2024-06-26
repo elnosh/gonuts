@@ -174,6 +174,7 @@ var (
 	InvalidProofErr          = Error{Detail: "invalid proof", Code: ProofsErrCode}
 	InputsBelowOutputs       = Error{Detail: "amount of input proofs is below amount of outputs", Code: ProofsErrCode}
 	QuoteNotExistErr         = Error{Detail: "quote does not exist", Code: QuoteErrCode}
+	QuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: QuoteErrCode}
 	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}
 	InvalidKeysetProof       = Error{Detail: "proof from an invalid keyset", Code: ProofsErrCode}
 	InvalidSignatureRequest  = Error{Detail: "requested signature from non-active keyset", Code: KeysetErrCode}
