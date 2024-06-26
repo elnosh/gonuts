@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -213,16 +215,34 @@ func (w *Wallet) addMint(mint string) (*walletMint, error) {
 }
 
 func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error) {
+	keysets, err := GetAllKeysets(mintURL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
+	}
+
 	keysetsResponse, err := GetActiveKeysets(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting active keyset from mint: %v", err)
+		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
 	}
 
 	activeKeysets := make(map[string]crypto.WalletKeyset)
 	for _, keyset := range keysetsResponse.Keysets {
+
+		var inputFeePpk uint
+		for _, response := range keysets.Keysets {
+			if response.Id == keyset.Id {
+				inputFeePpk = response.InputFeePpk
+			}
+		}
+
 		_, err := hex.DecodeString(keyset.Id)
 		if keyset.Unit == "sat" && err == nil {
-			activeKeyset := crypto.WalletKeyset{MintURL: mintURL, Unit: keyset.Unit, Active: true}
+			activeKeyset := crypto.WalletKeyset{
+				MintURL:     mintURL,
+				Unit:        keyset.Unit,
+				Active:      true,
+				InputFeePpk: inputFeePpk,
+			}
 			keys, err := mapPubKeys(keysetsResponse.Keysets[0].Keys)
 			if err != nil {
 				return nil, err
@@ -249,10 +269,11 @@ func GetMintInactiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, err
 		_, err := hex.DecodeString(keysetRes.Id)
 		if !keysetRes.Active && keysetRes.Unit == "sat" && err == nil {
 			keyset := crypto.WalletKeyset{
-				Id:      keysetRes.Id,
-				MintURL: mintURL,
-				Unit:    keysetRes.Unit,
-				Active:  keysetRes.Active,
+				Id:          keysetRes.Id,
+				MintURL:     mintURL,
+				Unit:        keysetRes.Unit,
+				Active:      keysetRes.Active,
+				InputFeePpk: keysetRes.InputFeePpk,
 			}
 			inactiveKeysets[keyset.Id] = keyset
 		}
@@ -352,7 +373,8 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	// get counter for keyset
 	counter := w.counterForKeyset(activeKeyset.Id)
 
-	blindedMessages, secrets, rs, err := w.createBlindedMessages(invoice.QuoteAmount, activeKeyset.Id, &counter)
+	split := w.splitWalletTarget(invoice.QuoteAmount, w.currentMint.mintURL)
+	blindedMessages, secrets, rs, err := w.createBlindedMessages(split, activeKeyset.Id, &counter)
 	if err != nil {
 		return nil, fmt.Errorf("error creating blinded messages: %v", err)
 	}
@@ -395,7 +417,12 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 
 // Send will return a cashu token with proofs for the given amount
 func (w *Wallet) Send(amount uint64, mintURL string) (*cashu.Token, error) {
-	proofsToSend, err := w.getProofsForAmount(amount, mintURL, nil)
+	selectedMint, ok := w.mints[mintURL]
+	if !ok {
+		return nil, ErrMintNotExist
+	}
+
+	proofsToSend, err := w.getProofsForAmount(amount, &selectedMint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -411,6 +438,11 @@ func (w *Wallet) SendToPubkey(
 	mintURL string,
 	pubkey *btcec.PublicKey,
 ) (*cashu.Token, error) {
+	selectedMint, ok := w.mints[mintURL]
+	if !ok {
+		return nil, ErrMintNotExist
+	}
+
 	// check first if mint supports P2PK NUT
 	mintInfo, err := GetMintInfo(mintURL)
 	if err != nil {
@@ -421,7 +453,7 @@ func (w *Wallet) SendToPubkey(
 		return nil, errors.New("mint does not support Pay to Public Key")
 	}
 
-	lockedProofs, err := w.getProofsForAmount(amount, mintURL, pubkey)
+	lockedProofs, err := w.getProofsForAmount(amount, &selectedMint, pubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +520,7 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 	}
 
 	var activeKeysets map[string]crypto.WalletKeyset
-	walletMint, trustedMint := w.mints[mintURL]
+	mint, trustedMint := w.mints[mintURL]
 	if !trustedMint {
 		// get keys if mint not trusted
 		var err error
@@ -496,8 +528,9 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 		if err != nil {
 			return nil, err
 		}
+		mint = walletMint{mintURL: mintURL, activeKeysets: activeKeysets}
 	} else {
-		activeKeysets = walletMint.activeKeysets
+		activeKeysets = mint.activeKeysets
 	}
 
 	var activeSatKeyset crypto.WalletKeyset
@@ -511,7 +544,9 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 		counter = &keysetCounter
 	}
 
-	outputs, secrets, rs, err := w.createBlindedMessages(proofsToSwap.Amount(), activeSatKeyset.Id, counter)
+	fees := w.fees(proofsToSwap, &mint)
+	split := w.splitWalletTarget(proofsToSwap.Amount()-uint64(fees), mintURL)
+	outputs, secrets, rs, err := w.createBlindedMessages(split, activeSatKeyset.Id, counter)
 	if err != nil {
 		return nil, fmt.Errorf("createBlindedMessages: %v", err)
 	}
@@ -565,10 +600,42 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
 	var err error
 
+	activeKeysets, err := GetMintActiveKeysets(tokenMintURL)
+	mint := &walletMint{mintURL: tokenMintURL, activeKeysets: activeKeysets}
+
+	fees := uint64(w.fees(proofsToSwap, mint))
+	// if proofs are P2PK locked, sign appropriately
+	if proofsToSwap[0].IsSecretP2PK() {
+		nut10secret, err := nut10.DeserializeSecret(proofsToSwap[0].Secret)
+		if err != nil {
+			return nil, err
+		}
+		// if sig all, swap them first and then melt
+		// increase fees since extra swap will incur fees
+		if nut11.IsSigAll(nut10secret) {
+			proofsToSwap, err = w.swap(proofsToSwap, tokenMintURL)
+			if err != nil {
+				return nil, err
+			}
+			fees += fees
+		} else {
+			// if not sig all, can just sign inputs and no need to do a swap first
+			if !nut11.CanSign(nut10secret, w.privateKey) {
+				return nil, fmt.Errorf("cannot sign locked proofs")
+			}
+
+			proofsToSwap, err = nut11.AddSignatureToInputs(proofsToSwap, w.privateKey)
+			if err != nil {
+				return nil, fmt.Errorf("error signing inputs: %v", err)
+			}
+		}
+	}
+
 	for {
 		// request a mint quote from the configured default mint
 		// this will generate an invoice from the trusted mint
-		mintResponse, err = w.RequestMint(uint64(amount))
+		mintAmountRequest := uint64(amount) - fees
+		mintResponse, err = w.RequestMint(mintAmountRequest)
 		if err != nil {
 			return nil, fmt.Errorf("error requesting mint: %v", err)
 		}
@@ -583,37 +650,11 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 
 		// if amount in token is less than amount asked from mint in melt request,
 		// lower the amount for mint request
-		if meltQuoteResponse.Amount+meltQuoteResponse.FeeReserve > tokenAmount {
+		if meltQuoteResponse.Amount+meltQuoteResponse.FeeReserve+fees > tokenAmount {
 			invoicePct -= 0.01
 			amount *= invoicePct
 		} else {
 			break
-		}
-	}
-
-	// if proofs are P2PK locked, sign appropriately
-	if proofsToSwap[0].IsSecretP2PK() {
-		nut10secret, err := nut10.DeserializeSecret(proofsToSwap[0].Secret)
-		if err != nil {
-			return nil, err
-		}
-
-		// if sig all, swap them first and then melt
-		if nut11.IsSigAll(nut10secret) {
-			proofsToSwap, err = w.swap(proofsToSwap, tokenMintURL)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			// if not sig all, can just sign inputs and no need to do a swap first
-			if !nut11.CanSign(nut10secret, w.privateKey) {
-				return nil, fmt.Errorf("cannot sign locked proofs")
-			}
-
-			proofsToSwap, err = nut11.AddSignatureToInputs(proofsToSwap, w.privateKey)
-			if err != nil {
-				return nil, fmt.Errorf("error signing inputs: %v", err)
-			}
 		}
 	}
 
@@ -638,26 +679,26 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 }
 
 // Melt will request the mint to pay the given invoice
-func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
-	selectedMint, ok := w.mints[mint]
+func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	selectedMint, ok := w.mints[mintURL]
 	if !ok {
 		return nil, ErrMintNotExist
 	}
 
 	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
-	meltQuoteResponse, err := PostMeltQuoteBolt11(selectedMint.mintURL, meltRequest)
+	meltQuoteResponse, err := PostMeltQuoteBolt11(mintURL, meltRequest)
 	if err != nil {
 		return nil, err
 	}
 
 	amountNeeded := meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve
-	proofs, err := w.getProofsForAmount(amountNeeded, mint, nil)
+	proofs, err := w.getProofsForAmount(amountNeeded, &selectedMint, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
-	meltBolt11Response, err := PostMeltBolt11(selectedMint.mintURL, meltBolt11Request)
+	meltBolt11Response, err := PostMeltBolt11(mintURL, meltBolt11Request)
 	if err != nil {
 		w.saveProofs(proofs)
 		return nil, err
@@ -702,6 +743,12 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltQuoteBolt11Re
 	return meltBolt11Response, err
 }
 
+func (w *Wallet) getProofsFromMint(mintURL string) cashu.Proofs {
+	proofs := w.getInactiveProofsByMint(mintURL)
+	proofs = append(proofs, w.getActiveProofsByMint(mintURL)...)
+	return proofs
+}
+
 func (w *Wallet) getInactiveProofsByMint(mintURL string) cashu.Proofs {
 	selectedMint := w.mints[mintURL]
 
@@ -726,67 +773,132 @@ func (w *Wallet) getActiveProofsByMint(mintURL string) cashu.Proofs {
 	return proofs
 }
 
-// getProofsForAmount will return proofs from mint that equal to given amount.
-// if pubkeyLock is present it will generate proofs locked to the public key.
-// It returns error if wallet does not have enough proofs to fulfill amount
-func (w *Wallet) getProofsForAmount(amount uint64, mintURL string, pubkeyLock *btcec.PublicKey) (cashu.Proofs, error) {
-	selectedMint, ok := w.mints[mintURL]
-	if !ok {
-		return nil, ErrMintNotExist
-	}
-
-	balanceByMints := w.GetBalanceByMints()
-	balance := balanceByMints[mintURL]
-	if balance < amount {
+// selectProofsToSend will try to select proofs for
+// amount + fees (so that receiver does not pay for fees)
+// TODO: add extra argument to specify whether or not to add fees for the receiver
+func (w *Wallet) selectProofsToSend(proofs cashu.Proofs, amount uint64, mint *walletMint) (cashu.Proofs, error) {
+	proofsSum := proofs.Amount()
+	if proofsSum < amount {
 		return nil, ErrInsufficientMintBalance
 	}
 
-	selectedProofs := cashu.Proofs{}
-	var currentProofsAmount uint64 = 0
-	addKeysetProofs := func(proofs cashu.Proofs) {
-		for _, proof := range proofs {
-			if currentProofsAmount >= amount {
-				break
-			}
+	var selectedProofs cashu.Proofs
+	sort.Slice(proofs, func(i, j int) bool { return proofs[i].Amount < proofs[j].Amount })
 
-			selectedProofs = append(selectedProofs, proof)
-			currentProofsAmount += proof.Amount
+	var smallerProofs, biggerProofs cashu.Proofs
+	for _, proof := range proofs {
+		if proof.Amount <= amount {
+			smallerProofs = append(smallerProofs, proof)
+		} else {
+			biggerProofs = append(biggerProofs, proof)
 		}
 	}
 
-	// use proofs from inactive keysets first
-	addKeysetProofs(w.getInactiveProofsByMint(mintURL))
-	addKeysetProofs(w.getActiveProofsByMint(mintURL))
+	remainingAmount := amount
+	var selectedProofsSum uint64 = 0
+	for remainingAmount > 0 {
+		sort.Slice(smallerProofs, func(i, j int) bool { return smallerProofs[i].Amount > smallerProofs[j].Amount })
 
-	// only try selecting offline if lock is not specified
-	// if lock is specified, need to do swap first to create locked proofs
-	if pubkeyLock == nil {
-		// if proofs stored fulfill amount, delete them from db and return them
-		if currentProofsAmount == amount {
-			for _, proof := range selectedProofs {
-				w.db.DeleteProof(proof.Secret)
-			}
-			return selectedProofs, nil
+		var selectedProof cashu.Proof
+		if len(smallerProofs) > 0 {
+			selectedProof = smallerProofs[0]
+			smallerProofs = smallerProofs[1:]
+		} else if len(biggerProofs) > 0 {
+			selectedProof = biggerProofs[0]
+			biggerProofs = biggerProofs[1:]
+		} else {
+			break
 		}
+
+		selectedProofs = append(selectedProofs, selectedProof)
+		selectedProofsSum += selectedProof.Amount
+		fees := w.fees(selectedProofs, mint)
+
+		if selectedProof.Amount >= remainingAmount+uint64(fees) {
+			break
+		}
+
+		remainingAmount = amount + uint64(fees) - selectedProofsSum
+		var tempSmaller cashu.Proofs
+		for _, small := range smallerProofs {
+			if small.Amount <= remainingAmount {
+				tempSmaller = append(tempSmaller, small)
+			} else {
+				biggerProofs = slices.Insert(biggerProofs, 0, small)
+			}
+		}
+
+		smallerProofs = tempSmaller
+	}
+
+	if selectedProofsSum < amount+uint64(w.fees(selectedProofs, mint)) {
+		return nil, ErrInsufficientMintBalance
+	}
+
+	return selectedProofs, nil
+}
+
+func (w *Wallet) swapToSend(amount uint64, mint *walletMint, pubkeyLock *btcec.PublicKey) (cashu.Proofs, error) {
+	proofs := w.getProofsFromMint(mint.mintURL)
+	proofsToSwap, err := w.selectProofsToSend(proofs, amount, mint)
+	if err != nil {
+		return nil, err
+	}
+
+	// add inactive proofs in the swap to get rid of those
+	inactiveProofs := w.getInactiveProofsByMint(mint.mintURL)
+	inactiveProofs = slices.DeleteFunc(inactiveProofs, func(proof cashu.Proof) bool {
+		selected := false
+		for _, selectedProof := range proofsToSwap {
+			if selectedProof.Secret == proof.Secret {
+				selected = true
+				break
+			}
+		}
+		return selected
+	})
+	proofsToSwap = append(proofsToSwap, inactiveProofs...)
+
+	fees := w.fees(proofsToSwap, mint)
+	// if amount from selected proofs is the exact amount needed
+	// but pubkeyLock is present, need to add fees for the swap
+	// to create locked ecash
+	if proofsToSwap.Amount() == amount+uint64(fees) && pubkeyLock != nil {
+		proofs = slices.DeleteFunc(proofs, func(proof cashu.Proof) bool {
+			selected := false
+			for _, selectedProof := range proofsToSwap {
+				if selectedProof.Secret == proof.Secret {
+					selected = true
+					break
+				}
+			}
+			return selected
+		})
+
+		extraProofs, err := w.selectProofsToSend(proofs, uint64(fees), mint)
+		if err != nil {
+			return nil, err
+		}
+		proofsToSwap = append(proofsToSwap, extraProofs...)
 	}
 
 	var activeSatKeyset crypto.WalletKeyset
-	for _, k := range selectedMint.activeKeysets {
+	for _, k := range mint.activeKeysets {
 		activeSatKeyset = k
 		break
 	}
 
-	var send cashu.BlindedMessages
-	var blindedMessages cashu.BlindedMessages
-	var secrets []string
-	var rs []*secp256k1.PrivateKey
+	var send, change cashu.BlindedMessages
+	var secrets, changeSecrets []string
+	var rs, changeRs []*secp256k1.PrivateKey
 	var counter, incrementCounterBy uint32
 
+	amountNeededForSend := amount + uint64(fees)
+	split := cashu.AmountSplit(amountNeededForSend)
 	if pubkeyLock == nil {
 		counter = w.counterForKeyset(activeSatKeyset.Id)
-		var err error
 		// blinded messages for send amount from counter
-		send, secrets, rs, err = w.createBlindedMessages(amount, activeSatKeyset.Id, &counter)
+		send, secrets, rs, err = w.createBlindedMessages(split, activeSatKeyset.Id, &counter)
 		if err != nil {
 			return nil, err
 		}
@@ -794,23 +906,26 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string, pubkeyLock *b
 	} else {
 		// if pubkey to lock ecash is present, generate blinded messages
 		// with secrets locking the ecash
-		var err error
-		send, secrets, rs, err = blindedMessagesFromLock(amount, activeSatKeyset.Id, pubkeyLock)
+		send, secrets, rs, err = blindedMessagesFromLock(split, activeSatKeyset.Id, pubkeyLock)
 		if err != nil {
 			return nil, err
 		}
-
 		counter = w.counterForKeyset(activeSatKeyset.Id)
 	}
 
+	proofsAmount := proofsToSwap.Amount()
 	// blinded messages for change amount
-	change, changeSecrets, changeRs, err := w.createBlindedMessages(currentProofsAmount-amount, activeSatKeyset.Id, &counter)
-	if err != nil {
-		return nil, err
+	if proofsAmount-amountNeededForSend > 0 {
+		changeAmount := proofsAmount - amountNeededForSend - uint64(fees)
+		changeSplit := w.splitWalletTarget(changeAmount, mint.mintURL)
+		change, changeSecrets, changeRs, err = w.createBlindedMessages(changeSplit, activeSatKeyset.Id, &counter)
+		if err != nil {
+			return nil, err
+		}
+		incrementCounterBy += uint32(len(change))
 	}
-	incrementCounterBy += uint32(len(change))
 
-	blindedMessages = make(cashu.BlindedMessages, len(send))
+	blindedMessages := make(cashu.BlindedMessages, len(send))
 	copy(blindedMessages, send)
 	blindedMessages = append(blindedMessages, change...)
 	secrets = append(secrets, changeSecrets...)
@@ -818,34 +933,36 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string, pubkeyLock *b
 
 	cashu.SortBlindedMessages(blindedMessages, secrets, rs)
 
-	swapRequest := nut03.PostSwapRequest{Inputs: selectedProofs, Outputs: blindedMessages}
-	swapResponse, err := PostSwap(selectedMint.mintURL, swapRequest)
+	// create outputs from splitWalletTarget
+	// call swap endpoint
+	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: blindedMessages}
+	swapResponse, err := PostSwap(mint.mintURL, swapRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, proof := range selectedProofs {
+	for _, proof := range proofsToSwap {
 		w.db.DeleteProof(proof.Secret)
 	}
 
-	proofs, err := constructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
+	proofsFromSwap, err := constructProofs(swapResponse.Signatures, secrets, rs, &activeSatKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
 
 	proofsToSend := make(cashu.Proofs, len(send))
 	for i, sendmsg := range send {
-		for j, proof := range proofs {
+		for j, proof := range proofsFromSwap {
 			if sendmsg.Amount == proof.Amount {
 				proofsToSend[i] = proof
-				proofs = slices.Delete(proofs, j, j+1)
+				proofsFromSwap = slices.Delete(proofsFromSwap, j, j+1)
 				break
 			}
 		}
 	}
 
 	// remaining proofs are change proofs to save to db
-	w.saveProofs(proofs)
+	w.saveProofs(proofsFromSwap)
 
 	err = w.incrementKeysetCounter(activeSatKeyset.Id, incrementCounterBy)
 	if err != nil {
@@ -855,17 +972,122 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string, pubkeyLock *b
 	return proofsToSend, nil
 }
 
+// getProofsForAmount will return proofs from mint for the give amount.
+// if pubkeyLock is present it will generate proofs locked to the public key.
+// It returns error if wallet does not have enough proofs to fulfill amount
+func (w *Wallet) getProofsForAmount(amount uint64, mint *walletMint, pubkeyLock *btcec.PublicKey) (cashu.Proofs, error) {
+	// TODO: need to check first if 'input_fee_ppk' for keyset has changed
+	mintProofs := w.getProofsFromMint(mint.mintURL)
+	selectedProofs, err := w.selectProofsToSend(mintProofs, amount, mint)
+	if err != nil {
+		return nil, err
+	}
+
+	fees := w.fees(selectedProofs, mint)
+	totalAmount := amount + uint64(fees)
+
+	// only try selecting offline if lock is not specified
+	// if lock is specified, need to do swap first to create locked proofs
+	if pubkeyLock == nil {
+		// check if offline selection worked (i.e by checking that amount + fees add up)
+		// if proofs stored fulfill amount, delete them from db and return them
+		if selectedProofs.Amount() == totalAmount {
+			for _, proof := range selectedProofs {
+				w.db.DeleteProof(proof.Secret)
+			}
+			return selectedProofs, nil
+		}
+	}
+
+	proofsToSend, err := w.swapToSend(amount, mint, pubkeyLock)
+	if err != nil {
+		return nil, err
+	}
+
+	return proofsToSend, nil
+}
+
+// splitWalletTarget returns a split for an amount.
+// creates the split based on the state of the wallet.
+// it has a defautl target of 3 coins of each amount
+func (w *Wallet) splitWalletTarget(amountToSplit uint64, mint string) []uint64 {
+	target := 3
+	proofs := w.getProofsFromMint(mint)
+
+	// amounts that are in wallet
+	amountsInWallet := make([]uint64, len(proofs))
+	for i, proof := range proofs {
+		amountsInWallet[i] = proof.Amount
+	}
+	slices.Sort(amountsInWallet)
+
+	allPosibleAmounts := make([]uint64, crypto.MAX_ORDER)
+	for i := 0; i < crypto.MAX_ORDER; i++ {
+		amount := uint64(math.Pow(2, float64(i)))
+		allPosibleAmounts[i] = amount
+	}
+
+	// based on amounts that are already in the wallet
+	// define what amounts wanted to reach target
+	var neededAmounts []uint64
+	for _, amount := range allPosibleAmounts {
+		count := cashu.Count(amountsInWallet, amount)
+		timesToAdd := cashu.Max(0, uint64(target)-uint64(count))
+		for i := 0; i < int(timesToAdd); i++ {
+			neededAmounts = append(neededAmounts, amount)
+		}
+	}
+	slices.Sort(neededAmounts)
+
+	// fill in based on the needed amounts
+	// that are below the amount passed (amountToSplit)
+	var amounts []uint64
+	var amountsSum uint64 = 0
+	for amountsSum < amountToSplit {
+		if len(neededAmounts) > 0 {
+			if amountsSum+neededAmounts[0] > amountToSplit {
+				break
+			}
+			amounts = append(amounts, neededAmounts[0])
+			amountsSum += neededAmounts[0]
+			neededAmounts = slices.Delete(neededAmounts, 0, 1)
+		} else {
+			break
+		}
+	}
+
+	remainingAmount := amountToSplit - amountsSum
+	if remainingAmount > 0 {
+		amounts = append(amounts, cashu.AmountSplit(remainingAmount)...)
+	}
+
+	return amounts
+}
+
+func (w *Wallet) fees(proofs cashu.Proofs, mint *walletMint) uint {
+	var fees uint = 0
+	for _, proof := range proofs {
+		if keyset, ok := mint.activeKeysets[proof.Id]; ok {
+			fees += keyset.InputFeePpk
+			continue
+		}
+
+		if keyset, ok := mint.inactiveKeysets[proof.Id]; ok {
+			fees += keyset.InputFeePpk
+		}
+	}
+	return (fees + 999) / 1000
+}
+
 // returns Blinded messages, secrets - [][]byte, and list of r
 // if counter is nil, it generates random secrets
 // if counter is non-nil, it will generate secrets deterministically
 func (w *Wallet) createBlindedMessages(
-	amount uint64,
+	splitAmounts []uint64,
 	keysetId string,
 	counter *uint32,
 ) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
-	splitAmounts := cashu.AmountSplit(amount)
 	splitLen := len(splitAmounts)
-
 	blindedMessages := make(cashu.BlindedMessages, splitLen)
 	secrets := make([]string, splitLen)
 	rs := make([]*secp256k1.PrivateKey, splitLen)
@@ -938,7 +1160,7 @@ func generateDeterministicSecret(path *hdkeychain.ExtendedKey, counter uint32) (
 	return secret, r, nil
 }
 
-func blindedMessagesFromLock(amount uint64, keysetId string, lockPubkey *btcec.PublicKey) (
+func blindedMessagesFromLock(splitAmounts []uint64, keysetId string, lockPubkey *btcec.PublicKey) (
 	cashu.BlindedMessages,
 	[]string,
 	[]*secp256k1.PrivateKey,
@@ -947,13 +1169,10 @@ func blindedMessagesFromLock(amount uint64, keysetId string, lockPubkey *btcec.P
 	serialized := lockPubkey.SerializeCompressed()
 	pubkey := hex.EncodeToString(serialized)
 
-	splitAmounts := cashu.AmountSplit(amount)
 	splitLen := len(splitAmounts)
-
 	blindedMessages := make(cashu.BlindedMessages, splitLen)
 	secrets := make([]string, splitLen)
 	rs := make([]*secp256k1.PrivateKey, splitLen)
-
 	for i, amt := range splitAmounts {
 		r, err := secp256k1.GeneratePrivateKey()
 		if err != nil {

@@ -258,3 +258,20 @@ func AmountSplit(amount uint64) []uint64 {
 	}
 	return rv
 }
+
+func Max(x, y uint64) uint64 {
+	if x > y {
+		return x
+	}
+	return y
+}
+
+func Count(amounts []uint64, amount uint64) uint {
+	var count uint = 0
+	for _, amt := range amounts {
+		if amt == amount {
+			count++
+		}
+	}
+	return count
+}

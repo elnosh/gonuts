@@ -182,21 +182,23 @@ func (kp *KeyPair) UnmarshalJSON(data []byte) error {
 type KeysetsMap map[string]map[string]WalletKeyset
 
 type WalletKeyset struct {
-	Id         string
-	MintURL    string
-	Unit       string
-	Active     bool
-	PublicKeys map[uint64]*secp256k1.PublicKey
-	Counter    uint32
+	Id          string
+	MintURL     string
+	Unit        string
+	Active      bool
+	PublicKeys  map[uint64]*secp256k1.PublicKey
+	Counter     uint32
+	InputFeePpk uint
 }
 
 type WalletKeysetTemp struct {
-	Id         string
-	MintURL    string
-	Unit       string
-	Active     bool
-	PublicKeys map[uint64][]byte
-	Counter    uint32
+	Id          string
+	MintURL     string
+	Unit        string
+	Active      bool
+	PublicKeys  map[uint64][]byte
+	Counter     uint32
+	InputFeePpk uint
 }
 
 func (wk *WalletKeyset) MarshalJSON() ([]byte, error) {
@@ -212,7 +214,8 @@ func (wk *WalletKeyset) MarshalJSON() ([]byte, error) {
 			}
 			return m
 		}(),
-		Counter: wk.Counter,
+		Counter:     wk.Counter,
+		InputFeePpk: wk.InputFeePpk,
 	}
 
 	return json.Marshal(temp)
@@ -230,6 +233,7 @@ func (wk *WalletKeyset) UnmarshalJSON(data []byte) error {
 	wk.Unit = temp.Unit
 	wk.Active = temp.Active
 	wk.Counter = temp.Counter
+	wk.InputFeePpk = temp.InputFeePpk
 
 	wk.PublicKeys = make(map[uint64]*secp256k1.PublicKey)
 	for k, v := range temp.PublicKeys {

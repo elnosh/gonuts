@@ -38,7 +38,8 @@ func TestCreateBlindedMessages(t *testing.T) {
 
 	for _, test := range tests {
 		var counter uint32 = 0
-		blindedMessages, _, _, _ := test.wallet.createBlindedMessages(test.amount, test.keyset.Id, &counter)
+		split := cashu.AmountSplit(test.amount)
+		blindedMessages, _, _, _ := test.wallet.createBlindedMessages(split, test.keyset.Id, &counter)
 		amount := blindedMessages.Amount()
 		if amount != test.amount {
 			t.Errorf("expected '%v' but got '%v' instead", test.amount, amount)
