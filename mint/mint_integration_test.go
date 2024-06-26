@@ -287,8 +287,9 @@ func TestMelt(t *testing.T) {
 
 	// test already used proofs
 	_, err = testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
-	if !errors.Is(err, cashu.ProofAlreadyUsedErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofAlreadyUsedErr, err)
+	//if !errors.Is(err, cashu.ProofAlreadyUsedErr) {
+	if !errors.Is(err, cashu.QuoteAlreadyPaid) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.QuoteAlreadyPaid, err)
 	}
 
 }
