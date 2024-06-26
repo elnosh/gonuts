@@ -1,22 +1,23 @@
 package lightning
 
 import (
-	"bytes"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
+	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"os"
 	"time"
+
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"gopkg.in/macaroon.v2"
 )
 
 const (
-	LND_HOST          = "LND_REST_HOST"
+	LND_GRPC_HOST     = "LND_GRPC_HOST"
 	LND_CERT_PATH     = "LND_CERT_PATH"
 	LND_MACAROON_PATH = "LND_MACAROON_PATH"
 )
@@ -27,15 +28,13 @@ const (
 )
 
 type LndClient struct {
-	host     string
-	client   *http.Client
-	macaroon string // hex encoded
+	grpcClient lnrpc.LightningClient
 }
 
 func CreateLndClient() (*LndClient, error) {
-	host := os.Getenv(LND_HOST)
+	host := os.Getenv(LND_GRPC_HOST)
 	if host == "" {
-		return nil, errors.New(LND_HOST + " cannot be empty")
+		return nil, errors.New(LND_GRPC_HOST + " cannot be empty")
 	}
 	certPath := os.Getenv(LND_CERT_PATH)
 	if certPath == "" {
@@ -46,110 +45,73 @@ func CreateLndClient() (*LndClient, error) {
 		return nil, errors.New(LND_MACAROON_PATH + " cannot be empty")
 	}
 
+	creds, err := credentials.NewClientTLSFromFile(certPath, "")
+	if err != nil {
+		return nil, err
+	}
+
 	macaroonBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
 	}
-	macaroonHex := hex.EncodeToString(macaroonBytes)
-	client, err := httpClient(certPath)
+
+	macaroon := &macaroon.Macaroon{}
+	if err = macaroon.UnmarshalBinary(macaroonBytes); err != nil {
+		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+	}
+	macarooncreds, err := macaroons.NewMacaroonCredential(macaroon)
 	if err != nil {
-		return nil, fmt.Errorf("error creating lnd client: %v", err)
+		return nil, fmt.Errorf("error setting macaroon creds: %v", err)
 	}
 
-	return &LndClient{host: host, client: client, macaroon: macaroonHex}, nil
-}
-
-func httpClient(tlsCert string) (*http.Client, error) {
-	cert, err := os.ReadFile(tlsCert)
-	if err != nil {
-		return nil, fmt.Errorf("error reading cert: %v", err)
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+		grpc.WithPerRPCCredentials(macarooncreds),
 	}
-	certPool := x509.NewCertPool()
-	certPool.AppendCertsFromPEM(cert)
 
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: certPool,
-			},
-		},
-	}, nil
-}
+	conn, err := grpc.NewClient(host, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("error setting up grpc client: %v", err)
+	}
 
-type AddInvoiceResponse struct {
-	Hash           string `json:"r_hash"`
-	PaymentRequest string `json:"payment_request"`
+	grpcClient := lnrpc.NewLightningClient(conn)
+	return &LndClient{grpcClient: grpcClient}, nil
 }
 
 func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
-	body := map[string]any{"value": amount, "expiry": InvoiceExpiryMins * 60}
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return Invoice{}, err
+	invoiceRequest := lnrpc.Invoice{
+		Value:  int64(amount),
+		Expiry: InvoiceExpiryMins * 60,
 	}
 
-	req, err := http.NewRequest(http.MethodPost, lnd.host+"/v1/invoices", bytes.NewBuffer(jsonBody))
+	addInvoiceResponse, err := lnd.grpcClient.AddInvoice(context.Background(), &invoiceRequest)
 	if err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("could not generate invoice: %v", err)
 	}
-	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
+	hash := hex.EncodeToString(addInvoiceResponse.RHash)
 
-	resp, err := lnd.client.Do(req)
-	if err != nil {
-		return Invoice{}, err
+	invoice := Invoice{
+		PaymentRequest: addInvoiceResponse.PaymentRequest,
+		PaymentHash:    hash,
+		Amount:         amount,
+		Expiry:         time.Now().Add(time.Minute * InvoiceExpiryMins).Unix(),
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return Invoice{}, fmt.Errorf("unable to get invoice from lnd")
-	}
-
-	var res AddInvoiceResponse
-	err = json.NewDecoder(resp.Body).Decode(&res)
-	if err != nil {
-		return Invoice{}, fmt.Errorf("error parsing response from lnd: %v", err)
-	}
-
-	hashBytes, err := base64.StdEncoding.DecodeString(res.Hash)
-	if err != nil {
-		return Invoice{}, fmt.Errorf("error decoding hash from lnd: %v", err)
-	}
-	hash := hex.EncodeToString(hashBytes)
-
-	invoice := Invoice{PaymentRequest: res.PaymentRequest, PaymentHash: hash,
-		Amount: amount,
-		Expiry: time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()}
 	return invoice, nil
 }
 
 func (lnd *LndClient) InvoiceSettled(hash string) (bool, error) {
 	hashBytes, err := hex.DecodeString(hash)
 	if err != nil {
-		return false, fmt.Errorf("invalid hash provided")
+		return false, errors.New("invalid hash provided")
 	}
 
-	b64EncodedHash := base64.URLEncoding.EncodeToString(hashBytes)
-	url := lnd.host + "/v2/invoices/lookup?payment_hash=" + b64EncodedHash
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	paymentHashRequest := lnrpc.PaymentHash{RHash: hashBytes}
+	lookupInvoiceResponse, err := lnd.grpcClient.LookupInvoice(context.Background(), &paymentHashRequest)
 	if err != nil {
-		return false, err
-	}
-	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
-
-	resp, err := lnd.client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return false, fmt.Errorf("error getting invoice status")
+		return false, fmt.Errorf("error getting invoice status: %v", err)
 	}
 
-	var res map[string]any
-	json.NewDecoder(resp.Body).Decode(&res)
-	settled := res["state"]
-
-	return settled == "SETTLED", nil
+	return lookupInvoiceResponse.State == lnrpc.Invoice_SETTLED, nil
 }
 
 func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
@@ -162,45 +124,24 @@ type SendPaymentResponse struct {
 	PaymentPreimage string `json:"payment_preimage"`
 }
 
-func (lnd *LndClient) SendPayment(request string) (string, error) {
-	url := lnd.host + "/v1/channels/transactions"
-
-	body := map[string]any{"payment_request": request}
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("invalid request: %v", err)
+func (lnd *LndClient) SendPayment(request string, amount uint64) (string, error) {
+	feeLimit := lnd.FeeReserve(amount)
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: request,
+		FeeLimit:       &lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(feeLimit)}},
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonBody))
+	sendPaymentResponse, err := lnd.grpcClient.SendPaymentSync(context.Background(), &sendPaymentRequest)
 	if err != nil {
 		return "", fmt.Errorf("error making payment: %v", err)
 	}
-	req.Header.Add("Grpc-Metadata-macaroon", lnd.macaroon)
-
-	resp, err := lnd.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error making payment: %v", err)
+	if len(sendPaymentResponse.PaymentError) > 0 {
+		return "", fmt.Errorf("error making payment: %v", sendPaymentResponse.PaymentError)
 	}
-	defer resp.Body.Close()
-
-	var res SendPaymentResponse
-	err = json.NewDecoder(resp.Body).Decode(&res)
-	if err != nil {
-		return "", fmt.Errorf("error parsing response from lnd: %v", err)
+	if len(sendPaymentResponse.PaymentPreimage) == 0 {
+		return "", fmt.Errorf("could not make payment")
 	}
 
-	if len(res.PaymentError) > 0 {
-		return "", fmt.Errorf("unable to make payment: %v", res.PaymentError)
-	}
-	if len(res.PaymentPreimage) == 0 {
-		return "", errors.New("could not make payment")
-	}
-
-	preimageBytes, err := base64.StdEncoding.DecodeString(res.PaymentPreimage)
-	if err != nil {
-		return "", fmt.Errorf("invalid preimage: %v", err)
-	}
-	preimage := hex.EncodeToString(preimageBytes)
-
+	preimage := hex.EncodeToString(sendPaymentResponse.PaymentPreimage)
 	return preimage, nil
 }

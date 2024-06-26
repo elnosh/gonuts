@@ -327,7 +327,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 
 	// if proofs are valid, ask the lightning backend
 	// to make the payment
-	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest)
+	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest, meltQuote.Amount)
 	if err != nil {
 		return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.InvoiceErrCode)
 	}

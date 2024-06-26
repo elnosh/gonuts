@@ -14,7 +14,7 @@ type Client interface {
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceSettled(hash string) (bool, error)
 	FeeReserve(amount uint64) uint64
-	SendPayment(request string) (string, error)
+	SendPayment(request string, amount uint64) (string, error)
 }
 
 func NewLightningClient() Client {

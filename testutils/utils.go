@@ -200,7 +200,7 @@ func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, err
 	}
 
 	os.Setenv("LIGHTNING_BACKEND", "Lnd")
-	os.Setenv("LND_REST_HOST", "https://"+lnd.Host+":"+lnd.RestPort)
+	os.Setenv("LND_GRPC_HOST", lnd.Host+":"+lnd.GrpcPort)
 	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
 	os.Setenv("LND_MACAROON_PATH", macaroonPath)
 
