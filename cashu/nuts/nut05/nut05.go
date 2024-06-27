@@ -5,6 +5,7 @@ package nut05
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/elnosh/gonuts/cashu"
 )
@@ -31,6 +32,18 @@ func (state State) String() string {
 	}
 }
 
+func StringToState(state string) State {
+	switch state {
+	case "UNPAID":
+		return Unpaid
+	case "PENDING":
+		return Pending
+	case "PAID":
+		return Paid
+	}
+	return Unknown
+}
+
 type PostMeltQuoteBolt11Request struct {
 	Request string `json:"request"`
 	Unit    string `json:"unit"`
@@ -51,17 +64,18 @@ type PostMeltBolt11Request struct {
 	Inputs cashu.Proofs `json:"inputs"`
 }
 
-// Custom marshaler to display state as string
+type TempQuote struct {
+	Quote      string `json:"quote"`
+	Amount     uint64 `json:"amount"`
+	FeeReserve uint64 `json:"fee_reserve"`
+	State      string `json:"state"`
+	Paid       bool   `json:"paid"` // DEPRECATED: use state instead
+	Expiry     int64  `json:"expiry"`
+	Preimage   string `json:"payment_preimage,omitempty"`
+}
+
 func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) {
-	var response = struct {
-		Quote      string `json:"quote"`
-		Amount     uint64 `json:"amount"`
-		FeeReserve uint64 `json:"fee_reserve"`
-		State      string `json:"state"`
-		Paid       bool   `json:"paid"` // DEPRECATED: use state instead
-		Expiry     int64  `json:"expiry"`
-		Preimage   string `json:"payment_preimage,omitempty"`
-	}{
+	var tempQuote = TempQuote{
 		Quote:      quoteResponse.Quote,
 		Amount:     quoteResponse.Amount,
 		FeeReserve: quoteResponse.FeeReserve,
@@ -70,5 +84,27 @@ func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) 
 		Expiry:     quoteResponse.Expiry,
 		Preimage:   quoteResponse.Preimage,
 	}
-	return json.Marshal(response)
+	return json.Marshal(tempQuote)
+}
+
+func (quoteResponse *PostMeltQuoteBolt11Response) UnmarshalJSON(data []byte) error {
+	tempQuote := &TempQuote{}
+
+	if err := json.Unmarshal(data, tempQuote); err != nil {
+		return err
+	}
+
+	quoteResponse.Quote = tempQuote.Quote
+	quoteResponse.Amount = tempQuote.Amount
+	quoteResponse.FeeReserve = tempQuote.FeeReserve
+	state := StringToState(tempQuote.State)
+	if state == Unknown {
+		return errors.New("invalid state")
+	}
+	quoteResponse.State = state
+	quoteResponse.Paid = tempQuote.Paid
+	quoteResponse.Expiry = tempQuote.Expiry
+	quoteResponse.Preimage = tempQuote.Preimage
+
+	return nil
 }
