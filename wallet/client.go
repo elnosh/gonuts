@@ -25,13 +25,17 @@ func GetMintInfo(mintURL string) (*nut06.MintInfo, error) {
 	}
 	defer resp.Body.Close()
 
-	var mintInfo *nut06.MintInfo
-	err = json.NewDecoder(resp.Body).Decode(&mintInfo)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return mintInfo, nil
+	var mintInfo nut06.MintInfo
+	if err := json.Unmarshal(body, &mintInfo); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &mintInfo, nil
 }
 
 func GetActiveKeysets(mintURL string) (*nut01.GetKeysResponse, error) {
@@ -41,13 +45,17 @@ func GetActiveKeysets(mintURL string) (*nut01.GetKeysResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	var keysetRes *nut01.GetKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return keysetRes, nil
+	var keysetRes nut01.GetKeysResponse
+	if err := json.Unmarshal(body, &keysetRes); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &keysetRes, nil
 }
 
 func GetAllKeysets(mintURL string) (*nut02.GetKeysetsResponse, error) {
@@ -57,13 +65,17 @@ func GetAllKeysets(mintURL string) (*nut02.GetKeysetsResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	var keysetsRes *nut02.GetKeysetsResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetsRes)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return keysetsRes, nil
+	var keysetsRes nut02.GetKeysetsResponse
+	if err := json.Unmarshal(body, &keysetsRes); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &keysetsRes, nil
 }
 
 func GetKeysetById(mintURL, id string) (*nut01.GetKeysResponse, error) {
@@ -73,13 +85,17 @@ func GetKeysetById(mintURL, id string) (*nut01.GetKeysResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	var keysetRes *nut01.GetKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&keysetRes)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return keysetRes, nil
+	var keysetRes nut01.GetKeysResponse
+	if err := json.Unmarshal(body, &keysetRes); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &keysetRes, nil
 }
 
 func PostMintQuoteBolt11(mintURL string, mintQuoteRequest nut04.PostMintQuoteBolt11Request) (
@@ -95,13 +111,17 @@ func PostMintQuoteBolt11(mintURL string, mintQuoteRequest nut04.PostMintQuoteBol
 	}
 	defer resp.Body.Close()
 
-	var reqMintResponse *nut04.PostMintQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return reqMintResponse, nil
+	var reqMintResponse nut04.PostMintQuoteBolt11Response
+	if err := json.Unmarshal(body, &reqMintResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &reqMintResponse, nil
 }
 
 func GetMintQuoteState(mintURL, quoteId string) (*nut04.PostMintQuoteBolt11Response, error) {
@@ -111,13 +131,17 @@ func GetMintQuoteState(mintURL, quoteId string) (*nut04.PostMintQuoteBolt11Respo
 	}
 	defer resp.Body.Close()
 
-	var mintQuoteResponse *nut04.PostMintQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&mintQuoteResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return mintQuoteResponse, nil
+	var mintQuoteResponse nut04.PostMintQuoteBolt11Response
+	if err := json.Unmarshal(body, &mintQuoteResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &mintQuoteResponse, nil
 }
 
 func PostMintBolt11(mintURL string, mintRequest nut04.PostMintBolt11Request) (
@@ -133,13 +157,17 @@ func PostMintBolt11(mintURL string, mintRequest nut04.PostMintBolt11Request) (
 	}
 	defer resp.Body.Close()
 
-	var reqMintResponse *nut04.PostMintBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&reqMintResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return reqMintResponse, nil
+	var reqMintResponse nut04.PostMintBolt11Response
+	if err := json.Unmarshal(body, &reqMintResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &reqMintResponse, nil
 }
 
 func PostSwap(mintURL string, swapRequest nut03.PostSwapRequest) (*nut03.PostSwapResponse, error) {
@@ -154,13 +182,17 @@ func PostSwap(mintURL string, swapRequest nut03.PostSwapRequest) (*nut03.PostSwa
 	}
 	defer resp.Body.Close()
 
-	var swapResponse *nut03.PostSwapResponse
-	err = json.NewDecoder(resp.Body).Decode(&swapResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return swapResponse, nil
+	var swapResponse nut03.PostSwapResponse
+	if err := json.Unmarshal(body, &swapResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &swapResponse, nil
 }
 
 func PostMeltQuoteBolt11(mintURL string, meltQuoteRequest nut05.PostMeltQuoteBolt11Request) (
@@ -177,13 +209,17 @@ func PostMeltQuoteBolt11(mintURL string, meltQuoteRequest nut05.PostMeltQuoteBol
 	}
 	defer resp.Body.Close()
 
-	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&meltQuoteResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return meltQuoteResponse, nil
+	var meltQuoteResponse nut05.PostMeltQuoteBolt11Response
+	if err := json.Unmarshal(body, &meltQuoteResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &meltQuoteResponse, nil
 }
 
 func PostMeltBolt11(mintURL string, meltRequest nut05.PostMeltBolt11Request) (
@@ -200,13 +236,17 @@ func PostMeltBolt11(mintURL string, meltRequest nut05.PostMeltBolt11Request) (
 	}
 	defer resp.Body.Close()
 
-	var meltResponse *nut05.PostMeltBolt11Response
-	err = json.NewDecoder(resp.Body).Decode(&meltResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return meltResponse, nil
+	var meltResponse nut05.PostMeltBolt11Response
+	if err := json.Unmarshal(body, &meltResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &meltResponse, nil
 }
 
 func PostCheckProofState(mintURL string, stateRequest nut07.PostCheckStateRequest) (
@@ -223,13 +263,17 @@ func PostCheckProofState(mintURL string, stateRequest nut07.PostCheckStateReques
 	}
 	defer resp.Body.Close()
 
-	var stateResponse *nut07.PostCheckStateResponse
-	err = json.NewDecoder(resp.Body).Decode(&stateResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return stateResponse, nil
+	var stateResponse nut07.PostCheckStateResponse
+	if err := json.Unmarshal(body, &stateResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &stateResponse, nil
 }
 
 func PostRestore(mintURL string, restoreRequest nut09.PostRestoreRequest) (
@@ -246,13 +290,17 @@ func PostRestore(mintURL string, restoreRequest nut09.PostRestoreRequest) (
 	}
 	defer resp.Body.Close()
 
-	var restoreResponse *nut09.PostRestoreResponse
-	err = json.NewDecoder(resp.Body).Decode(&restoreResponse)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("json.Decode: %v", err)
+		return nil, err
 	}
 
-	return restoreResponse, nil
+	var restoreResponse nut09.PostRestoreResponse
+	if err := json.Unmarshal(body, &restoreResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v\n", err)
+	}
+
+	return &restoreResponse, nil
 }
 
 func get(url string) (*http.Response, error) {
