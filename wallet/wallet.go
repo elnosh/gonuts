@@ -415,15 +415,20 @@ func (w *Wallet) Receive(token cashu.Token, swap bool) (uint64, error) {
 
 		tokenMintURL := token.Token[0].Mint
 		// only add mint if not previously trusted
-		_, ok := w.mints[tokenMintURL]
+		walletMint, ok := w.mints[tokenMintURL]
 		if !ok {
-			_, err := w.addMint(tokenMintURL)
+			mint, err := w.addMint(tokenMintURL)
 			if err != nil {
 				return 0, err
 			}
+			walletMint = *mint
 		}
 
-		activeSatKeyset := w.GetActiveSatKeyset()
+		var activeSatKeyset crypto.WalletKeyset
+		for _, k := range walletMint.activeKeysets {
+			activeSatKeyset = k
+			break
+		}
 		counter := w.counterForKeyset(activeSatKeyset.Id)
 
 		// create blinded messages
@@ -634,7 +639,12 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string) (cashu.Proofs
 		return selectedProofs, nil
 	}
 
-	activeSatKeyset := w.GetActiveSatKeyset()
+	var activeSatKeyset crypto.WalletKeyset
+	for _, k := range selectedMint.activeKeysets {
+		activeSatKeyset = k
+		break
+	}
+
 	counter := w.counterForKeyset(activeSatKeyset.Id)
 
 	// blinded messages for send amount
@@ -836,6 +846,7 @@ func (w *Wallet) counterForKeyset(keysetId string) uint32 {
 	return w.db.GetKeysetCounter(keysetId)
 }
 
+// get active sat keyset for current mint
 func (w *Wallet) GetActiveSatKeyset() crypto.WalletKeyset {
 	var activeKeyset crypto.WalletKeyset
 	for _, keyset := range w.currentMint.activeKeysets {
