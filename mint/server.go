@@ -81,17 +81,19 @@ func (ms *MintServer) LogInfo(format string, v ...any) {
 func (ms *MintServer) setupHttpServer(port string) {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet)
-	r.HandleFunc("/v1/keysets", ms.getKeysetsList).Methods(http.MethodGet)
-	r.HandleFunc("/v1/keys/{id}", ms.getKeysetById).Methods(http.MethodGet)
-	r.HandleFunc("/v1/mint/quote/{method}", ms.mintRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.mintQuoteState).Methods(http.MethodGet)
-	r.HandleFunc("/v1/mint/{method}", ms.mintTokensRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost)
-	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet)
-	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost)
-	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet)
+	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/v1/keysets", ms.getKeysetsList).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/v1/keys/{id}", ms.getKeysetById).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/v1/mint/quote/{method}", ms.mintRequest).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/mint/quote/{method}/{quote_id}", ms.mintQuoteState).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/mint/{method}", ms.mintTokensRequest).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/swap", ms.swapRequest).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet, http.MethodOptions)
+
+	r.Use(setupHeaders)
 
 	if len(port) == 0 {
 		port = "3338"
@@ -104,6 +106,22 @@ func (ms *MintServer) setupHttpServer(port string) {
 	ms.httpServer = server
 }
 
+func setupHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Header().Set("Content-Type", "application/json")
+		rw.Header().Set("Access-Control-Allow-Origin", "*")
+		rw.Header().Set("Access-Control-Allow-Credentials", "true")
+		rw.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		rw.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, origin")
+
+		if req.Method == http.MethodOptions {
+			return
+		}
+
+		next.ServeHTTP(rw, req)
+	})
+}
+
 func (ms *MintServer) writeResponse(
 	rw http.ResponseWriter,
 	req *http.Request,
@@ -113,7 +131,6 @@ func (ms *MintServer) writeResponse(
 	ms.logger.Info(logmsg, slog.Group("request", slog.String("method", req.Method),
 		slog.String("url", req.URL.String()), slog.Int("code", http.StatusOK)))
 
-	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(response)
 }
 
@@ -129,7 +146,6 @@ func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errRes
 	ms.logger.Error(log, slog.Group("request", slog.String("method", req.Method),
 		slog.String("url", req.URL.String()), slog.Int("code", code)))
 
-	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(code)
 	errRes, _ := json.Marshal(errResponse)
 	rw.Write(errRes)
