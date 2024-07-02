@@ -14,7 +14,6 @@ type State int
 const (
 	Unpaid State = iota
 	Paid
-	Pending
 	Issued
 	Unknown
 )
@@ -25,8 +24,6 @@ func (state State) String() string {
 		return "UNPAID"
 	case Paid:
 		return "PAID"
-	case Pending:
-		return "PENDING"
 	case Issued:
 		return "ISSUED"
 	default:
@@ -40,8 +37,6 @@ func StringToState(state string) State {
 		return Unpaid
 	case "PAID":
 		return Paid
-	case "PENDING":
-		return Pending
 	case "ISSUED":
 		return Issued
 	}
