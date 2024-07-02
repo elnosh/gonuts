@@ -552,11 +552,15 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltQuoteBolt11Re
 
 	// TODO: deprecate paid field and only use State
 	// TODO: check for PENDING as well
-	paid := meltBolt11Response.Paid && meltBolt11Response.State == nut05.Paid
+	paid := meltBolt11Response.Paid
+	// if state field is present, use that instead of paid
+	if meltBolt11Response.State != nut05.Unknown {
+		paid = meltBolt11Response.State == nut05.Paid
+	}
 	if !paid {
 		// save proofs if invoice was not paid
 		w.saveProofs(proofs)
-	} else if paid {
+	} else {
 		bolt11, err := decodepay.Decodepay(invoice)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)

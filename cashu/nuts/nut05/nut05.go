@@ -5,7 +5,6 @@ package nut05
 
 import (
 	"encoding/json"
-	"errors"
 
 	"github.com/elnosh/gonuts/cashu"
 )
@@ -98,9 +97,6 @@ func (quoteResponse *PostMeltQuoteBolt11Response) UnmarshalJSON(data []byte) err
 	quoteResponse.Amount = tempQuote.Amount
 	quoteResponse.FeeReserve = tempQuote.FeeReserve
 	state := StringToState(tempQuote.State)
-	if state == Unknown {
-		return errors.New("invalid state")
-	}
 	quoteResponse.State = state
 	quoteResponse.Paid = tempQuote.Paid
 	quoteResponse.Expiry = tempQuote.Expiry

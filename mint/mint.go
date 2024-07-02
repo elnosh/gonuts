@@ -315,20 +315,6 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (MeltQuote, error) {
 		return MeltQuote{}, cashu.QuoteNotExistErr
 	}
 
-	// if quote not paid, check status of payment with backend
-	if meltQuote.State == nut05.Unpaid {
-		invoice, err := m.LightningClient.InvoiceStatus(meltQuote.PaymentHash)
-		if err != nil {
-			return MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.StandardErr.Code)
-		}
-		if invoice.Settled {
-			meltQuote.Paid = true
-			meltQuote.State = nut05.Paid
-			meltQuote.Preimage = invoice.Preimage
-			m.db.SaveMeltQuote(*meltQuote)
-		}
-	}
-
 	return *meltQuote, nil
 }
 
