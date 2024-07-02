@@ -325,6 +325,8 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 		return nil, errors.New("invoice not paid")
 	}
 
+	// TODO: do not try mint if state == ISSUED
+
 	invoice, err := w.GetInvoiceByPaymentRequest(mintQuote.Request)
 	if err != nil {
 		return nil, err
