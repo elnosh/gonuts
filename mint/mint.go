@@ -140,7 +140,8 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 	// check if the invoice has been paid
 	status, err := m.LightningClient.InvoiceStatus(invoice.PaymentHash)
 	if err != nil {
-		return nut04.PostMintQuoteBolt11Response{}, fmt.Errorf("error checking invoice status: %v", err)
+		msg := fmt.Sprintf("error getting invoice status: %v", err)
+		return nut04.PostMintQuoteBolt11Response{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
 	}
 	if status.Settled && status.Settled != invoice.Settled {
 		invoice.Settled = status.Settled
@@ -172,7 +173,8 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 	status, err := m.LightningClient.InvoiceStatus(invoice.PaymentHash)
 	if err != nil {
-		return nil, fmt.Errorf("error checking invoice status: %v", err)
+		msg := fmt.Sprintf("error getting invoice status: %v", err)
+		return nil, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
 	}
 	if status.Settled {
 		if invoice.Redeemed {

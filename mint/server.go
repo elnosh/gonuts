@@ -235,9 +235,10 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 	mintQuoteStateResponse, err := ms.mint.GetMintQuoteState(method, quoteId)
 	if err != nil {
 		// if error is from lnd, log it but throw generic response
-		_, ok := err.(*cashu.Error)
-		if !ok {
-			ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		cashuErr, ok := err.(*cashu.Error)
+		if ok && cashuErr.Code == cashu.InvoiceErrCode {
+			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+			return
 		}
 
 		ms.writeErr(rw, req, err)
@@ -266,9 +267,10 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 	blindedSignatures, err := ms.mint.MintTokens(method, mintReq.Quote, mintReq.Outputs)
 	if err != nil {
 		// if error is from lnd, log it but throw generic response
-		_, ok := err.(*cashu.Error)
-		if !ok {
-			ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		cashuErr, ok := err.(*cashu.Error)
+		if ok && cashuErr.Code == cashu.InvoiceErrCode {
+			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+			return
 		}
 
 		ms.writeErr(rw, req, err)
