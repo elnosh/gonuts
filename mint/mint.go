@@ -119,7 +119,8 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (nut0
 	reqMintQuoteResponse := nut04.PostMintQuoteBolt11Response{
 		Quote:   invoice.Id,
 		Request: invoice.PaymentRequest,
-		Paid:    invoice.Settled,
+		State:   nut04.Unpaid,
+		Paid:    invoice.Settled, // DEPRECATED: remove after wallets have upgraded
 		Expiry:  invoice.Expiry,
 	}
 
@@ -144,15 +145,22 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (nut04.PostMintQuoteBol
 		msg := fmt.Sprintf("error getting invoice status: %v", err)
 		return nut04.PostMintQuoteBolt11Response{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
 	}
-	if status.Settled && status.Settled != invoice.Settled {
+
+	state := nut04.Unpaid
+	if status.Settled {
 		invoice.Settled = status.Settled
+		state = nut04.Paid
+		if invoice.Redeemed {
+			state = nut04.Issued
+		}
 		m.db.SaveInvoice(*invoice)
 	}
 
 	quoteState := nut04.PostMintQuoteBolt11Response{
 		Quote:   invoice.Id,
 		Request: invoice.PaymentRequest,
-		Paid:    invoice.Settled,
+		State:   state,
+		Paid:    invoice.Settled, // DEPRECATED: remove after wallets have upgraded
 		Expiry:  invoice.Expiry,
 	}
 	return quoteState, nil
