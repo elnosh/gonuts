@@ -9,6 +9,13 @@ import (
 	"fmt"
 )
 
+type SecretKind int
+
+const (
+	Random SecretKind = iota
+	P2PK
+)
+
 // Cashu BlindedMessage. See https://github.com/cashubtc/nuts/blob/main/00.md#blindedmessage
 type BlindedMessage struct {
 	Amount uint64 `json:"amount"`
@@ -49,6 +56,27 @@ type Proof struct {
 	// including Witness field for now to avoid throwing error when parsing json
 	// from clients that include this field even when mint does not support it.
 	Witness string `json:"witness,omitempty"`
+}
+
+// TODO
+func (p Proof) IsSecretP2PK() bool {
+	return false
+}
+
+// TODO
+func (p Proof) SecretType() SecretKind {
+	return Random
+}
+
+func (kind SecretKind) String() string {
+	switch kind {
+	case Random:
+		return "random"
+	case P2PK:
+		return "P2PK"
+	default:
+		return "unknown"
+	}
 }
 
 type Proofs []Proof
