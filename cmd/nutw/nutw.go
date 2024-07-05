@@ -103,6 +103,7 @@ func main() {
 			sendCmd,
 			receiveCmd,
 			payCmd,
+			p2pkLockCmd,
 			mnemonicCmd,
 			restoreCmd,
 		},
@@ -342,6 +343,22 @@ func pay(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("invoice paid: %v\n", meltResponse.Paid)
+	return nil
+}
+
+var p2pkLockCmd = &cli.Command{
+	Name:   "p2pk-lock",
+	Before: setupWallet,
+	Action: p2pkLock,
+}
+
+func p2pkLock(ctx *cli.Context) error {
+	lockpubkey := nutw.GetReceivePubkey()
+	pubkey := hex.EncodeToString(lockpubkey.SerializeCompressed())
+
+	fmt.Printf("Pay to Public Key (P2PK) lock: %v\n\n", pubkey)
+	fmt.Println("You can unlock ecash locked to this public key")
+
 	return nil
 }
 
