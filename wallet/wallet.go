@@ -525,7 +525,7 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 }
 
 // Melt will request the mint to pay the given invoice
-func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Response, error) {
+func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
 	selectedMint, ok := w.mints[mint]
 	if !ok {
 		return nil, ErrMintNotExist
@@ -545,15 +545,28 @@ func (w *Wallet) Melt(invoice string, mint string) (*nut05.PostMeltBolt11Respons
 
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
 	meltBolt11Response, err := PostMeltBolt11(selectedMint.mintURL, meltBolt11Request)
-	if err != nil || !meltBolt11Response.Paid {
+	if err != nil {
+		w.saveProofs(proofs)
+		return nil, err
+	}
+
+	// TODO: deprecate paid field and only use State
+	// TODO: check for PENDING as well
+	paid := meltBolt11Response.Paid
+	// if state field is present, use that instead of paid
+	if meltBolt11Response.State != nut05.Unknown {
+		paid = meltBolt11Response.State == nut05.Paid
+	}
+	if !paid {
 		// save proofs if invoice was not paid
 		w.saveProofs(proofs)
-	} else if meltBolt11Response.Paid { // save invoice to db
+	} else {
 		bolt11, err := decodepay.Decodepay(invoice)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)
 		}
 
+		// save invoice to db
 		invoice := storage.Invoice{
 			TransactionType: storage.Melt,
 			QuoteAmount:     amountNeeded,

@@ -4,6 +4,7 @@ package mint_test
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"log"
@@ -13,6 +14,7 @@ import (
 
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
@@ -236,6 +238,74 @@ func TestMeltRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
+}
+
+func TestMeltQuoteState(t *testing.T) {
+	invoice := lnrpc.Invoice{Value: 2000}
+	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	lookupInvoice, err := lnd2.Client.LookupInvoice(ctx, &lnrpc.PaymentHash{RHash: addInvoiceResponse.RHash})
+	if err != nil {
+		t.Fatalf("error finding invoice: %v", err)
+	}
+
+	meltRequest, err := testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	// test invalid method
+	_, err = testMint.GetMeltQuoteState("strike", meltRequest.Id)
+	if !errors.Is(err, cashu.PaymentMethodNotSupportedErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.PaymentMethodNotSupportedErr, err)
+	}
+
+	// test invalid quote id
+	_, err = testMint.GetMeltQuoteState(testutils.BOLT11_METHOD, "quote1234")
+	if !errors.Is(err, cashu.QuoteNotExistErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.PaymentMethodNotSupportedErr, err)
+	}
+
+	// test before paying melt
+	meltQuote, err := testMint.GetMeltQuoteState(testutils.BOLT11_METHOD, meltRequest.Id)
+	if err != nil {
+		t.Fatalf("unexpected error getting melt quote state: %v", err)
+	}
+	if meltQuote.Paid {
+		t.Fatalf("expected quote.Paid '%v' but got '%v' instead", false, meltQuote.Paid)
+	}
+	if meltQuote.State != nut05.Unpaid {
+		t.Fatalf("expected quote state '%v' but got '%v' instead", nut05.Unpaid.String(), meltQuote.State.String())
+	}
+
+	// test state after melting
+	validProofs, err := testutils.GetValidProofsForAmount(6500, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	melt, err := testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt: %v", err)
+	}
+
+	meltQuote, err = testMint.GetMeltQuoteState(testutils.BOLT11_METHOD, meltRequest.Id)
+	if err != nil {
+		t.Fatalf("unexpected error getting melt quote state: %v", err)
+	}
+	if !melt.Paid {
+		t.Fatal("got unexpected unpaid melt quote")
+	}
+	if meltQuote.State != nut05.Paid {
+		t.Fatalf("expected quote state '%v' but got '%v' instead", nut05.Paid.String(), meltQuote.State.String())
+	}
+	preimageString := hex.EncodeToString(lookupInvoice.RPreimage)
+	if meltQuote.Preimage != preimageString {
+		t.Fatalf("expected quote preimage '%v' but got '%v' instead", preimageString, meltQuote.Preimage)
+	}
 
 }
 
@@ -287,8 +357,8 @@ func TestMelt(t *testing.T) {
 
 	// test already used proofs
 	_, err = testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
-	if !errors.Is(err, cashu.ProofAlreadyUsedErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofAlreadyUsedErr, err)
+	if !errors.Is(err, cashu.QuoteAlreadyPaid) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.QuoteAlreadyPaid, err)
 	}
 
 }
