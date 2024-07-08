@@ -487,40 +487,33 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 		}
 	}
 
-	var activeSatKeyset crypto.WalletKeyset
-	var outputs cashu.BlindedMessages
-	var secrets []string
-	var rs []*secp256k1.PrivateKey
-	var err error
+	var activeKeysets map[string]crypto.WalletKeyset
 	walletMint, trustedMint := w.mints[mintURL]
 	if !trustedMint {
-		activeKeysets, err := GetMintActiveKeysets(mintURL)
+		// get keys if mint not trusted
+		var err error
+		activeKeysets, err = GetMintActiveKeysets(mintURL)
 		if err != nil {
 			return nil, err
 		}
-		for _, k := range activeKeysets {
-			activeSatKeyset = k
-			break
-		}
-
-		// create blinded messages
-		outputs, secrets, rs, err = w.createBlindedMessages(proofsToSwap.Amount(), activeSatKeyset.Id, nil)
-		if err != nil {
-			return nil, fmt.Errorf("createBlindedMessages: %v", err)
-		}
 	} else {
-		for _, k := range walletMint.activeKeysets {
-			activeSatKeyset = k
-			break
-		}
+		activeKeysets = walletMint.activeKeysets
+	}
 
-		counter := w.counterForKeyset(activeSatKeyset.Id)
+	var activeSatKeyset crypto.WalletKeyset
+	for _, k := range activeKeysets {
+		activeSatKeyset = k
+		break
+	}
+	var counter *uint32 = nil
+	if trustedMint {
+		keysetCounter := w.counterForKeyset(activeSatKeyset.Id)
+		counter = &keysetCounter
+	}
 
-		// create blinded messages
-		outputs, secrets, rs, err = w.createBlindedMessages(proofsToSwap.Amount(), activeSatKeyset.Id, &counter)
-		if err != nil {
-			return nil, fmt.Errorf("createBlindedMessages: %v", err)
-		}
+	outputs, secrets, rs, err := w.createBlindedMessages(proofsToSwap.Amount(), activeSatKeyset.Id, counter)
+	if err != nil {
+		return nil, fmt.Errorf("createBlindedMessages: %v", err)
 	}
 
 	// if P2PK locked ecash has `SIG_ALL` flag, sign outputs
@@ -611,8 +604,8 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 			if err != nil {
 				return nil, err
 			}
-		} else { // if not sig all, can just sign inputs and no need to do a swap first
-			// check that public key in data is one wallet can sign for
+		} else {
+			// if not sig all, can just sign inputs and no need to do a swap first
 			if !nut11.CanSign(nut10secret, w.privateKey) {
 				return nil, fmt.Errorf("cannot sign locked proofs")
 			}
@@ -788,8 +781,7 @@ func (w *Wallet) getProofsForAmount(amount uint64, mintURL string, pubkeyLock *b
 	var secrets []string
 	var rs []*secp256k1.PrivateKey
 	var counter, incrementCounterBy uint32
-	// check here if lock is present and if so, use it to generate blinded messages
-	// instead of generating from counter
+
 	if pubkeyLock == nil {
 		counter = w.counterForKeyset(activeSatKeyset.Id)
 		var err error

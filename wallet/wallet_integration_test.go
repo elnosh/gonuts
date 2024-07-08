@@ -377,13 +377,99 @@ func TestWalletBalance(t *testing.T) {
 	}
 }
 
+func TestSendToPubkey(t *testing.T) {
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
+	nutshellURL := nutshellMint.Host
+
+	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint2.Terminate(ctx)
+
+	testWalletPath := filepath.Join(".", "/testwalletp2pk")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	testWalletPath2 := filepath.Join(".", "/testwalletp2pk2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, nutshellMint2.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	mintRequest, err := testWallet.RequestMint(20000)
+	if err != nil {
+		t.Fatalf("unexpected error in mint request: %v", err)
+	}
+	_, err = testWallet.MintTokens(mintRequest.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error in mint tokens: %v", err)
+	}
+
+	receiverPubkey := testWallet2.GetReceivePubkey()
+
+	lockedEcash, err := testWallet.SendToPubkey(500, nutshellURL, receiverPubkey)
+	if err != nil {
+		t.Fatalf("unexpected error generating locked ecash: %v", err)
+	}
+
+	// try receiving invalid
+	_, err = testWallet.Receive(*lockedEcash, true)
+	if err == nil {
+		t.Fatal("expected error trying to redeem locked ecash")
+	}
+
+	// this should unlock ecash and swap to trusted mint
+	amountReceived, err := testWallet2.Receive(*lockedEcash, true)
+	if err != nil {
+		t.Fatalf("unexpected error receiving locked ecash: %v", err)
+	}
+
+	trustedMints := testWallet2.TrustedMints()
+	if len(trustedMints) != 1 {
+		t.Fatalf("expected len of trusted mints '%v' but got '%v' instead", 1, len(trustedMints))
+	}
+
+	balance := testWallet2.GetBalance()
+	if balance != amountReceived {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", amountReceived, balance)
+	}
+
+	lockedEcash, err = testWallet.SendToPubkey(500, nutshellURL, receiverPubkey)
+	if err != nil {
+		t.Fatalf("unexpected error generating locked ecash: %v", err)
+	}
+
+	// unlock ecash and trust mint
+	amountReceived, err = testWallet2.Receive(*lockedEcash, false)
+	if err != nil {
+		t.Fatalf("unexpected error receiving locked ecash: %v", err)
+	}
+
+	trustedMints = testWallet2.TrustedMints()
+	if len(trustedMints) != 2 {
+		t.Fatalf("expected len of trusted mints '%v' but got '%v' instead", 2, len(trustedMints))
+	}
+}
+
 func TestWalletRestore(t *testing.T) {
 	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx)
 	if err != nil {
 		t.Fatalf("error starting nutshell mint: %v", err)
 	}
 	defer nutshellMint.Terminate(ctx)
-
 	mintURL := nutshellMint.Host
 
 	testWalletPath := filepath.Join(".", "/testrestorewallet")
@@ -391,6 +477,9 @@ func TestWalletRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
 
 	testWalletPath2 := filepath.Join(".", "/testrestorewallet2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
