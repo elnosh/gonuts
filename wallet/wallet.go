@@ -310,16 +310,6 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 	return mintResponse, nil
 }
 
-// CheckQuotePaid reports whether the mint quote has been paid
-func (w *Wallet) CheckQuotePaid(quoteId string) bool {
-	mintQuote, err := GetMintQuoteState(w.currentMint.mintURL, quoteId)
-	if err != nil {
-		return false
-	}
-
-	return mintQuote.Paid
-}
-
 // MintTokens will check whether if the mint quote has been paid.
 // If yes, it will create blinded messages that will send to the mint
 // to get the blinded signatures.
@@ -330,8 +320,12 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !mintQuote.Paid {
+	// TODO: remove usage of 'Paid' field after mints have upgraded
+	if !mintQuote.Paid || mintQuote.State == nut04.Unpaid {
 		return nil, errors.New("invoice not paid")
+	}
+	if mintQuote.State == nut04.Issued {
+		return nil, errors.New("quote has already been issued")
 	}
 
 	invoice, err := w.GetInvoiceByPaymentRequest(mintQuote.Request)

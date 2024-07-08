@@ -219,7 +219,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	jsonRes, err := json.Marshal(reqMintResponse)
+	jsonRes, err := json.Marshal(&reqMintResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -246,7 +246,7 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 		ms.writeErr(rw, req, err)
 		return
 	}
-	jsonRes, err := json.Marshal(mintQuoteStateResponse)
+	jsonRes, err := json.Marshal(&mintQuoteStateResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
