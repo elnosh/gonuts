@@ -113,3 +113,41 @@ func TestTokenToString(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretType(t *testing.T) {
+	tests := []struct {
+		proof          Proof
+		expectedKind   SecretKind
+		expectedIsP2PK bool
+	}{
+		{
+			proof:          Proof{Secret: `["P2PK", {"nonce":"da62796403af76c80cd6ce9153ed3746","data":"033281c37677ea273eb7183b783067f5244933ef78d8c3f15b1a77cb246099c26e","tags":[["sigflag","SIG_ALL"]]}]`},
+			expectedKind:   P2PK,
+			expectedIsP2PK: true,
+		},
+
+		{
+			proof:          Proof{Secret: `["DIFFERENT", {"nonce":"da62796403af76c80cd6ce9153ed3746","data":"033281c37677ea273eb7183b783067f5244933ef78d8c3f15b1a77cb246099c26e","tags":[]}]`},
+			expectedKind:   Random,
+			expectedIsP2PK: false,
+		},
+
+		{
+			proof:          Proof{Secret: `someranadomsecret`},
+			expectedKind:   Random,
+			expectedIsP2PK: false,
+		},
+	}
+
+	for _, test := range tests {
+		kind := test.proof.SecretType()
+		if kind != test.expectedKind {
+			t.Fatalf("expected '%v' but got '%v' instead", test.expectedKind.String(), kind.String())
+		}
+
+		isP2PK := test.proof.IsSecretP2PK()
+		if isP2PK != test.expectedIsP2PK {
+			t.Fatalf("expected '%v' but got '%v' instead", test.expectedIsP2PK, isP2PK)
+		}
+	}
+}

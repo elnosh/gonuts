@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/joho/godotenv"
@@ -101,6 +103,7 @@ func main() {
 			sendCmd,
 			receiveCmd,
 			payCmd,
+			p2pkLockCmd,
 			mnemonicCmd,
 			restoreCmd,
 		},
@@ -259,9 +262,17 @@ func mintTokens(paymentRequest string) error {
 	return nil
 }
 
+const lockFlag = "lock"
+
 var sendCmd = &cli.Command{
 	Name:   "send",
 	Before: setupWallet,
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  lockFlag,
+			Usage: "generate ecash locked to a public key",
+		},
+	},
 	Action: send,
 }
 
@@ -278,9 +289,28 @@ func send(ctx *cli.Context) error {
 
 	selectedMint := promptMintSelection("send")
 
-	token, err := nutw.Send(sendAmount, selectedMint)
-	if err != nil {
-		printErr(err)
+	var token *cashu.Token
+	// if lock flag is set, get ecash locked to the pubkey
+	if ctx.IsSet(lockFlag) {
+		lockpubkey := ctx.String(lockFlag)
+		lockbytes, err := hex.DecodeString(lockpubkey)
+		if err != nil {
+			printErr(err)
+		}
+		pubkey, err := btcec.ParsePubKey(lockbytes)
+		if err != nil {
+			printErr(err)
+		}
+
+		token, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey)
+		if err != nil {
+			printErr(err)
+		}
+	} else {
+		token, err = nutw.Send(sendAmount, selectedMint)
+		if err != nil {
+			printErr(err)
+		}
 	}
 
 	fmt.Printf("%v\n", token.ToString())
@@ -313,6 +343,22 @@ func pay(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("invoice paid: %v\n", meltResponse.Paid)
+	return nil
+}
+
+var p2pkLockCmd = &cli.Command{
+	Name:   "p2pk-lock",
+	Before: setupWallet,
+	Action: p2pkLock,
+}
+
+func p2pkLock(ctx *cli.Context) error {
+	lockpubkey := nutw.GetReceivePubkey()
+	pubkey := hex.EncodeToString(lockpubkey.SerializeCompressed())
+
+	fmt.Printf("Pay to Public Key (P2PK) lock: %v\n\n", pubkey)
+	fmt.Println("You can unlock ecash locked to this public key")
+
 	return nil
 }
 

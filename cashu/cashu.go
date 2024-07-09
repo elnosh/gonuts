@@ -4,20 +4,50 @@ package cashu
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+)
+
+type SecretKind int
+
+const (
+	Random SecretKind = iota
+	P2PK
 )
 
 // Cashu BlindedMessage. See https://github.com/cashubtc/nuts/blob/main/00.md#blindedmessage
 type BlindedMessage struct {
-	Amount uint64 `json:"amount"`
-	B_     string `json:"B_"`
-	Id     string `json:"id"`
-
-	// including Witness field for now to avoid throwing error when parsing json
-	// from clients that include this field even when mint does not support it.
+	Amount  uint64 `json:"amount"`
+	B_      string `json:"B_"`
+	Id      string `json:"id"`
 	Witness string `json:"witness,omitempty"`
+}
+
+func NewBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) BlindedMessage {
+	B_str := hex.EncodeToString(B_.SerializeCompressed())
+	return BlindedMessage{Amount: amount, B_: B_str, Id: id}
+}
+
+func SortBlindedMessages(blindedMessages BlindedMessages, secrets []string, rs []*secp256k1.PrivateKey) {
+	// sort messages, secrets and rs
+	for i := 0; i < len(blindedMessages)-1; i++ {
+		for j := i + 1; j < len(blindedMessages); j++ {
+			if blindedMessages[i].Amount > blindedMessages[j].Amount {
+				// Swap blinded messages
+				blindedMessages[i], blindedMessages[j] = blindedMessages[j], blindedMessages[i]
+
+				// Swap secrets
+				secrets[i], secrets[j] = secrets[j], secrets[i]
+
+				// Swap rs
+				rs[i], rs[j] = rs[j], rs[i]
+			}
+		}
+	}
 }
 
 type BlindedMessages []BlindedMessage
@@ -41,14 +71,48 @@ type BlindedSignatures []BlindedSignature
 
 // Cashu Proof. See https://github.com/cashubtc/nuts/blob/main/00.md#proof
 type Proof struct {
-	Amount uint64 `json:"amount"`
-	Id     string `json:"id"`
-	Secret string `json:"secret"`
-	C      string `json:"C"`
-
-	// including Witness field for now to avoid throwing error when parsing json
-	// from clients that include this field even when mint does not support it.
+	Amount  uint64 `json:"amount"`
+	Id      string `json:"id"`
+	Secret  string `json:"secret"`
+	C       string `json:"C"`
 	Witness string `json:"witness,omitempty"`
+}
+
+func (p Proof) IsSecretP2PK() bool {
+	return p.SecretType() == P2PK
+}
+
+func (p Proof) SecretType() SecretKind {
+	var rawJsonSecret []json.RawMessage
+	// if not valid json, assume it is random secret
+	if err := json.Unmarshal([]byte(p.Secret), &rawJsonSecret); err != nil {
+		return Random
+	}
+
+	// Well-known secret should have a length of at least 2
+	if len(rawJsonSecret) < 2 {
+		return Random
+	}
+
+	var kind string
+	if err := json.Unmarshal(rawJsonSecret[0], &kind); err != nil {
+		return Random
+	}
+
+	if kind == "P2PK" {
+		return P2PK
+	}
+
+	return Random
+}
+
+func (kind SecretKind) String() string {
+	switch kind {
+	case P2PK:
+		return "P2PK"
+	default:
+		return "random"
+	}
 }
 
 type Proofs []Proof
