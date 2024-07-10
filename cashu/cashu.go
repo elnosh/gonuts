@@ -237,6 +237,7 @@ var (
 	ProofAlreadyUsedErr      = Error{Detail: "proofs already used", Code: ProofsErrCode}
 	InvalidProofErr          = Error{Detail: "invalid proof", Code: ProofsErrCode}
 	InputsBelowOutputs       = Error{Detail: "amount of input proofs is below amount of outputs", Code: ProofsErrCode}
+	EmptyInputsErr           = Error{Detail: "inputs cannot be empty", Code: ProofsErrCode}
 	QuoteNotExistErr         = Error{Detail: "quote does not exist", Code: QuoteErrCode}
 	QuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: QuoteErrCode}
 	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}

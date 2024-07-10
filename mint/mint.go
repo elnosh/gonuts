@@ -190,14 +190,20 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 			return nil, cashu.InvoiceTokensIssuedErr
 		}
 
-		var totalAmount uint64 = 0
-		for _, message := range blindedMessages {
-			totalAmount += message.Amount
+		blindedMessagesAmount := blindedMessages.Amount()
+
+		// check overflow
+		if len(blindedMessages) > 0 {
+			for _, msg := range blindedMessages {
+				if blindedMessagesAmount < msg.Amount {
+					return nil, cashu.InvalidBlindedMessageAmount
+				}
+			}
 		}
 
 		// verify that amount from invoice is less than the amount
 		// from the blinded messages
-		if totalAmount > invoice.Amount {
+		if blindedMessagesAmount > invoice.Amount {
 			return nil, cashu.OutputsOverInvoiceErr
 		}
 
@@ -224,11 +230,15 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 // the proofs that were used as input.
 // It returns the BlindedSignatures.
 func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
-	var blindedMessagesAmount uint64 = 0
 	proofsAmount := proofs.Amount()
-
-	for _, msg := range blindedMessages {
-		blindedMessagesAmount += msg.Amount
+	blindedMessagesAmount := blindedMessages.Amount()
+	// check overflow
+	if len(blindedMessages) > 0 {
+		for _, msg := range blindedMessages {
+			if blindedMessagesAmount < msg.Amount {
+				return nil, cashu.InvalidBlindedMessageAmount
+			}
+		}
 	}
 
 	if proofsAmount < blindedMessagesAmount {
@@ -375,6 +385,9 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 }
 
 func (m *Mint) verifyProofs(proofs cashu.Proofs) error {
+	if len(proofs) == 0 {
+		return cashu.EmptyInputsErr
+	}
 	for _, proof := range proofs {
 		// if proof is already in db, it means it was already used
 		dbProof := m.db.GetProof(proof.Secret)
