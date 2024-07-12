@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
@@ -93,7 +92,7 @@ func TestSignBlindedMessage(t *testing.T) {
 			t.Errorf("error decoding mint private key: %v", err)
 		}
 
-		k, _ := btcec.PrivKeyFromBytes(mintKeyBytes)
+		k := secp256k1.PrivKeyFromBytes(mintKeyBytes)
 
 		blindedSignature := SignBlindedMessage(B_, k)
 		blindedHex := hex.EncodeToString(blindedSignature.SerializeCompressed())
@@ -142,7 +141,6 @@ func TestUnblindSignature(t *testing.T) {
 
 		C := UnblindSignature(C_, r, K)
 		CHex := hex.EncodeToString(C.SerializeCompressed())
-		//expected := "03c724d7e6a5443b39ac8acf11f40420adc4f99a02e7cc1b57703d9391f6d129cd"
 		if CHex != test.expected {
 			t.Errorf("expected '%v' but got '%v' instead\n", test.expected, CHex)
 		}
@@ -158,7 +156,7 @@ func TestVerify(t *testing.T) {
 	B_, r, _ := BlindMessage(secret, r)
 
 	khex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
-	k, _ := btcec.PrivKeyFromBytes(khex)
+	k := secp256k1.PrivKeyFromBytes(khex)
 	K := k.PubKey()
 
 	C_ := SignBlindedMessage(B_, k)
