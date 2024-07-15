@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -106,6 +107,7 @@ func main() {
 			p2pkLockCmd,
 			mnemonicCmd,
 			restoreCmd,
+			decodeCmd,
 		},
 	}
 
@@ -147,7 +149,7 @@ var receiveCmd = &cli.Command{
 func receive(ctx *cli.Context) error {
 	args := ctx.Args()
 	if args.Len() < 1 {
-		printErr(errors.New("cashu token not provided"))
+		printErr(errors.New("token not provided"))
 	}
 	serializedToken := args.First()
 
@@ -396,6 +398,33 @@ func restore(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("restored proofs for amount of: %v\n", proofs.Amount())
+	return nil
+}
+
+var decodeCmd = &cli.Command{
+	Name:   "decode",
+	Action: decode,
+}
+
+func decode(ctx *cli.Context) error {
+	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("token not provided"))
+	}
+	serializedToken := args.First()
+
+	token, err := cashu.DecodeToken(serializedToken)
+	if err != nil {
+		printErr(err)
+	}
+
+	jsonToken, err := json.MarshalIndent(token, "", "  ")
+	if err != nil {
+		printErr(err)
+	}
+
+	fmt.Println(string(jsonToken))
+
 	return nil
 }
 
