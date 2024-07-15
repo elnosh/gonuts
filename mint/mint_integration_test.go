@@ -81,7 +81,7 @@ func testMain(m *testing.M) int {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err = testutils.CreateTestMint(lnd1, "mykey", "3338", testMintPath)
+	testMint, err = testutils.CreateTestMint(lnd1, "mykey", testMintPath, 0)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -275,7 +275,7 @@ func TestSwap(t *testing.T) {
 	// test blinded messages over proofs amount
 	_, err = testMint.Swap(proofs, overBlindedMessages)
 	if !errors.Is(err, cashu.InsufficientProofsAmount) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.OutputsOverInvoiceErr, err)
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InsufficientProofsAmount, err)
 	}
 
 	_, err = testMint.Swap(proofs, newBlindedMessages)
@@ -287,6 +287,43 @@ func TestSwap(t *testing.T) {
 	_, err = testMint.Swap(proofs, newBlindedMessages)
 	if !errors.Is(err, cashu.ProofAlreadyUsedErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofAlreadyUsedErr, err)
+	}
+
+	// mint with fees
+	mintFeesPath := filepath.Join(".", "mintfees")
+	mintFees, err := testutils.CreateTestMint(lnd1, "secretkey2", mintFeesPath, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(mintFeesPath)
+	}()
+
+	amount = 5000
+	proofs, err = testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	for _, k := range mintFees.ActiveKeysets {
+		keyset = k
+		break
+	}
+
+	fees := mintFees.TransactionFees(proofs)
+	invalidAmtblindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
+	validAmtBlindedMessages, _, _, err := testutils.CreateBlindedMessages(amount-uint64(fees), keyset)
+
+	// test swap with proofs provided below amount needed + fees
+	_, err = mintFees.Swap(proofs, invalidAmtblindedMessages)
+	if !errors.Is(err, cashu.InsufficientProofsAmount) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InsufficientProofsAmount, err)
+	}
+
+	// swap with correct amount accounting for fees
+	_, err = mintFees.Swap(proofs, validAmtBlindedMessages)
+	if err != nil {
+		t.Fatalf("got unexpected error in swap: %v", err)
 	}
 }
 
@@ -432,6 +469,9 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in melt: %v", err)
 	}
+	if melt.State != nut05.Paid {
+		t.Fatal("got unexpected unpaid melt quote")
+	}
 	if !melt.Paid {
 		t.Fatal("got unexpected unpaid melt quote")
 	}
@@ -440,6 +480,56 @@ func TestMelt(t *testing.T) {
 	_, err = testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
 	if !errors.Is(err, cashu.QuoteAlreadyPaid) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.QuoteAlreadyPaid, err)
+	}
+
+	// mint with fees
+	mintFeesPath := filepath.Join(".", "mintfeesmelt")
+	mintFees, err := testutils.CreateTestMint(lnd1, "secretkey2", mintFeesPath, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(mintFeesPath)
+	}()
+
+	amount = 6000
+	underProofs, err = testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	amount = 6500
+	validProofsWithFees, err := testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	meltQuote, err = mintFees.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	// test proofs below needed amount with fees
+	_, err = mintFees.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, underProofs)
+	if !errors.Is(err, cashu.InsufficientProofsAmount) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InsufficientProofsAmount, err)
+	}
+
+	// test valid proofs accounting for fees
+	melt, err = mintFees.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofsWithFees)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt: %v", err)
+	}
+	if melt.State != nut05.Paid {
+		t.Fatal("got unexpected unpaid melt quote")
+	}
+	if melt.State != nut05.Paid {
+		t.Fatal("got unexpected unpaid melt quote")
 	}
 
 }

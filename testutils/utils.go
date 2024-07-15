@@ -176,7 +176,13 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.
 	return nil
 }
 
-func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, error) {
+func mintConfig(
+	lnd *btcdocker.Lnd,
+	key string,
+	port string,
+	dbpath string,
+	inputFeePpk uint,
+) (*mint.Config, error) {
 	if err := os.MkdirAll(dbpath, 0750); err != nil {
 		return nil, err
 	}
@@ -185,6 +191,7 @@ func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, err
 		DerivationPath: "0/0/0",
 		Port:           port,
 		DBPath:         dbpath,
+		InputFeePpk:    inputFeePpk,
 	}
 	nodeDir := lnd.LndDir
 
@@ -210,10 +217,10 @@ func mintConfig(lnd *btcdocker.Lnd, key, port, dbpath string) (*mint.Config, err
 func CreateTestMint(
 	lnd *btcdocker.Lnd,
 	key string,
-	port string,
 	dbpath string,
+	inputFeePpk uint,
 ) (*mint.Mint, error) {
-	config, err := mintConfig(lnd, key, port, dbpath)
+	config, err := mintConfig(lnd, key, "", dbpath, inputFeePpk)
 	if err != nil {
 		return nil, err
 	}
@@ -230,8 +237,9 @@ func CreateTestMintServer(
 	key string,
 	port string,
 	dbpath string,
+	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := mintConfig(lnd, key, port, dbpath)
+	config, err := mintConfig(lnd, key, port, dbpath, inputFeePpk)
 	if err != nil {
 		return nil, err
 	}

@@ -240,7 +240,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 			}
 		}
 	}
-	fees := m.transactionFees(proofs)
+	fees := m.TransactionFees(proofs)
 	if proofsAmount-uint64(fees) < blindedMessagesAmount {
 		return nil, cashu.InsufficientProofsAmount
 	}
@@ -357,7 +357,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (MeltQuot
 	}
 
 	proofsAmount := proofs.Amount()
-	fees := m.transactionFees(proofs)
+	fees := m.TransactionFees(proofs)
 	// checks if amount in proofs is enough
 	if proofsAmount < meltQuote.Amount+meltQuote.FeeReserve+uint64(fees) {
 		return MeltQuote{}, cashu.InsufficientProofsAmount
@@ -483,7 +483,7 @@ func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
 	return &invoice, nil
 }
 
-func (m *Mint) transactionFees(inputs cashu.Proofs) uint {
+func (m *Mint) TransactionFees(inputs cashu.Proofs) uint {
 	var fees uint = 0
 	for _, proof := range inputs {
 		// note: not checking that proof id is from valid keyset
