@@ -87,6 +87,17 @@ func testMain(m *testing.M) int {
 	}()
 	go mint.StartMintServer(testMint)
 
+	mintPath := filepath.Join(".", "testmintwithfees")
+	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "mintsecretkey", "8888", mintPath, 100)
+	if err != nil {
+		log.Println(err)
+		return 1
+	}
+	defer func() {
+		os.RemoveAll(mintPath)
+	}()
+	go mint.StartMintServer(mintWithFees)
+
 	return m.Run()
 }
 
@@ -173,6 +184,36 @@ func TestSend(t *testing.T) {
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
+
+	// test mint with fees
+	mintWithFeesURL := "http://127.0.0.1:8888"
+	feesWalletPath := filepath.Join(".", "/testsendwalletfees")
+	feesWallet, err := testutils.CreateTestWallet(feesWalletPath, mintWithFeesURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(feesWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, feesWallet, lnd2, 10000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	sendAmount = 2000
+	token, err = feesWallet.Send(sendAmount, mintWithFeesURL)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+
+	fees, err := testutils.Fees(token.Token[0].Proofs, mintWithFeesURL)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+	if token.TotalAmount() != sendAmount+uint64(fees) {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
+	}
 }
 
 func TestReceive(t *testing.T) {
@@ -255,7 +296,53 @@ func TestReceive(t *testing.T) {
 	if !slices.Contains(trustedMints, mint2URL) {
 		t.Fatalf("expected '%v' in list of trusted of trusted mints", mint2URL)
 	}
+}
 
+func TestReceiveFees(t *testing.T) {
+	// mint with fees url
+	mintURL := "http://127.0.0.1:8888"
+	testWalletPath := filepath.Join(".", "/testreceivefees")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	testWalletPath2 := filepath.Join(".", "/testreceivefees2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	var sendAmount uint64 = 2000
+	token, err := testWallet.Send(sendAmount, mintURL)
+	if err != nil {
+		t.Fatalf("got unexpected error in send: %v", err)
+	}
+
+	amountReceived, err := testWallet2.Receive(*token, false)
+	if err != nil {
+		t.Fatalf("got unexpected error in receive: %v", err)
+	}
+
+	fees, err := testutils.Fees(token.Token[0].Proofs, mintURL)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+
+	if amountReceived != token.TotalAmount()-uint64(fees) {
+		t.Fatalf("expected received amount of '%v' but got '%v' instead", token.TotalAmount()-uint64(fees), amountReceived)
+	}
 }
 
 func TestMelt(t *testing.T) {
@@ -305,6 +392,36 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
 
+	// test melt with fees
+	mintWithFeesURL := "http://127.0.0.1:8888"
+	feesWalletPath := filepath.Join(".", "/testsendwalletfees")
+	feesWallet, err := testutils.CreateTestWallet(feesWalletPath, mintWithFeesURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(feesWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, feesWallet, lnd2, 10000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	// create invoice for melt request
+	invoice = lnrpc.Invoice{Value: 5000}
+	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	meltResponse, err = feesWallet.Melt(addInvoiceResponse.PaymentRequest, mintWithFeesURL)
+	if err != nil {
+		t.Fatalf("got unexpected melt error: %v", err)
+	}
+	if !meltResponse.Paid {
+		t.Fatalf("expected paid melt")
+	}
 }
 
 // check balance is correct after certain operations
@@ -375,6 +492,64 @@ func TestWalletBalance(t *testing.T) {
 	if balanceTestWallet.GetBalance() != balanceBeforeMelt {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", balanceBeforeMelt, balanceTestWallet.GetBalance())
 	}
+}
+
+// check balance is correct after ops with fees
+func TestWalletBalanceFees(t *testing.T) {
+	mintURL := "http://127.0.0.1:8888"
+	testWalletPath := filepath.Join(".", "/testwalletbalancefees")
+	balanceTestWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	err = testutils.FundCashuWallet(ctx, balanceTestWallet, lnd2, 30000)
+	if err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	testWalletPath2 := filepath.Join(".", "/testreceivefees2")
+	balanceTestWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	sendAmounts := []uint64{1200, 2000, 5000}
+
+	for _, sendAmount := range sendAmounts {
+		balance := balanceTestWallet.GetBalance()
+		// test balance after send
+		token, err := balanceTestWallet.Send(sendAmount, mintURL)
+		if err != nil {
+			t.Fatalf("unexpected error in send: %v", err)
+		}
+		fees, err := testutils.Fees(token.Token[0].Proofs, mintURL)
+		if err != nil {
+			t.Fatalf("got unexpected error: %v", err)
+		}
+		expectedBalance := balance - sendAmount - uint64(fees)
+		if balanceTestWallet.GetBalance() != expectedBalance {
+			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet.GetBalance())
+		}
+
+		// test balance in receiving wallet
+		balanceBeforeReceive := balanceTestWallet2.GetBalance()
+		_, err = balanceTestWallet2.Receive(*token, false)
+		if err != nil {
+			t.Fatalf("got unexpected error: %v", err)
+		}
+		expectedBalance = balanceBeforeReceive + token.TotalAmount() - uint64(fees)
+		if balanceTestWallet2.GetBalance() != expectedBalance {
+			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet2.GetBalance())
+		}
+	}
+
 }
 
 func TestSendToPubkey(t *testing.T) {

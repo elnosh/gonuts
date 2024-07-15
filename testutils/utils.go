@@ -372,6 +372,20 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 	return proofs, nil
 }
 
+func Fees(proofs cashu.Proofs, mint string) (uint, error) {
+	keysetResponse, err := wallet.GetAllKeysets(mint)
+	if err != nil {
+		return 0, err
+	}
+
+	feePpk := keysetResponse.Keysets[0].InputFeePpk
+	var fees uint = 0
+	for i := 0; i < len(proofs); i++ {
+		fees += feePpk
+	}
+	return (fees + 999) / 1000, nil
+}
+
 type NutshellMintContainer struct {
 	testcontainers.Container
 	Host string

@@ -914,8 +914,9 @@ func (w *Wallet) swapToSend(amount uint64, mint *walletMint, pubkeyLock *btcec.P
 	}
 
 	proofsAmount := proofsToSwap.Amount()
+	fees = w.fees(proofsToSwap, mint)
 	// blinded messages for change amount
-	if proofsAmount-amountNeededForSend > 0 {
+	if proofsAmount-amountNeededForSend-uint64(fees) > 0 {
 		changeAmount := proofsAmount - amountNeededForSend - uint64(fees)
 		changeSplit := w.splitWalletTarget(changeAmount, mint.mintURL)
 		change, changeSecrets, changeRs, err = w.createBlindedMessages(changeSplit, activeSatKeyset.Id, &counter)
