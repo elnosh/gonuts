@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 )
 
 const MAX_ORDER = 64
@@ -246,4 +247,20 @@ func (wk *WalletKeyset) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+func MapPubKeys(keys nut01.KeysMap) (map[uint64]*secp256k1.PublicKey, error) {
+	publicKeys := make(map[uint64]*secp256k1.PublicKey)
+	for amount, key := range keys {
+		pkbytes, err := hex.DecodeString(key)
+		if err != nil {
+			return nil, err
+		}
+		pubkey, err := secp256k1.ParsePubKey(pkbytes)
+		if err != nil {
+			return nil, err
+		}
+		publicKeys[amount] = pubkey
+	}
+	return publicKeys, nil
 }
