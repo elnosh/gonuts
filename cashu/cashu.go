@@ -240,7 +240,7 @@ var (
 	EmptyInputsErr           = Error{Detail: "inputs cannot be empty", Code: ProofsErrCode}
 	QuoteNotExistErr         = Error{Detail: "quote does not exist", Code: QuoteErrCode}
 	QuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: QuoteErrCode}
-	InsufficientProofsAmount = Error{Detail: "insufficient amount in proofs", Code: ProofsErrCode}
+	InsufficientProofsAmount = Error{Detail: "amount of input proofs is below amount needed for transaction", Code: ProofsErrCode}
 	InvalidKeysetProof       = Error{Detail: "proof from an invalid keyset", Code: ProofsErrCode}
 	InvalidSignatureRequest  = Error{Detail: "requested signature from non-active keyset", Code: KeysetErrCode}
 )
@@ -257,4 +257,21 @@ func AmountSplit(amount uint64) []uint64 {
 		amount >>= 1
 	}
 	return rv
+}
+
+func Max(x, y uint64) uint64 {
+	if x > y {
+		return x
+	}
+	return y
+}
+
+func Count(amounts []uint64, amount uint64) uint {
+	var count uint = 0
+	for _, amt := range amounts {
+		if amt == amount {
+			count++
+		}
+	}
+	return count
 }

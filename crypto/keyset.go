@@ -12,13 +12,14 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
-const maxOrder = 64
+const MAX_ORDER = 64
 
 type Keyset struct {
-	Id     string
-	Unit   string
-	Active bool
-	Keys   map[uint64]KeyPair
+	Id          string
+	Unit        string
+	Active      bool
+	Keys        map[uint64]KeyPair
+	InputFeePpk uint
 }
 
 type KeyPair struct {
@@ -26,23 +27,11 @@ type KeyPair struct {
 	PublicKey  *secp256k1.PublicKey
 }
 
-// KeysetsMap maps a mint url to map of string keyset id to keyset
-type KeysetsMap map[string]map[string]WalletKeyset
-
-type WalletKeyset struct {
-	Id         string
-	MintURL    string
-	Unit       string
-	Active     bool
-	PublicKeys map[uint64]*secp256k1.PublicKey
-	Counter    uint32
-}
-
-func GenerateKeyset(seed, derivationPath string) *Keyset {
-	keys := make(map[uint64]KeyPair, maxOrder)
+func GenerateKeyset(seed, derivationPath string, inputFeePpk uint) *Keyset {
+	keys := make(map[uint64]KeyPair, MAX_ORDER)
 
 	pks := make(map[uint64]*secp256k1.PublicKey)
-	for i := 0; i < maxOrder; i++ {
+	for i := 0; i < MAX_ORDER; i++ {
 		amount := uint64(math.Pow(2, float64(i)))
 		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
 		privKey, pubKey := btcec.PrivKeyFromBytes(hash[:])
@@ -50,7 +39,14 @@ func GenerateKeyset(seed, derivationPath string) *Keyset {
 		pks[amount] = pubKey
 	}
 	keysetId := DeriveKeysetId(pks)
-	return &Keyset{Id: keysetId, Unit: "sat", Active: true, Keys: keys}
+
+	return &Keyset{
+		Id:          keysetId,
+		Unit:        "sat",
+		Active:      true,
+		Keys:        keys,
+		InputFeePpk: inputFeePpk,
+	}
 }
 
 // DeriveKeysetId returns the string ID derived from the map keyset
@@ -97,10 +93,11 @@ func (ks *Keyset) DerivePublic() map[uint64]string {
 }
 
 type KeysetTemp struct {
-	Id     string
-	Unit   string
-	Active bool
-	Keys   map[uint64]json.RawMessage
+	Id          string
+	Unit        string
+	Active      bool
+	Keys        map[uint64]json.RawMessage
+	InputFeePpk uint
 }
 
 func (ks *Keyset) MarshalJSON() ([]byte, error) {
@@ -116,6 +113,7 @@ func (ks *Keyset) MarshalJSON() ([]byte, error) {
 			}
 			return m
 		}(),
+		InputFeePpk: ks.InputFeePpk,
 	}
 
 	return json.Marshal(temp)
@@ -180,13 +178,27 @@ func (kp *KeyPair) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// KeysetsMap maps a mint url to map of string keyset id to keyset
+type KeysetsMap map[string]map[string]WalletKeyset
+
+type WalletKeyset struct {
+	Id          string
+	MintURL     string
+	Unit        string
+	Active      bool
+	PublicKeys  map[uint64]*secp256k1.PublicKey
+	Counter     uint32
+	InputFeePpk uint
+}
+
 type WalletKeysetTemp struct {
-	Id         string
-	MintURL    string
-	Unit       string
-	Active     bool
-	PublicKeys map[uint64][]byte
-	Counter    uint32
+	Id          string
+	MintURL     string
+	Unit        string
+	Active      bool
+	PublicKeys  map[uint64][]byte
+	Counter     uint32
+	InputFeePpk uint
 }
 
 func (wk *WalletKeyset) MarshalJSON() ([]byte, error) {
@@ -202,7 +214,8 @@ func (wk *WalletKeyset) MarshalJSON() ([]byte, error) {
 			}
 			return m
 		}(),
-		Counter: wk.Counter,
+		Counter:     wk.Counter,
+		InputFeePpk: wk.InputFeePpk,
 	}
 
 	return json.Marshal(temp)
@@ -220,6 +233,7 @@ func (wk *WalletKeyset) UnmarshalJSON(data []byte) error {
 	wk.Unit = temp.Unit
 	wk.Active = temp.Active
 	wk.Counter = temp.Counter
+	wk.InputFeePpk = temp.InputFeePpk
 
 	wk.PublicKeys = make(map[uint64]*secp256k1.PublicKey)
 	for k, v := range temp.PublicKeys {

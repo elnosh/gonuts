@@ -4,7 +4,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"strconv"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
@@ -15,14 +17,25 @@ type Config struct {
 	DerivationPath string
 	Port           string
 	DBPath         string
+	InputFeePpk    uint
 }
 
 func GetConfig() Config {
+	var inputFeePpk uint = 0
+	if len(os.Getenv("INPUT_FEE_PPK")) > 0 {
+		fee, err := strconv.ParseUint(os.Getenv("INPUT_FEE_PPK"), 10, 16)
+		if err != nil {
+			log.Fatalf("unable to parse INPUT_FEE_PPK: %v", err)
+		}
+		inputFeePpk = uint(fee)
+	}
+
 	return Config{
 		PrivateKey:     os.Getenv("MINT_PRIVATE_KEY"),
 		DerivationPath: os.Getenv("MINT_DERIVATION_PATH"),
 		Port:           os.Getenv("MINT_PORT"),
 		DBPath:         os.Getenv("MINT_DB_PATH"),
+		InputFeePpk:    inputFeePpk,
 	}
 }
 
