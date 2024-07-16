@@ -97,7 +97,7 @@ func setupWallet(ctx *cli.Context) error {
 func main() {
 	app := &cli.App{
 		Name:  "nutw",
-		Usage: "cashu cli wallet",
+		Usage: "cashu wallet",
 		Commands: []*cli.Command{
 			balanceCmd,
 			mintCmd,
@@ -118,6 +118,7 @@ func main() {
 
 var balanceCmd = &cli.Command{
 	Name:   "balance",
+	Usage:  "Wallet balance",
 	Before: setupWallet,
 	Action: getBalance,
 }
@@ -141,9 +142,11 @@ func getBalance(ctx *cli.Context) error {
 }
 
 var receiveCmd = &cli.Command{
-	Name:   "receive",
-	Before: setupWallet,
-	Action: receive,
+	Name:      "receive",
+	Usage:     "Receive token",
+	ArgsUsage: "[TOKEN]",
+	Before:    setupWallet,
+	Action:    receive,
 }
 
 func receive(ctx *cli.Context) error {
@@ -196,8 +199,10 @@ func receive(ctx *cli.Context) error {
 const invoiceFlag = "invoice"
 
 var mintCmd = &cli.Command{
-	Name:   "mint",
-	Before: setupWallet,
+	Name:      "mint",
+	Usage:     "Request mint quote. It will return a lightning invoice to be paid",
+	ArgsUsage: "[AMOUNT]",
+	Before:    setupWallet,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  invoiceFlag,
@@ -267,8 +272,10 @@ func mintTokens(paymentRequest string) error {
 const lockFlag = "lock"
 
 var sendCmd = &cli.Command{
-	Name:   "send",
-	Before: setupWallet,
+	Name:      "send",
+	Usage:     "Generates token to be sent for the specified amount",
+	ArgsUsage: "[AMOUNT]",
+	Before:    setupWallet,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  lockFlag,
@@ -320,9 +327,11 @@ func send(ctx *cli.Context) error {
 }
 
 var payCmd = &cli.Command{
-	Name:   "pay",
-	Before: setupWallet,
-	Action: pay,
+	Name:      "pay",
+	Usage:     "Pay a lightning invoice",
+	ArgsUsage: "[INVOICE]",
+	Before:    setupWallet,
+	Action:    pay,
 }
 
 func pay(ctx *cli.Context) error {
@@ -350,6 +359,7 @@ func pay(ctx *cli.Context) error {
 
 var p2pkLockCmd = &cli.Command{
 	Name:   "p2pk-lock",
+	Usage:  "Retrieves a public key to which ecash can locked",
 	Before: setupWallet,
 	Action: p2pkLock,
 }
@@ -366,6 +376,7 @@ func p2pkLock(ctx *cli.Context) error {
 
 var mnemonicCmd = &cli.Command{
 	Name:   "mnemonic",
+	Usage:  "Mnemonic to restore wallet",
 	Before: setupWallet,
 	Action: mnemonic,
 }
@@ -378,6 +389,7 @@ func mnemonic(ctx *cli.Context) error {
 
 var restoreCmd = &cli.Command{
 	Name:   "restore",
+	Usage:  "Restore wallet from mnemonic",
 	Action: restore,
 }
 
@@ -402,8 +414,10 @@ func restore(ctx *cli.Context) error {
 }
 
 var decodeCmd = &cli.Command{
-	Name:   "decode",
-	Action: decode,
+	Name:      "decode",
+	ArgsUsage: "[TOKEN]",
+	Usage:     "Decode token",
+	Action:    decode,
 }
 
 func decode(ctx *cli.Context) error {
