@@ -214,6 +214,15 @@ func TestSend(t *testing.T) {
 	if token.TotalAmount() != sendAmount+uint64(fees) {
 		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
 	}
+
+	// send without fees to receive
+	token, err = feesWallet.Send(sendAmount, mintWithFeesURL, false)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+	if token.TotalAmount() != sendAmount {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
+	}
 }
 
 func TestReceive(t *testing.T) {
@@ -523,19 +532,9 @@ func TestWalletBalanceFees(t *testing.T) {
 	sendAmounts := []uint64{1200, 2000, 5000}
 
 	for _, sendAmount := range sendAmounts {
-		balance := balanceTestWallet.GetBalance()
-		// test balance after send
 		token, err := balanceTestWallet.Send(sendAmount, mintURL, true)
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
-		}
-		fees, err := testutils.Fees(token.Token[0].Proofs, mintURL)
-		if err != nil {
-			t.Fatalf("got unexpected error: %v", err)
-		}
-		expectedBalance := balance - sendAmount - uint64(fees)
-		if balanceTestWallet.GetBalance() != expectedBalance {
-			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet.GetBalance())
 		}
 
 		// test balance in receiving wallet
@@ -544,7 +543,33 @@ func TestWalletBalanceFees(t *testing.T) {
 		if err != nil {
 			t.Fatalf("got unexpected error: %v", err)
 		}
-		expectedBalance = balanceBeforeReceive + token.TotalAmount() - uint64(fees)
+		expectedBalance := balanceBeforeReceive + sendAmount
+		if balanceTestWallet2.GetBalance() != expectedBalance {
+			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet2.GetBalance())
+		}
+	}
+
+	// test without including fees in send
+	for _, sendAmount := range sendAmounts {
+		token, err := balanceTestWallet.Send(sendAmount, mintURL, false)
+		if err != nil {
+			t.Fatalf("unexpected error in send: %v", err)
+		}
+
+		fees, err := testutils.Fees(token.Token[0].Proofs, mintURL)
+		if err != nil {
+			t.Fatalf("got unexpected error: %v", err)
+		}
+
+		// test balance in receiving wallet
+		balanceBeforeReceive := balanceTestWallet2.GetBalance()
+		_, err = balanceTestWallet2.Receive(*token, false)
+		if err != nil {
+			t.Fatalf("got unexpected error: %v", err)
+		}
+		// expected balance should be the sending amount minus fees
+		// since those were not included
+		expectedBalance := balanceBeforeReceive + sendAmount - uint64(fees)
 		if balanceTestWallet2.GetBalance() != expectedBalance {
 			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet2.GetBalance())
 		}
