@@ -311,12 +311,12 @@ func send(ctx *cli.Context) error {
 			printErr(err)
 		}
 
-		token, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey)
+		token, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, true)
 		if err != nil {
 			printErr(err)
 		}
 	} else {
-		token, err = nutw.Send(sendAmount, selectedMint)
+		token, err = nutw.Send(sendAmount, selectedMint, true)
 		if err != nil {
 			printErr(err)
 		}
