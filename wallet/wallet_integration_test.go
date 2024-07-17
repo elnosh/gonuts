@@ -165,7 +165,7 @@ func TestSend(t *testing.T) {
 	}
 
 	var sendAmount uint64 = 4200
-	token, err := testWallet.Send(sendAmount, mintURL)
+	token, err := testWallet.Send(sendAmount, mintURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
@@ -174,13 +174,13 @@ func TestSend(t *testing.T) {
 	}
 
 	// test with invalid mint
-	_, err = testWallet.Send(sendAmount, "http://nonexistent.mint")
+	_, err = testWallet.Send(sendAmount, "http://nonexistent.mint", true)
 	if !errors.Is(err, wallet.ErrMintNotExist) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
 
 	// insufficient balance in wallet
-	_, err = testWallet.Send(2000000, mintURL)
+	_, err = testWallet.Send(2000000, mintURL, true)
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
@@ -202,7 +202,7 @@ func TestSend(t *testing.T) {
 	}
 
 	sendAmount = 2000
-	token, err = feesWallet.Send(sendAmount, mintWithFeesURL)
+	token, err = feesWallet.Send(sendAmount, mintWithFeesURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	token, err := testWallet2.Send(1500, mint2URL)
+	token, err := testWallet2.Send(1500, mint2URL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("expected '%v' in list of trusted of trusted mints", defaultMint)
 	}
 
-	token2, err := testWallet2.Send(1500, mint2URL)
+	token2, err := testWallet2.Send(1500, mint2URL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestReceiveFees(t *testing.T) {
 	}()
 
 	var sendAmount uint64 = 2000
-	token, err := testWallet.Send(sendAmount, mintURL)
+	token, err := testWallet.Send(sendAmount, mintURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestWalletBalance(t *testing.T) {
 	balance := balanceTestWallet.GetBalance()
 	// test balance after send
 	var sendAmount uint64 = 1200
-	_, err = balanceTestWallet.Send(sendAmount, mintURL)
+	_, err = balanceTestWallet.Send(sendAmount, mintURL, true)
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestWalletBalanceFees(t *testing.T) {
 	for _, sendAmount := range sendAmounts {
 		balance := balanceTestWallet.GetBalance()
 		// test balance after send
-		token, err := balanceTestWallet.Send(sendAmount, mintURL)
+		token, err := balanceTestWallet.Send(sendAmount, mintURL, true)
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
@@ -595,7 +595,7 @@ func TestSendToPubkey(t *testing.T) {
 
 	receiverPubkey := testWallet2.GetReceivePubkey()
 
-	lockedEcash, err := testWallet.SendToPubkey(500, nutshellURL, receiverPubkey)
+	lockedEcash, err := testWallet.SendToPubkey(500, nutshellURL, receiverPubkey, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestSendToPubkey(t *testing.T) {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", amountReceived, balance)
 	}
 
-	lockedEcash, err = testWallet.SendToPubkey(500, nutshellURL, receiverPubkey)
+	lockedEcash, err = testWallet.SendToPubkey(500, nutshellURL, receiverPubkey, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestWalletRestore(t *testing.T) {
 	}
 
 	var sendAmount1 uint64 = 5000
-	token, err := testWallet.Send(sendAmount1, mintURL)
+	token, err := testWallet.Send(sendAmount1, mintURL, true)
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
@@ -687,7 +687,7 @@ func TestWalletRestore(t *testing.T) {
 	}
 
 	var sendAmount2 uint64 = 1000
-	token, err = testWallet.Send(sendAmount2, mintURL)
+	token, err = testWallet.Send(sendAmount2, mintURL, true)
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
