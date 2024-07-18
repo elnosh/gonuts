@@ -94,7 +94,7 @@ func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 		PaymentRequest: addInvoiceResponse.PaymentRequest,
 		PaymentHash:    hash,
 		Amount:         amount,
-		Expiry:         time.Now().Add(time.Minute * InvoiceExpiryMins).Unix(),
+		Expiry:         uint64(time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()),
 	}
 	return invoice, nil
 }
@@ -117,11 +117,6 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 		PaymentHash:    hash,
 		Settled:        invoiceSettled,
 		Amount:         uint64(lookupInvoiceResponse.Value),
-	}
-
-	if invoiceSettled {
-		preimage := hex.EncodeToString(lookupInvoiceResponse.RPreimage)
-		invoice.Preimage = preimage
 	}
 
 	return invoice, nil

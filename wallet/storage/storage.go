@@ -53,5 +53,5 @@ type Invoice struct {
 	Paid           bool
 	SettledAt      int64
 	InvoiceAmount  uint64
-	QuoteExpiry    int64
+	QuoteExpiry    uint64
 }

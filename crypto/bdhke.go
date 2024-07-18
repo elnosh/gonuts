@@ -111,13 +111,7 @@ func Verify(secret string, k *secp256k1.PrivateKey, C *secp256k1.PublicKey) bool
 	if err != nil {
 		return false
 	}
-	valid := verify(Y, k, C)
-	if !valid {
-		Y := HashToCurveDeprecated([]byte(secret))
-		valid = verify(Y, k, C)
-	}
-
-	return valid
+	return verify(Y, k, C)
 }
 
 func verify(Y *secp256k1.PublicKey, k *secp256k1.PrivateKey, C *secp256k1.PublicKey) bool {
@@ -129,35 +123,4 @@ func verify(Y *secp256k1.PublicKey, k *secp256k1.PrivateKey, C *secp256k1.Public
 	pk := secp256k1.NewPublicKey(&result.X, &result.Y)
 
 	return C.IsEqual(pk)
-}
-
-// Deprecated HashToCurve
-
-func HashToCurveDeprecated(message []byte) *secp256k1.PublicKey {
-	var point *secp256k1.PublicKey
-
-	for point == nil || !point.IsOnCurve() {
-		hash := sha256.Sum256(message)
-		pkhash := append([]byte{0x02}, hash[:]...)
-		point, _ = secp256k1.ParsePubKey(pkhash)
-		message = hash[:]
-	}
-	return point
-}
-
-func BlindMessageDeprecated(secret string, r *secp256k1.PrivateKey) (*secp256k1.PublicKey, *secp256k1.PrivateKey) {
-	var ypoint, rpoint, blindedMessage secp256k1.JacobianPoint
-
-	Y := HashToCurveDeprecated([]byte(secret))
-	Y.AsJacobian(&ypoint)
-
-	rpub := r.PubKey()
-	rpub.AsJacobian(&rpoint)
-
-	// blindedMessage = Y + rG
-	secp256k1.AddNonConst(&ypoint, &rpoint, &blindedMessage)
-	blindedMessage.ToAffine()
-	B_ := secp256k1.NewPublicKey(&blindedMessage.X, &blindedMessage.Y)
-
-	return B_, r
 }

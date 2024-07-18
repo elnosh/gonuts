@@ -3,6 +3,8 @@
 package cashu
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -218,6 +220,7 @@ const (
 	QuoteErrCode
 	InvoiceErrCode
 	ProofsErrCode
+	DBErrorCode
 )
 
 var (
@@ -236,6 +239,8 @@ var (
 	InvoiceTokensIssuedErr   = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
 	ProofAlreadyUsedErr      = Error{Detail: "proofs already used", Code: ProofsErrCode}
 	InvalidProofErr          = Error{Detail: "invalid proof", Code: ProofsErrCode}
+	NoProofsProvided         = Error{Detail: "no proofs provided", Code: ProofsErrCode}
+	DuplicateProofs          = Error{Detail: "duplicate proofs", Code: ProofsErrCode}
 	InputsBelowOutputs       = Error{Detail: "amount of input proofs is below amount of outputs", Code: ProofsErrCode}
 	EmptyInputsErr           = Error{Detail: "inputs cannot be empty", Code: ProofsErrCode}
 	QuoteNotExistErr         = Error{Detail: "quote does not exist", Code: QuoteErrCode}
@@ -257,6 +262,30 @@ func AmountSplit(amount uint64) []uint64 {
 		amount >>= 1
 	}
 	return rv
+}
+
+func CheckDuplicateProofs(proofs Proofs) bool {
+	proofsMap := make(map[Proof]bool)
+
+	for _, proof := range proofs {
+		if proofsMap[proof] {
+			return true
+		} else {
+			proofsMap[proof] = true
+		}
+	}
+
+	return false
+}
+
+func GenerateRandomQuoteId() (string, error) {
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(randomBytes)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 func Max(x, y uint64) uint64 {

@@ -53,7 +53,7 @@ type PostMintQuoteBolt11Response struct {
 	Request string `json:"request"`
 	State   State  `json:"state"`
 	Paid    bool   `json:"paid"` // DEPRECATED: use State instead
-	Expiry  int64  `json:"expiry"`
+	Expiry  uint64 `json:"expiry"`
 }
 
 type PostMintBolt11Request struct {
@@ -70,7 +70,7 @@ type TempQuote struct {
 	Request string `json:"request"`
 	State   string `json:"state"`
 	Paid    bool   `json:"paid"` // DEPRECATED: use State instead
-	Expiry  int64  `json:"expiry"`
+	Expiry  uint64 `json:"expiry"`
 }
 
 func (quoteResponse *PostMintQuoteBolt11Response) MarshalJSON() ([]byte, error) {

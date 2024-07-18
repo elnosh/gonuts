@@ -7,7 +7,7 @@ import (
 
 // Derive key that wallet will use to receive locked ecash
 func DeriveP2PK(key *hdkeychain.ExtendedKey) (*btcec.PrivateKey, error) {
-	// m/129372
+	// m/129372'
 	purpose, err := key.Derive(hdkeychain.HardenedKeyStart + 129372)
 	if err != nil {
 		return nil, err

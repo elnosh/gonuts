@@ -1,0 +1,7 @@
+
+DROP TABLE IF EXISTS seed;
+DROP TABLE IF EXISTS keysets;
+DROP TABLE IF EXISTS proofs;
+DROP TABLE IF EXISTS mint_quotes;
+DROP TABLE IF EXISTS melt_quotes;
+

@@ -185,7 +185,7 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	getKeysResponse := buildKeysResponse(map[string]crypto.Keyset{ks.Id: ks})
+	getKeysResponse := buildKeysResponse(map[string]crypto.MintKeyset{ks.Id: ks})
 	jsonRes, err := json.Marshal(getKeysResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
@@ -206,20 +206,30 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	reqMintResponse, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
+	mintQuote, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
-		// note: RequestMintQuote will return err from lightning backend if invoice
-		// generation fails. Log that err from backend but return generic response to request
-		if ok && cashuErr.Code == cashu.InvoiceErrCode {
-			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
-			return
+		// note: if there was internal error from lightning backend generating invoice
+		// or error from db, log that error but return generic response
+		if ok {
+			if cashuErr.Code == cashu.InvoiceErrCode || cashuErr.Code == cashu.DBErrorCode {
+				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+				return
+			}
 		}
 		ms.writeErr(rw, req, err)
 		return
 	}
 
-	jsonRes, err := json.Marshal(&reqMintResponse)
+	mintQuoteResponse := nut04.PostMintQuoteBolt11Response{
+		Quote:   mintQuote.Id,
+		Request: mintQuote.PaymentRequest,
+		State:   mintQuote.State,
+		Paid:    false,
+		Expiry:  mintQuote.Expiry,
+	}
+
+	jsonRes, err := json.Marshal(&mintQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -234,18 +244,31 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 	method := vars["method"]
 	quoteId := vars["quote_id"]
 
-	mintQuoteStateResponse, err := ms.mint.GetMintQuoteState(method, quoteId)
+	mintQuote, err := ms.mint.GetMintQuoteState(method, quoteId)
 	if err != nil {
-		// if error is from lnd, log it but throw generic response
 		cashuErr, ok := err.(*cashu.Error)
-		if ok && cashuErr.Code == cashu.InvoiceErrCode {
-			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
-			return
+		// note: if there was internal error from lightning backend
+		// or error from db, log that error but return generic response
+		if ok {
+			if cashuErr.Code == cashu.InvoiceErrCode || cashuErr.Code == cashu.DBErrorCode {
+				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+				return
+			}
 		}
 
 		ms.writeErr(rw, req, err)
 		return
 	}
+
+	paid := mintQuote.State == nut04.Paid || mintQuote.State == nut04.Issued
+	mintQuoteStateResponse := nut04.PostMintQuoteBolt11Response{
+		Quote:   mintQuote.Id,
+		Request: mintQuote.PaymentRequest,
+		State:   mintQuote.State,
+		Paid:    paid, // DEPRECATED: remove after wallets have upgraded
+		Expiry:  mintQuote.Expiry,
+	}
+
 	jsonRes, err := json.Marshal(&mintQuoteStateResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
@@ -268,11 +291,14 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 
 	blindedSignatures, err := ms.mint.MintTokens(method, mintReq.Quote, mintReq.Outputs)
 	if err != nil {
-		// if error is from lnd, log it but throw generic response
 		cashuErr, ok := err.(*cashu.Error)
-		if ok && cashuErr.Code == cashu.InvoiceErrCode {
-			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
-			return
+		// note: if there was internal error from lightning backend
+		// or error from db, log that error but return generic response
+		if ok {
+			if cashuErr.Code == cashu.InvoiceErrCode || cashuErr.Code == cashu.DBErrorCode {
+				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+				return
+			}
 		}
 
 		ms.writeErr(rw, req, err)
@@ -298,6 +324,14 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 
 	blindedSignatures, err := ms.mint.Swap(swapReq.Inputs, swapReq.Outputs)
 	if err != nil {
+		cashuErr, ok := err.(*cashu.Error)
+		// note: if there was internal error from db
+		// log that error but return generic response
+		if ok && cashuErr.Code == cashu.DBErrorCode {
+			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+			return
+		}
+
 		ms.writeErr(rw, req, err)
 		return
 	}
@@ -324,20 +358,28 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 
 	meltQuote, err := ms.mint.MeltRequest(method, meltRequest.Request, meltRequest.Unit)
 	if err != nil {
+		cashuErr, ok := err.(*cashu.Error)
+		// note: if there was internal error from db
+		// log that error but return generic response
+		if ok && cashuErr.Code == cashu.DBErrorCode {
+			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+			return
+		}
+
 		ms.writeErr(rw, req, err)
 		return
 	}
 
-	quoteResponse := &nut05.PostMeltQuoteBolt11Response{
+	meltQuoteResponse := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
-		Paid:       meltQuote.Paid,
+		Paid:       false,
 		Expiry:     meltQuote.Expiry,
 	}
 
-	jsonRes, err := json.Marshal(quoteResponse)
+	jsonRes, err := json.Marshal(meltQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -357,12 +399,13 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	paid := meltQuote.State == nut05.Paid
 	quoteState := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
-		Paid:       meltQuote.Paid,
+		Paid:       paid,
 		Expiry:     meltQuote.Expiry,
 		Preimage:   meltQuote.Preimage,
 	}
@@ -390,21 +433,29 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	meltQuote, err := ms.mint.MeltTokens(method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
-		if ok && cashuErr.Code == cashu.InvoiceErrCode {
-			responseError := cashu.BuildCashuError("unable to send payment", cashu.InvoiceErrCode)
-			ms.writeErr(rw, req, responseError, cashuErr.Error())
-			return
+		// note: if there was internal error from lightning backend
+		// or error from db, log that error but return generic response
+		if ok {
+			if cashuErr.Code == cashu.InvoiceErrCode {
+				responseError := cashu.BuildCashuError("unable to send payment", cashu.InvoiceErrCode)
+				ms.writeErr(rw, req, responseError, cashuErr.Error())
+				return
+			} else if cashuErr.Code == cashu.DBErrorCode {
+				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+				return
+			}
 		}
 		ms.writeErr(rw, req, err)
 		return
 	}
 
+	paid := meltQuote.State == nut05.Paid
 	meltQuoteResponse := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
-		Paid:       meltQuote.Paid,
+		Paid:       paid,
 		Expiry:     meltQuote.Expiry,
 		Preimage:   meltQuote.Preimage,
 	}
@@ -426,7 +477,7 @@ func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
 	ms.writeResponse(rw, req, jsonRes, "returning mint info")
 }
 
-func buildKeysResponse(keysets map[string]crypto.Keyset) nut01.GetKeysResponse {
+func buildKeysResponse(keysets map[string]crypto.MintKeyset) nut01.GetKeysResponse {
 	keysResponse := nut01.GetKeysResponse{}
 
 	for _, keyset := range keysets {
