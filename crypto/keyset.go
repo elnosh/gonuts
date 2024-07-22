@@ -13,7 +13,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 )
 
-const MAX_ORDER = 64
+const MAX_ORDER = 60
 
 type Keyset struct {
 	Id          string
