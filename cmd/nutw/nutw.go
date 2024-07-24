@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/joho/godotenv"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -364,7 +365,12 @@ func pay(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	fmt.Printf("invoice paid: %v\n", meltResponse.Paid)
+	if meltResponse.State == nut05.Paid {
+		fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResponse.Preimage)
+	} else {
+		fmt.Println("unable to pay invoice")
+	}
+
 	return nil
 }
 
