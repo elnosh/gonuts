@@ -270,6 +270,7 @@ func mintTokens(paymentRequest string) error {
 }
 
 const lockFlag = "lock"
+const noFeesFlag = "no-fees"
 
 var sendCmd = &cli.Command{
 	Name:      "send",
@@ -280,6 +281,11 @@ var sendCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:  lockFlag,
 			Usage: "generate ecash locked to a public key",
+		},
+		&cli.BoolFlag{
+			Name:               noFeesFlag,
+			Usage:              "do not include fees for receiver in the token generated",
+			DisableDefaultText: true,
 		},
 	},
 	Action: send,
@@ -298,6 +304,11 @@ func send(ctx *cli.Context) error {
 
 	selectedMint := promptMintSelection("send")
 
+	includeFees := true
+	if ctx.Bool(noFeesFlag) {
+		includeFees = false
+	}
+
 	var token *cashu.Token
 	// if lock flag is set, get ecash locked to the pubkey
 	if ctx.IsSet(lockFlag) {
@@ -311,12 +322,12 @@ func send(ctx *cli.Context) error {
 			printErr(err)
 		}
 
-		token, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, true)
+		token, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, includeFees)
 		if err != nil {
 			printErr(err)
 		}
 	} else {
-		token, err = nutw.Send(sendAmount, selectedMint, true)
+		token, err = nutw.Send(sendAmount, selectedMint, includeFees)
 		if err != nil {
 			printErr(err)
 		}
