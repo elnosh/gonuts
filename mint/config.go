@@ -8,16 +8,17 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 )
 
 type Config struct {
-	PrivateKey     string
-	DerivationPath string
-	Port           string
-	DBPath         string
-	InputFeePpk    uint
+	DerivationPathIdx uint32
+	Port              string
+	DBPath            string
+	DBMigrationPath   string
+	InputFeePpk       uint
 }
 
 func GetConfig() Config {
@@ -30,18 +31,23 @@ func GetConfig() Config {
 		inputFeePpk = uint(fee)
 	}
 
+	derivationPathIdx, err := strconv.ParseUint(os.Getenv("DERIVATION_PATH_IDX"), 10, 32)
+	if err != nil {
+		log.Fatalf("invalid DERIVATION_PATH_IDX: %v", err)
+	}
+
 	return Config{
-		PrivateKey:     os.Getenv("MINT_PRIVATE_KEY"),
-		DerivationPath: os.Getenv("MINT_DERIVATION_PATH"),
-		Port:           os.Getenv("MINT_PORT"),
-		DBPath:         os.Getenv("MINT_DB_PATH"),
-		InputFeePpk:    inputFeePpk,
+		DerivationPathIdx: uint32(derivationPathIdx),
+		Port:              os.Getenv("MINT_PORT"),
+		DBPath:            os.Getenv("MINT_DB_PATH"),
+		DBMigrationPath:   "../../mint/storage/sqlite/migrations",
+		InputFeePpk:       inputFeePpk,
 	}
 }
 
 // getMintInfo returns information about the mint as
 // defined in NUT-06: https://github.com/cashubtc/nuts/blob/main/06.md
-func getMintInfo() (*nut06.MintInfo, error) {
+func (m *Mint) getMintInfo() (*nut06.MintInfo, error) {
 	mintInfo := nut06.MintInfo{
 		Name:        os.Getenv("MINT_NAME"),
 		Version:     "gonuts/0.0.1",
@@ -51,8 +57,22 @@ func getMintInfo() (*nut06.MintInfo, error) {
 	mintInfo.LongDescription = os.Getenv("MINT_DESCRIPTION_LONG")
 	mintInfo.Motd = os.Getenv("MINT_MOTD")
 
-	privateKey := secp256k1.PrivKeyFromBytes([]byte(os.Getenv("MINT_PRIVATE_KEY")))
-	mintInfo.Pubkey = hex.EncodeToString(privateKey.PubKey().SerializeCompressed())
+	seed, err := m.db.GetSeed()
+	if err != nil {
+		return nil, err
+	}
+
+	master, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKey, err := master.ECPubKey()
+	if err != nil {
+		return nil, err
+	}
+
+	mintInfo.Pubkey = hex.EncodeToString(publicKey.SerializeCompressed())
 
 	contact := os.Getenv("MINT_CONTACT_INFO")
 	var mintContactInfo []nut06.ContactInfo

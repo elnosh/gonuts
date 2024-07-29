@@ -178,20 +178,20 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.
 
 func mintConfig(
 	lnd *btcdocker.Lnd,
-	key string,
 	port string,
 	dbpath string,
+	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.Config, error) {
 	if err := os.MkdirAll(dbpath, 0750); err != nil {
 		return nil, err
 	}
 	mintConfig := &mint.Config{
-		PrivateKey:     key,
-		DerivationPath: "0/0/0",
-		Port:           port,
-		DBPath:         dbpath,
-		InputFeePpk:    inputFeePpk,
+		DerivationPathIdx: 0,
+		Port:              port,
+		DBPath:            dbpath,
+		DBMigrationPath:   dbMigrationPath,
+		InputFeePpk:       inputFeePpk,
 	}
 	nodeDir := lnd.LndDir
 
@@ -216,11 +216,11 @@ func mintConfig(
 
 func CreateTestMint(
 	lnd *btcdocker.Lnd,
-	key string,
 	dbpath string,
+	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.Mint, error) {
-	config, err := mintConfig(lnd, key, "", dbpath, inputFeePpk)
+	config, err := mintConfig(lnd, "", dbpath, dbMigrationPath, inputFeePpk)
 	if err != nil {
 		return nil, err
 	}
@@ -234,12 +234,12 @@ func CreateTestMint(
 
 func CreateTestMintServer(
 	lnd *btcdocker.Lnd,
-	key string,
 	port string,
 	dbpath string,
+	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := mintConfig(lnd, key, port, dbpath, inputFeePpk)
+	config, err := mintConfig(lnd, port, dbpath, dbMigrationPath, inputFeePpk)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.
 	return cashu.BlindedMessage{Amount: amount, B_: B_str, Id: id}
 }
 
-func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
+func CreateBlindedMessages(amount uint64, keyset crypto.MintKeyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
 	splitAmounts := cashu.AmountSplit(amount)
 	splitLen := len(splitAmounts)
 
@@ -298,7 +298,7 @@ func CreateBlindedMessages(amount uint64, keyset crypto.Keyset) (cashu.BlindedMe
 }
 
 func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
-	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.Keyset) (cashu.Proofs, error) {
+	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.MintKeyset) (cashu.Proofs, error) {
 
 	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
@@ -338,7 +338,7 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 		return nil, fmt.Errorf("error requesting mint quote: %v", err)
 	}
 
-	var keyset crypto.Keyset
+	var keyset crypto.MintKeyset
 	for _, k := range mint.ActiveKeysets {
 		keyset = k
 		break
@@ -352,14 +352,14 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 	ctx := context.Background()
 	//pay invoice
 	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.Request,
+		PaymentRequest: mintQuoteResponse.PaymentRequest,
 	}
 	response, _ := payer.Client.SendPaymentSync(ctx, &sendPaymentRequest)
 	if len(response.PaymentError) > 0 {
 		return nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
 	}
 
-	blindedSignatures, err := mint.MintTokens(BOLT11_METHOD, mintQuoteResponse.Quote, blindedMessages)
+	blindedSignatures, err := mint.MintTokens(BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
 	if err != nil {
 		return nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
 	}

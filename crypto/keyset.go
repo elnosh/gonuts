@@ -6,21 +6,21 @@ import (
 	"encoding/json"
 	"math"
 	"sort"
-	"strconv"
 
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 )
 
 const MAX_ORDER = 60
 
-type Keyset struct {
-	Id          string
-	Unit        string
-	Active      bool
-	Keys        map[uint64]KeyPair
-	InputFeePpk uint
+type MintKeyset struct {
+	Id                string
+	Unit              string
+	Active            bool
+	DerivationPathIdx uint32
+	Keys              map[uint64]KeyPair
+	InputFeePpk       uint
 }
 
 type KeyPair struct {
@@ -28,26 +28,66 @@ type KeyPair struct {
 	PublicKey  *secp256k1.PublicKey
 }
 
-func GenerateKeyset(seed, derivationPath string, inputFeePpk uint) *Keyset {
+func DeriveKeysetPath(key *hdkeychain.ExtendedKey, index uint32) (*hdkeychain.ExtendedKey, error) {
+	// path m/0'
+	child, err := key.Derive(hdkeychain.HardenedKeyStart + 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// path m/0'/0' for sat
+	unitPath, err := child.Derive(hdkeychain.HardenedKeyStart + 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// path m/0'/0'/index'
+	keysetPath, err := unitPath.Derive(hdkeychain.HardenedKeyStart + index)
+	if err != nil {
+		return nil, err
+	}
+
+	return keysetPath, nil
+}
+
+func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk uint) (*MintKeyset, error) {
 	keys := make(map[uint64]KeyPair, MAX_ORDER)
+
+	keysetPath, err := DeriveKeysetPath(master, index)
+	if err != nil {
+		return nil, err
+	}
 
 	pks := make(map[uint64]*secp256k1.PublicKey)
 	for i := 0; i < MAX_ORDER; i++ {
 		amount := uint64(math.Pow(2, float64(i)))
-		hash := sha256.Sum256([]byte(seed + derivationPath + strconv.FormatUint(amount, 10)))
-		privKey, pubKey := btcec.PrivKeyFromBytes(hash[:])
+		amountPath, err := keysetPath.Derive(hdkeychain.HardenedKeyStart + uint32(i))
+		if err != nil {
+			return nil, err
+		}
+
+		privKey, err := amountPath.ECPrivKey()
+		if err != nil {
+			return nil, err
+		}
+		pubKey, err := amountPath.ECPubKey()
+		if err != nil {
+			return nil, err
+		}
+
 		keys[amount] = KeyPair{PrivateKey: privKey, PublicKey: pubKey}
 		pks[amount] = pubKey
 	}
 	keysetId := DeriveKeysetId(pks)
 
-	return &Keyset{
-		Id:          keysetId,
-		Unit:        "sat",
-		Active:      true,
-		Keys:        keys,
-		InputFeePpk: inputFeePpk,
-	}
+	return &MintKeyset{
+		Id:                keysetId,
+		Unit:              "sat",
+		Active:            true,
+		DerivationPathIdx: index,
+		Keys:              keys,
+		InputFeePpk:       inputFeePpk,
+	}, nil
 }
 
 // DeriveKeysetId returns the string ID derived from the map keyset
@@ -84,7 +124,7 @@ func DeriveKeysetId(keyset map[uint64]*secp256k1.PublicKey) string {
 
 // DerivePublic returns the keyset's public keys as
 // a map of amounts uint64 to strings that represents the public key
-func (ks *Keyset) DerivePublic() map[uint64]string {
+func (ks *MintKeyset) DerivePublic() map[uint64]string {
 	pubkeys := make(map[uint64]string)
 	for amount, key := range ks.Keys {
 		pubkey := hex.EncodeToString(key.PublicKey.SerializeCompressed())
@@ -101,7 +141,7 @@ type KeysetTemp struct {
 	InputFeePpk uint
 }
 
-func (ks *Keyset) MarshalJSON() ([]byte, error) {
+func (ks *MintKeyset) MarshalJSON() ([]byte, error) {
 	temp := &KeysetTemp{
 		Id:     ks.Id,
 		Unit:   ks.Unit,
@@ -120,7 +160,7 @@ func (ks *Keyset) MarshalJSON() ([]byte, error) {
 	return json.Marshal(temp)
 }
 
-func (ks *Keyset) UnmarshalJSON(data []byte) error {
+func (ks *MintKeyset) UnmarshalJSON(data []byte) error {
 	temp := &KeysetTemp{}
 
 	if err := json.Unmarshal(data, &temp); err != nil {

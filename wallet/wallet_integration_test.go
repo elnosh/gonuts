@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	ctx      context.Context
-	bitcoind *btcdocker.Bitcoind
-	lnd1     *btcdocker.Lnd
-	lnd2     *btcdocker.Lnd
+	ctx             context.Context
+	bitcoind        *btcdocker.Bitcoind
+	lnd1            *btcdocker.Lnd
+	lnd2            *btcdocker.Lnd
+	dbMigrationPath = "../mint/storage/sqlite/migrations"
 )
 
 func TestMain(m *testing.M) {
@@ -77,7 +78,7 @@ func testMain(m *testing.M) int {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err := testutils.CreateTestMintServer(lnd1, "secretkey1", "3338", testMintPath, 0)
+	testMint, err := testutils.CreateTestMintServer(lnd1, "3338", testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -88,7 +89,7 @@ func testMain(m *testing.M) int {
 	go mint.StartMintServer(testMint)
 
 	mintPath := filepath.Join(".", "testmintwithfees")
-	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "mintsecretkey", "8888", mintPath, 100)
+	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "8888", mintPath, dbMigrationPath, 100)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -242,7 +243,7 @@ func TestReceive(t *testing.T) {
 	}
 
 	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := testutils.CreateTestMintServer(lnd2, "secretkey2", "3339", testMintPath, 0)
+	testMint, err := testutils.CreateTestMintServer(lnd2, "3339", testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,7 +54,7 @@ type PostMeltQuoteBolt11Response struct {
 	FeeReserve uint64 `json:"fee_reserve"`
 	State      State  `json:"state"`
 	Paid       bool   `json:"paid"` // DEPRECATED: use state instead
-	Expiry     int64  `json:"expiry"`
+	Expiry     uint64 `json:"expiry"`
 	Preimage   string `json:"payment_preimage,omitempty"`
 }
 
@@ -69,7 +69,7 @@ type TempQuote struct {
 	FeeReserve uint64 `json:"fee_reserve"`
 	State      string `json:"state"`
 	Paid       bool   `json:"paid"` // DEPRECATED: use state instead
-	Expiry     int64  `json:"expiry"`
+	Expiry     uint64 `json:"expiry"`
 	Preimage   string `json:"payment_preimage,omitempty"`
 }
 
