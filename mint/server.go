@@ -516,8 +516,6 @@ func decodeJsonReqBody(req *http.Request, dst any) error {
 	}
 
 	dec := json.NewDecoder(req.Body)
-	// error if unknown field is specified in the json req body
-	dec.DisallowUnknownFields()
 
 	err := dec.Decode(&dst)
 	if err != nil {
@@ -536,11 +534,6 @@ func decodeJsonReqBody(req *http.Request, dst any) error {
 
 		case errors.Is(err, io.EOF):
 			return cashu.EmptyBodyErr
-
-		case strings.HasPrefix(err.Error(), "json: unknown field "):
-			invalidField := strings.TrimPrefix(err.Error(), "json: unknown field ")
-			msg := fmt.Sprintf("Request body contains unknown field %s", invalidField)
-			cashuErr = cashu.BuildCashuError(msg, cashu.StandardErrCode)
 
 		default:
 			cashuErr = cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
