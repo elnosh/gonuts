@@ -183,7 +183,7 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	invoice, err := m.requestInvoice(amount)
 	if err != nil {
 		msg := fmt.Sprintf("error generating payment request: %v", err)
-		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
+		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
 	}
 
 	quoteId, err := cashu.GenerateRandomQuoteId()
@@ -202,7 +202,7 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	err = m.db.SaveMintQuote(mintQuote)
 	if err != nil {
 		msg := fmt.Sprintf("error saving mint quote to db: %v", err)
-		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 	}
 
 	return mintQuote, nil
@@ -224,7 +224,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 	status, err := m.LightningClient.InvoiceStatus(mintQuote.PaymentHash)
 	if err != nil {
 		msg := fmt.Sprintf("error getting status of payment request: %v", err)
-		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
+		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
 	}
 
 	if status.Settled && mintQuote.State == nut04.Unpaid {
@@ -232,7 +232,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 		err := m.db.UpdateMintQuoteState(mintQuote.Id, mintQuote.State)
 		if err != nil {
 			msg := fmt.Sprintf("error getting quote state: %v", err)
-			return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+			return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 		}
 	}
 
@@ -255,11 +255,11 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 	status, err := m.LightningClient.InvoiceStatus(mintQuote.PaymentHash)
 	if err != nil {
 		msg := fmt.Sprintf("error getting status of payment request: %v", err)
-		return nil, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
+		return nil, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
 	}
 	if status.Settled {
 		if mintQuote.State == nut04.Issued {
-			return nil, cashu.InvoiceTokensIssuedErr
+			return nil, cashu.MintQuoteAlreadyIssued
 		}
 
 		blindedMessagesAmount := blindedMessages.Amount()
@@ -275,7 +275,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 		// verify that amount from blinded messages is less
 		// than quote amount
 		if blindedMessagesAmount > mintQuote.Amount {
-			return nil, cashu.OutputsOverInvoiceErr
+			return nil, cashu.OutputsOverQuoteAmountErr
 		}
 
 		var err error
@@ -288,10 +288,10 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 		err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued)
 		if err != nil {
 			msg := fmt.Sprintf("error getting quote state: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
 		}
 	} else {
-		return nil, cashu.InvoiceNotPaidErr
+		return nil, cashu.MintQuoteRequestNotPaid
 	}
 
 	return blindedSignatures, nil
@@ -303,13 +303,8 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 // the proofs that were used as input.
 // It returns the BlindedSignatures.
 func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
-	proofsLen := len(proofs)
-	if proofsLen == 0 {
-		return nil, cashu.NoProofsProvided
-	}
-
 	var proofsAmount uint64
-	Ys := make([]string, proofsLen)
+	Ys := make([]string, len(proofs))
 	for i, proof := range proofs {
 		proofsAmount += proof.Amount
 
@@ -335,19 +330,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		return nil, cashu.InsufficientProofsAmount
 	}
 
-	// check if proofs were alredy used
-	usedProofs, err := m.db.GetProofsUsed(Ys)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			msg := fmt.Sprintf("could not get used proofs from db: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.DBErrorCode)
-		}
-	}
-	if len(usedProofs) != 0 {
-		return nil, cashu.ProofAlreadyUsedErr
-	}
-
-	err = m.verifyProofs(proofs)
+	err := m.verifyProofs(proofs, Ys)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +345,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	err = m.db.SaveProofs(proofs)
 	if err != nil {
 		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-		return nil, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+		return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
 	}
 
 	return blindedSignatures, nil
@@ -382,7 +365,7 @@ func (m *Mint) MeltRequest(method, request, unit string) (storage.MeltQuote, err
 	bolt11, err := decodepay.Decodepay(request)
 	if err != nil {
 		msg := fmt.Sprintf("invalid invoice: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.InvoiceErrCode)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.StandardErrCode)
 	}
 
 	quoteId, err := cashu.GenerateRandomQuoteId()
@@ -406,7 +389,7 @@ func (m *Mint) MeltRequest(method, request, unit string) (storage.MeltQuote, err
 	}
 	if err := m.db.SaveMeltQuote(meltQuote); err != nil {
 		msg := fmt.Sprintf("error saving melt quote to db: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 	}
 
 	return meltQuote, nil
@@ -430,6 +413,19 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (storage.MeltQuote, err
 // MeltTokens verifies whether proofs provided are valid
 // and proceeds to attempt payment.
 func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.MeltQuote, error) {
+	var proofsAmount uint64
+	Ys := make([]string, len(proofs))
+	for i, proof := range proofs {
+		proofsAmount += proof.Amount
+
+		Y, err := crypto.HashToCurve([]byte(proof.Secret))
+		if err != nil {
+			return storage.MeltQuote{}, cashu.InvalidProofErr
+		}
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+		Ys[i] = Yhex
+	}
+
 	if method != BOLT11_METHOD {
 		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
@@ -439,15 +435,14 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		return storage.MeltQuote{}, cashu.QuoteNotExistErr
 	}
 	if meltQuote.State == nut05.Paid {
-		return storage.MeltQuote{}, cashu.QuoteAlreadyPaid
+		return storage.MeltQuote{}, cashu.MeltQuoteAlreadyPaid
 	}
 
-	err = m.verifyProofs(proofs)
+	err = m.verifyProofs(proofs, Ys)
 	if err != nil {
 		return storage.MeltQuote{}, err
 	}
 
-	proofsAmount := proofs.Amount()
 	fees := m.TransactionFees(proofs)
 	// checks if amount in proofs is enough
 	if proofsAmount < meltQuote.Amount+meltQuote.FeeReserve+uint64(fees) {
@@ -458,7 +453,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 	// to make the payment
 	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest, meltQuote.Amount)
 	if err != nil {
-		return storage.MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.InvoiceErrCode)
+		return storage.MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.LightningBackendErrCode)
 	}
 
 	// if payment succeeded, mark melt quote as paid
@@ -468,21 +463,33 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 	err = m.db.UpdateMeltQuote(meltQuote.Id, meltQuote.Preimage, meltQuote.State)
 	if err != nil {
 		msg := fmt.Sprintf("error getting quote state: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 	}
 
 	err = m.db.SaveProofs(proofs)
 	if err != nil {
 		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrorCode)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 	}
 
 	return *meltQuote, nil
 }
 
-func (m *Mint) verifyProofs(proofs cashu.Proofs) error {
+func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 	if len(proofs) == 0 {
-		return cashu.EmptyInputsErr
+		return cashu.NoProofsProvided
+	}
+
+	// check if proofs were alredy used
+	usedProofs, err := m.db.GetProofsUsed(Ys)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			msg := fmt.Sprintf("could not get used proofs from db: %v", err)
+			return cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
+	}
+	if len(usedProofs) != 0 {
+		return cashu.ProofAlreadyUsedErr
 	}
 
 	// check duplicte proofs
@@ -495,7 +502,7 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs) error {
 		// of the mint's keyset
 		var k *secp256k1.PrivateKey
 		if keyset, ok := m.Keysets[proof.Id]; !ok {
-			return cashu.InvalidKeysetProof
+			return cashu.UnknownKeysetErr
 		} else {
 			if key, ok := keyset.Keys[proof.Amount]; ok {
 				k = key.PrivateKey
@@ -527,10 +534,13 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 	blindedSignatures := make(cashu.BlindedSignatures, len(blindedMessages))
 
 	for i, msg := range blindedMessages {
+		if _, ok := m.Keysets[msg.Id]; !ok {
+			return nil, cashu.UnknownKeysetErr
+		}
 		var k *secp256k1.PrivateKey
 		keyset, ok := m.ActiveKeysets[msg.Id]
 		if !ok {
-			return nil, cashu.InvalidSignatureRequest
+			return nil, cashu.InactiveKeysetSignatureRequest
 		} else {
 			if key, ok := keyset.Keys[msg.Amount]; ok {
 				k = key.PrivateKey

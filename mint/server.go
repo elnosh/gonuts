@@ -181,7 +181,7 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 
 	ks, ok := ms.mint.Keysets[id]
 	if !ok {
-		ms.writeErr(rw, req, cashu.KeysetNotExistErr)
+		ms.writeErr(rw, req, cashu.UnknownKeysetErr)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		// note: if there was internal error from lightning backend generating invoice
 		// or error from db, log that error but return generic response
 		if ok {
-			if cashuErr.Code == cashu.InvoiceErrCode || cashuErr.Code == cashu.DBErrorCode {
+			if cashuErr.Code == cashu.LightningBackendErrCode || cashuErr.Code == cashu.DBErrCode {
 				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 				return
 			}
@@ -250,7 +250,7 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 		// note: if there was internal error from lightning backend
 		// or error from db, log that error but return generic response
 		if ok {
-			if cashuErr.Code == cashu.InvoiceErrCode || cashuErr.Code == cashu.DBErrorCode {
+			if cashuErr.Code == cashu.LightningBackendErrCode || cashuErr.Code == cashu.DBErrCode {
 				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 				return
 			}
@@ -295,7 +295,7 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 		// note: if there was internal error from lightning backend
 		// or error from db, log that error but return generic response
 		if ok {
-			if cashuErr.Code == cashu.InvoiceErrCode || cashuErr.Code == cashu.DBErrorCode {
+			if cashuErr.Code == cashu.LightningBackendErrCode || cashuErr.Code == cashu.DBErrCode {
 				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 				return
 			}
@@ -327,7 +327,7 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from db
 		// log that error but return generic response
-		if ok && cashuErr.Code == cashu.DBErrorCode {
+		if ok && cashuErr.Code == cashu.DBErrCode {
 			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 			return
 		}
@@ -361,7 +361,7 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from db
 		// log that error but return generic response
-		if ok && cashuErr.Code == cashu.DBErrorCode {
+		if ok && cashuErr.Code == cashu.DBErrCode {
 			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 			return
 		}
@@ -436,11 +436,11 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		// note: if there was internal error from lightning backend
 		// or error from db, log that error but return generic response
 		if ok {
-			if cashuErr.Code == cashu.InvoiceErrCode {
-				responseError := cashu.BuildCashuError("unable to send payment", cashu.InvoiceErrCode)
+			if cashuErr.Code == cashu.LightningBackendErrCode {
+				responseError := cashu.BuildCashuError("unable to send payment", cashu.StandardErrCode)
 				ms.writeErr(rw, req, responseError, cashuErr.Error())
 				return
-			} else if cashuErr.Code == cashu.DBErrorCode {
+			} else if cashuErr.Code == cashu.DBErrCode {
 				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 				return
 			}

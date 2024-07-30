@@ -202,8 +202,8 @@ func TestMintTokens(t *testing.T) {
 
 	// test without paying invoice
 	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
-	if !errors.Is(err, cashu.InvoiceNotPaidErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvoiceNotPaidErr, err)
+	if !errors.Is(err, cashu.MintQuoteRequestNotPaid) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintQuoteRequestNotPaid, err)
 	}
 
 	// test invalid quote
@@ -224,16 +224,16 @@ func TestMintTokens(t *testing.T) {
 	// test with blinded messages over request mint amount
 	overBlindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount+100, keyset)
 	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, overBlindedMessages)
-	if !errors.Is(err, cashu.OutputsOverInvoiceErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.OutputsOverInvoiceErr, err)
+	if !errors.Is(err, cashu.OutputsOverQuoteAmountErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.OutputsOverQuoteAmountErr, err)
 	}
 
 	// test with invalid keyset in blinded messages
 	invalidKeyset := crypto.MintKeyset{Id: "0192384aa"}
 	invalidKeysetMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, invalidKeyset)
 	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, invalidKeysetMessages)
-	if !errors.Is(err, cashu.InvalidSignatureRequest) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvalidSignatureRequest, err)
+	if !errors.Is(err, cashu.UnknownKeysetErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.UnknownKeysetErr, err)
 	}
 
 	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
@@ -243,8 +243,8 @@ func TestMintTokens(t *testing.T) {
 
 	// test already minted tokens
 	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
-	if !errors.Is(err, cashu.InvoiceTokensIssuedErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvoiceTokensIssuedErr, err)
+	if !errors.Is(err, cashu.MintQuoteAlreadyIssued) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintQuoteAlreadyIssued, err)
 	}
 }
 
@@ -459,10 +459,20 @@ func TestMelt(t *testing.T) {
 		t.Fatal("got unexpected unpaid melt quote")
 	}
 
-	// test already used proofs
+	// test quote already paid
 	_, err = testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
-	if !errors.Is(err, cashu.QuoteAlreadyPaid) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.QuoteAlreadyPaid, err)
+	if !errors.Is(err, cashu.MeltQuoteAlreadyPaid) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltQuoteAlreadyPaid, err)
+	}
+
+	// test already used proofs
+	newQuote, err := testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	_, err = testMint.MeltTokens(testutils.BOLT11_METHOD, newQuote.Id, validProofs)
+	if !errors.Is(err, cashu.ProofAlreadyUsedErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofAlreadyUsedErr, err)
 	}
 
 	// mint with fees

@@ -213,41 +213,53 @@ func (e Error) Error() string {
 
 // Common error codes
 const (
-	StandardErrCode CashuErrCode = 1000 + iota
-	KeysetErrCode
-	PaymentMethodErrCode
-	UnitErrCode
-	QuoteErrCode
-	InvoiceErrCode
-	ProofsErrCode
-	DBErrorCode
+	StandardErrCode CashuErrCode = 10000
+	// These will never be returned in a response.
+	// Using them to identify internally where
+	// the error originated and log appropriately
+	DBErrCode               CashuErrCode = 1
+	LightningBackendErrCode CashuErrCode = 2
+
+	UnitErrCode          CashuErrCode = 11005
+	PaymentMethodErrCode CashuErrCode = 11006
+
+	InvalidProofErrCode            CashuErrCode = 10003
+	ProofAlreadyUsedErrCode        CashuErrCode = 11001
+	InsufficientProofAmountErrCode CashuErrCode = 11002
+
+	UnknownKeysetErrCode  CashuErrCode = 12001
+	InactiveKeysetErrCode CashuErrCode = 12002
+
+	MintQuoteRequestNotPaidErrCode CashuErrCode = 20001
+	MintQuoteAlreadyIssuedErrCode  CashuErrCode = 20002
+
+	MeltQuotePendingErrCode     CashuErrCode = 20005
+	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
+
+	QuoteErrCode CashuErrCode = 20007
 )
 
 var (
 	StandardErr                  = Error{Detail: "unable to process request", Code: StandardErrCode}
 	EmptyBodyErr                 = Error{Detail: "request body cannot be emtpy", Code: StandardErrCode}
-	KeysetNotExistErr            = Error{Detail: "keyset does not exist", Code: KeysetErrCode}
+	UnknownKeysetErr             = Error{Detail: "unknown keyset", Code: UnknownKeysetErrCode}
 	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
 	UnitNotSupportedErr          = Error{Detail: "unit not supported", Code: UnitErrCode}
-	InvalidBlindedMessageAmount  = Error{Detail: "invalid amount in blinded message", Code: KeysetErrCode}
-	QuoteIdNotSpecifiedErr       = Error{Detail: "quote id not specified", Code: QuoteErrCode}
-	InvoiceNotExistErr           = Error{Detail: "invoice does not exist", Code: InvoiceErrCode}
-	InvoiceNotPaidErr            = Error{Detail: "invoice has not been paid", Code: InvoiceErrCode}
-	OutputsOverInvoiceErr        = Error{
-		Detail: "sum of the output amounts is greater than amount of invoice paid",
-		Code:   InvoiceErrCode}
-	InvoiceTokensIssuedErr   = Error{Detail: "tokens already issued for invoice", Code: InvoiceErrCode}
-	ProofAlreadyUsedErr      = Error{Detail: "proofs already used", Code: ProofsErrCode}
-	InvalidProofErr          = Error{Detail: "invalid proof", Code: ProofsErrCode}
-	NoProofsProvided         = Error{Detail: "no proofs provided", Code: ProofsErrCode}
-	DuplicateProofs          = Error{Detail: "duplicate proofs", Code: ProofsErrCode}
-	InputsBelowOutputs       = Error{Detail: "amount of input proofs is below amount of outputs", Code: ProofsErrCode}
-	EmptyInputsErr           = Error{Detail: "inputs cannot be empty", Code: ProofsErrCode}
-	QuoteNotExistErr         = Error{Detail: "quote does not exist", Code: QuoteErrCode}
-	QuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: QuoteErrCode}
-	InsufficientProofsAmount = Error{Detail: "amount of input proofs is below amount needed for transaction", Code: ProofsErrCode}
-	InvalidKeysetProof       = Error{Detail: "proof from an invalid keyset", Code: ProofsErrCode}
-	InvalidSignatureRequest  = Error{Detail: "requested signature from non-active keyset", Code: KeysetErrCode}
+	InvalidBlindedMessageAmount  = Error{Detail: "invalid amount in blinded message", Code: StandardErrCode}
+	MintQuoteRequestNotPaid      = Error{Detail: "quote request has not been paid", Code: MintQuoteRequestNotPaidErrCode}
+	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}
+	OutputsOverQuoteAmountErr    = Error{Detail: "sum of the output amounts is greater than quote amount", Code: StandardErrCode}
+	ProofAlreadyUsedErr          = Error{Detail: "proofs already used", Code: ProofAlreadyUsedErrCode}
+	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
+	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
+	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
+	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: QuoteErrCode}
+	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
+	InsufficientProofsAmount     = Error{
+		Detail: "amount of input proofs is below amount needed for transaction",
+		Code:   InsufficientProofAmountErrCode,
+	}
+	InactiveKeysetSignatureRequest = Error{Detail: "requested signature from non-active keyset", Code: InactiveKeysetErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
