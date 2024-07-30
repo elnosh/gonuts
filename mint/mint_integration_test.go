@@ -270,6 +270,17 @@ func TestSwap(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InsufficientProofsAmount, err)
 	}
 
+	// test with duplicates in proofs list passed
+	proofsLen := len(proofs)
+	duplicateProofs := make(cashu.Proofs, proofsLen)
+	copy(duplicateProofs, proofs)
+	duplicateProofs[proofsLen-2] = duplicateProofs[proofsLen-1]
+	_, err = testMint.Swap(duplicateProofs, newBlindedMessages)
+	if !errors.Is(err, cashu.DuplicateProofs) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.DuplicateProofs, err)
+	}
+
+	// valid proofs
 	_, err = testMint.Swap(proofs, newBlindedMessages)
 	if err != nil {
 		t.Fatalf("got unexpected error in swap: %v", err)
@@ -451,6 +462,17 @@ func TestMelt(t *testing.T) {
 	}
 
 	validProofs[0].Secret = validSecret
+
+	// test with duplicates in proofs list passed
+	proofsLen := len(validProofs)
+	duplicateProofs := make(cashu.Proofs, proofsLen)
+	copy(duplicateProofs, validProofs)
+	duplicateProofs[proofsLen-2] = duplicateProofs[proofsLen-1]
+	_, err = testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, duplicateProofs)
+	if !errors.Is(err, cashu.DuplicateProofs) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.DuplicateProofs, err)
+	}
+
 	melt, err := testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt: %v", err)
