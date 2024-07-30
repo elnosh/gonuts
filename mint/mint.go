@@ -353,7 +353,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 
 // MeltRequest will process a request to melt tokens and return a MeltQuote.
 // A melt is requested by a wallet to request the mint to pay an invoice.
-func (m *Mint) MeltRequest(method, request, unit string) (storage.MeltQuote, error) {
+func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote, error) {
 	if method != BOLT11_METHOD {
 		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
@@ -366,6 +366,9 @@ func (m *Mint) MeltRequest(method, request, unit string) (storage.MeltQuote, err
 	if err != nil {
 		msg := fmt.Sprintf("invalid invoice: %v", err)
 		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.StandardErrCode)
+	}
+	if bolt11.MSatoshi == 0 {
+		return storage.MeltQuote{}, cashu.BuildCashuError("invoice has no amount", cashu.StandardErrCode)
 	}
 
 	quoteId, err := cashu.GenerateRandomQuoteId()

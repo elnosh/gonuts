@@ -338,24 +338,24 @@ func TestMeltRequest(t *testing.T) {
 	}
 
 	// test invalid method
-	_, err = testMint.MeltRequest("strike", addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	_, err = testMint.RequestMeltQuote("strike", addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if !errors.Is(err, cashu.PaymentMethodNotSupportedErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.PaymentMethodNotSupportedErr, err)
 	}
 
 	// test invalid unit
-	_, err = testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, "eth")
+	_, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, "eth")
 	if !errors.Is(err, cashu.UnitNotSupportedErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.UnitNotSupportedErr, err)
 	}
 
 	// test invalid invoice
-	_, err = testMint.MeltRequest(testutils.BOLT11_METHOD, "invoice1111", testutils.SAT_UNIT)
+	_, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, "invoice1111", testutils.SAT_UNIT)
 	if err == nil {
 		t.Fatal("expected error but got nil")
 	}
 
-	_, err = testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	_, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestMeltQuoteState(t *testing.T) {
 		t.Fatalf("error finding invoice: %v", err)
 	}
 
-	meltRequest, err := testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	meltRequest, err := testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
-	meltQuote, err := testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	meltQuote, err := testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestMelt(t *testing.T) {
 	}
 
 	// test already used proofs
-	newQuote, err := testMint.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	newQuote, err := testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
-	meltQuote, err = mintFees.MeltRequest(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	meltQuote, err = mintFees.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}

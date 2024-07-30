@@ -356,7 +356,7 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	meltQuote, err := ms.mint.MeltRequest(method, meltRequest.Request, meltRequest.Unit)
+	meltQuote, err := ms.mint.RequestMeltQuote(method, meltRequest.Request, meltRequest.Unit)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from db
