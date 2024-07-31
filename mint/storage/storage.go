@@ -7,6 +7,8 @@ import (
 )
 
 type MintDB interface {
+	GetBalance() (uint64, error)
+
 	SaveSeed([]byte) error
 	GetSeed() ([]byte, error)
 

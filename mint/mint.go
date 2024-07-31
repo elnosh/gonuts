@@ -42,6 +42,7 @@ type Mint struct {
 
 	LightningClient lightning.Client
 	MintInfo        *nut06.MintInfo
+	Limits          MintLimits
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -83,7 +84,12 @@ func LoadMint(config Config) (*Mint, error) {
 	if err != nil {
 		return nil, err
 	}
-	mint := &Mint{db: db, ActiveKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset}}
+
+	mint := &Mint{
+		db:            db,
+		ActiveKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
+		Limits:        config.Limits,
+	}
 
 	dbKeysets, err := mint.db.GetKeysets()
 	if err != nil {
@@ -177,6 +183,22 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	// only support sat unit
 	if unit != SAT_UNIT {
 		return storage.MintQuote{}, cashu.UnitNotSupportedErr
+	}
+
+	// check limits
+	if m.Limits.MintingSettings.MaxAmount > 0 {
+		if amount > m.Limits.MintingSettings.MaxAmount {
+			return storage.MintQuote{}, cashu.MintAmountExceededErr
+		}
+	}
+	if m.Limits.MaxBalance > 0 {
+		balance, err := m.db.GetBalance()
+		if err != nil {
+			return storage.MintQuote{}, err
+		}
+		if balance+amount > m.Limits.MaxBalance {
+			return storage.MintQuote{}, cashu.MintingDisabled
+		}
 	}
 
 	// get an invoice from the lightning backend
@@ -370,13 +392,20 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 	if bolt11.MSatoshi == 0 {
 		return storage.MeltQuote{}, cashu.BuildCashuError("invoice has no amount", cashu.StandardErrCode)
 	}
+	satAmount := uint64(bolt11.MSatoshi) / 1000
+
+	// check melt limit
+	if m.Limits.MeltingSettings.MaxAmount > 0 {
+		if satAmount > m.Limits.MeltingSettings.MaxAmount {
+			return storage.MeltQuote{}, cashu.MeltAmountExceededErr
+		}
+	}
 
 	quoteId, err := cashu.GenerateRandomQuoteId()
 	if err != nil {
 		return storage.MeltQuote{}, cashu.StandardErr
 	}
 
-	satAmount := uint64(bolt11.MSatoshi) / 1000
 	// Fee reserve that is required by the mint
 	fee := m.LightningClient.FeeReserve(satAmount)
 	expiry := uint64(time.Now().Add(time.Minute * QuoteExpiryMins).Unix())

@@ -46,6 +46,16 @@ func InitSQLite(path, migrationPath string) (*SQLiteDB, error) {
 	return &SQLiteDB{db: db}, nil
 }
 
+func (sqlite *SQLiteDB) GetBalance() (uint64, error) {
+	var balance uint64
+	row := sqlite.db.QueryRow("SELECT balance FROM balance")
+	err := row.Scan(&balance)
+	if err != nil {
+		return 0, err
+	}
+	return balance, nil
+}
+
 func (sqlite *SQLiteDB) SaveSeed(seed []byte) error {
 	hexSeed := hex.EncodeToString(seed)
 
