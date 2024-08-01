@@ -182,6 +182,7 @@ func mintConfig(
 	dbpath string,
 	dbMigrationPath string,
 	inputFeePpk uint,
+	limits mint.MintLimits,
 ) (*mint.Config, error) {
 	if err := os.MkdirAll(dbpath, 0750); err != nil {
 		return nil, err
@@ -192,6 +193,7 @@ func mintConfig(
 		DBPath:            dbpath,
 		DBMigrationPath:   dbMigrationPath,
 		InputFeePpk:       inputFeePpk,
+		Limits:            limits,
 	}
 	nodeDir := lnd.LndDir
 
@@ -219,8 +221,9 @@ func CreateTestMint(
 	dbpath string,
 	dbMigrationPath string,
 	inputFeePpk uint,
+	limits mint.MintLimits,
 ) (*mint.Mint, error) {
-	config, err := mintConfig(lnd, "", dbpath, dbMigrationPath, inputFeePpk)
+	config, err := mintConfig(lnd, "", dbpath, dbMigrationPath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +242,7 @@ func CreateTestMintServer(
 	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := mintConfig(lnd, port, dbpath, dbMigrationPath, inputFeePpk)
+	config, err := mintConfig(lnd, port, dbpath, dbMigrationPath, inputFeePpk, mint.MintLimits{})
 	if err != nil {
 		return nil, err
 	}
