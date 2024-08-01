@@ -6,20 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"gopkg.in/macaroon.v2"
-)
-
-const (
-	LND_GRPC_HOST     = "LND_GRPC_HOST"
-	LND_CERT_PATH     = "LND_CERT_PATH"
-	LND_MACAROON_PATH = "LND_MACAROON_PATH"
 )
 
 const (
@@ -27,49 +19,23 @@ const (
 	FeePercent        float64 = 0.01
 )
 
+type LndConfig struct {
+	GRPCHost string
+	Cert     credentials.TransportCredentials
+	Macaroon macaroons.MacaroonCredential
+}
+
 type LndClient struct {
 	grpcClient lnrpc.LightningClient
 }
 
-func CreateLndClient() (*LndClient, error) {
-	host := os.Getenv(LND_GRPC_HOST)
-	if host == "" {
-		return nil, errors.New(LND_GRPC_HOST + " cannot be empty")
-	}
-	certPath := os.Getenv(LND_CERT_PATH)
-	if certPath == "" {
-		return nil, errors.New(LND_CERT_PATH + " cannot be empty")
-	}
-	macaroonPath := os.Getenv(LND_MACAROON_PATH)
-	if macaroonPath == "" {
-		return nil, errors.New(LND_MACAROON_PATH + " cannot be empty")
-	}
-
-	creds, err := credentials.NewClientTLSFromFile(certPath, "")
-	if err != nil {
-		return nil, err
-	}
-
-	macaroonBytes, err := os.ReadFile(macaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
-	}
-
-	macaroon := &macaroon.Macaroon{}
-	if err = macaroon.UnmarshalBinary(macaroonBytes); err != nil {
-		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
-	}
-	macarooncreds, err := macaroons.NewMacaroonCredential(macaroon)
-	if err != nil {
-		return nil, fmt.Errorf("error setting macaroon creds: %v", err)
-	}
-
+func SetupLndClient(config LndConfig) (*LndClient, error) {
 	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-		grpc.WithPerRPCCredentials(macarooncreds),
+		grpc.WithTransportCredentials(config.Cert),
+		grpc.WithPerRPCCredentials(config.Macaroon),
 	}
 
-	conn, err := grpc.NewClient(host, opts...)
+	conn, err := grpc.NewClient(config.GRPCHost, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("error setting up grpc client: %v", err)
 	}

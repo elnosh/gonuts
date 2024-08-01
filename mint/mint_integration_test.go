@@ -121,11 +121,7 @@ func TestMintQuoteState(t *testing.T) {
 		t.Fatalf("error requesting mint quote: %v", err)
 	}
 
-	var keyset crypto.MintKeyset
-	for _, k := range testMint.ActiveKeysets {
-		keyset = k
-		break
-	}
+	keyset := testMint.GetActiveKeyset()
 
 	// test invalid method
 	_, err = testMint.GetMintQuoteState("strike", mintQuoteResponse.Id)
@@ -192,11 +188,7 @@ func TestMintTokens(t *testing.T) {
 		t.Fatalf("error requesting mint quote: %v", err)
 	}
 
-	var keyset crypto.MintKeyset
-	for _, k := range testMint.ActiveKeysets {
-		keyset = k
-		break
-	}
+	keyset := testMint.GetActiveKeyset()
 
 	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
 
@@ -255,11 +247,7 @@ func TestSwap(t *testing.T) {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	var keyset crypto.MintKeyset
-	for _, k := range testMint.ActiveKeysets {
-		keyset = k
-		break
-	}
+	keyset := testMint.GetActiveKeyset()
 
 	newBlindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
 	overBlindedMessages, _, _, err := testutils.CreateBlindedMessages(amount+200, keyset)
@@ -308,10 +296,7 @@ func TestSwap(t *testing.T) {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	for _, k := range mintFees.ActiveKeysets {
-		keyset = k
-		break
-	}
+	keyset = mintFees.GetActiveKeyset()
 
 	fees := mintFees.TransactionFees(proofs)
 	invalidAmtblindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
@@ -573,11 +558,7 @@ func TestMintLimits(t *testing.T) {
 		os.RemoveAll(limitsMintPath)
 	}()
 
-	var keyset crypto.MintKeyset
-	for _, k := range limitsMint.ActiveKeysets {
-		keyset = k
-		break
-	}
+	keyset := limitsMint.GetActiveKeyset()
 
 	// test above mint max amount
 	var mintAmount uint64 = 20000

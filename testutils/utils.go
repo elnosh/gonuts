@@ -17,10 +17,14 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
+	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/grpc/credentials"
+	"gopkg.in/macaroon.v2"
 )
 
 const (
@@ -187,14 +191,6 @@ func mintConfig(
 	if err := os.MkdirAll(dbpath, 0750); err != nil {
 		return nil, err
 	}
-	mintConfig := &mint.Config{
-		DerivationPathIdx: 0,
-		Port:              port,
-		DBPath:            dbpath,
-		DBMigrationPath:   dbMigrationPath,
-		InputFeePpk:       inputFeePpk,
-		Limits:            limits,
-	}
 	nodeDir := lnd.LndDir
 
 	macaroonPath := filepath.Join(dbpath, "/admin.macaroon")
@@ -208,10 +204,43 @@ func mintConfig(
 		return nil, fmt.Errorf("error writing to macaroon file: %v", err)
 	}
 
-	os.Setenv("LIGHTNING_BACKEND", "Lnd")
-	os.Setenv("LND_GRPC_HOST", lnd.Host+":"+lnd.GrpcPort)
-	os.Setenv("LND_CERT_PATH", filepath.Join(nodeDir, "/tls.cert"))
-	os.Setenv("LND_MACAROON_PATH", macaroonPath)
+	creds, err := credentials.NewClientTLSFromFile(filepath.Join(nodeDir, "/tls.cert"), "")
+	if err != nil {
+		return nil, err
+	}
+
+	macaroonBytes, err := os.ReadFile(macaroonPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
+	}
+
+	macaroon := &macaroon.Macaroon{}
+	if err = macaroon.UnmarshalBinary(macaroonBytes); err != nil {
+		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+	}
+	macarooncreds, err := macaroons.NewMacaroonCredential(macaroon)
+	if err != nil {
+		return nil, fmt.Errorf("error setting macaroon creds: %v", err)
+	}
+	lndConfig := lightning.LndConfig{
+		GRPCHost: lnd.Host + ":" + lnd.GrpcPort,
+		Cert:     creds,
+		Macaroon: macarooncreds,
+	}
+	lndClient, err := lightning.SetupLndClient(lndConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error setting LND client: %v", err)
+	}
+
+	mintConfig := &mint.Config{
+		DerivationPathIdx: 0,
+		Port:              port,
+		MintPath:          dbpath,
+		DBMigrationPath:   dbMigrationPath,
+		InputFeePpk:       inputFeePpk,
+		Limits:            limits,
+		LightningClient:   lndClient,
+	}
 
 	return mintConfig, nil
 }
@@ -341,11 +370,7 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 		return nil, fmt.Errorf("error requesting mint quote: %v", err)
 	}
 
-	var keyset crypto.MintKeyset
-	for _, k := range mint.ActiveKeysets {
-		keyset = k
-		break
-	}
+	keyset := mint.GetActiveKeyset()
 
 	blindedMessages, secrets, rs, err := CreateBlindedMessages(amount, keyset)
 	if err != nil {
