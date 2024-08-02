@@ -82,7 +82,7 @@ func testMain(m *testing.M) int {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err = testutils.CreateTestMint(lnd1, testMintPath, dbMigrationPath, 0)
+	testMint, err = testutils.CreateTestMint(lnd1, testMintPath, dbMigrationPath, 0, mint.MintLimits{})
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -294,7 +294,7 @@ func TestSwap(t *testing.T) {
 
 	// mint with fees
 	mintFeesPath := filepath.Join(".", "mintfees")
-	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, dbMigrationPath, 100)
+	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, dbMigrationPath, 100, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestSwap(t *testing.T) {
 	}
 }
 
-func TestMeltRequest(t *testing.T) {
+func TestRequestMeltQuote(t *testing.T) {
 	invoice := lnrpc.Invoice{Value: 10000}
 	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
 	if err != nil {
@@ -499,7 +499,7 @@ func TestMelt(t *testing.T) {
 
 	// mint with fees
 	mintFeesPath := filepath.Join(".", "mintfeesmelt")
-	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, dbMigrationPath, 100)
+	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, dbMigrationPath, 100, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,6 +545,107 @@ func TestMelt(t *testing.T) {
 	}
 	if melt.State != nut05.Paid {
 		t.Fatal("got unexpected unpaid melt quote")
+	}
+
+}
+
+func TestMintLimits(t *testing.T) {
+	// setup mint with limits
+	limitsMintPath := filepath.Join(".", "limitsMint")
+	mintLimits := mint.MintLimits{
+		MaxBalance:      15000,
+		MintingSettings: mint.MintMethodSettings{MaxAmount: 10000},
+		MeltingSettings: mint.MeltMethodSettings{MaxAmount: 10000},
+	}
+
+	limitsMint, err := testutils.CreateTestMint(
+		lnd1,
+		limitsMintPath,
+		dbMigrationPath,
+		100,
+		mintLimits,
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(limitsMintPath)
+	}()
+
+	var keyset crypto.MintKeyset
+	for _, k := range limitsMint.ActiveKeysets {
+		keyset = k
+		break
+	}
+
+	// test above mint max amount
+	var mintAmount uint64 = 20000
+	mintQuoteResponse, err := limitsMint.RequestMintQuote(testutils.BOLT11_METHOD, mintAmount, testutils.SAT_UNIT)
+	if !errors.Is(err, cashu.MintAmountExceededErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintAmountExceededErr, err)
+	}
+
+	// amount below max limit
+	mintAmount = 9500
+	mintQuoteResponse, err = limitsMint.RequestMintQuote(testutils.BOLT11_METHOD, mintAmount, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("error requesting mint quote: %v", err)
+	}
+
+	blindedMessages, secrets, rs, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	//pay invoice
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: mintQuoteResponse.PaymentRequest,
+	}
+	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	}
+	blindedSignatures, err := limitsMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
+	if err != nil {
+		t.Fatalf("got unexpected error minting tokens: %v", err)
+	}
+
+	// test request mint that will make it go above max balance
+	mintQuoteResponse, err = limitsMint.RequestMintQuote(testutils.BOLT11_METHOD, 9000, testutils.SAT_UNIT)
+	if !errors.Is(err, cashu.MintingDisabled) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintingDisabled, err)
+	}
+
+	// test melt with invoice over max melt amount
+	invoice := lnrpc.Invoice{Value: 15000}
+	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	_, err = limitsMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if !errors.Is(err, cashu.MeltAmountExceededErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltAmountExceededErr, err)
+	}
+
+	// test melt with invoice within limit
+	validProofs, err := testutils.ConstructProofs(blindedSignatures, secrets, rs, &keyset)
+	invoice = lnrpc.Invoice{Value: 8000}
+	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+	meltQuote, err := limitsMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	_, err = limitsMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt: %v", err)
+	}
+
+	// this should be within max balance now
+	mintQuoteResponse, err = limitsMint.RequestMintQuote(testutils.BOLT11_METHOD, 9000, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error requesting mint quote: %v", err)
 	}
 
 }

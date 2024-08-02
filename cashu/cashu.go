@@ -232,11 +232,14 @@ const (
 
 	MintQuoteRequestNotPaidErrCode CashuErrCode = 20001
 	MintQuoteAlreadyIssuedErrCode  CashuErrCode = 20002
+	MintingDisabledErrCode         CashuErrCode = 20003
+	MintAmountExceededErrCode      CashuErrCode = 20004
 
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
+	MeltAmountExceededErrCode   CashuErrCode = 20007
 
-	QuoteErrCode CashuErrCode = 20007
+	QuoteErrCode CashuErrCode = 20008
 )
 
 var (
@@ -248,6 +251,8 @@ var (
 	InvalidBlindedMessageAmount  = Error{Detail: "invalid amount in blinded message", Code: StandardErrCode}
 	MintQuoteRequestNotPaid      = Error{Detail: "quote request has not been paid", Code: MintQuoteRequestNotPaidErrCode}
 	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}
+	MintingDisabled              = Error{Detail: "minting is disabled", Code: MintingDisabledErrCode}
+	MintAmountExceededErr        = Error{Detail: "max amount for minting exceeded", Code: MintAmountExceededErrCode}
 	OutputsOverQuoteAmountErr    = Error{Detail: "sum of the output amounts is greater than quote amount", Code: StandardErrCode}
 	ProofAlreadyUsedErr          = Error{Detail: "proofs already used", Code: ProofAlreadyUsedErrCode}
 	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
@@ -255,6 +260,7 @@ var (
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
 	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: QuoteErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
+	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: MeltAmountExceededErrCode}
 	InsufficientProofsAmount     = Error{
 		Detail: "amount of input proofs is below amount needed for transaction",
 		Code:   InsufficientProofAmountErrCode,

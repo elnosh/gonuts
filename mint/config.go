@@ -19,14 +19,31 @@ type Config struct {
 	DBPath            string
 	DBMigrationPath   string
 	InputFeePpk       uint
+	Limits            MintLimits
+}
+
+type MintMethodSettings struct {
+	MinAmount uint64
+	MaxAmount uint64
+}
+
+type MeltMethodSettings struct {
+	MinAmount uint64
+	MaxAmount uint64
+}
+
+type MintLimits struct {
+	MaxBalance      uint64
+	MintingSettings MintMethodSettings
+	MeltingSettings MeltMethodSettings
 }
 
 func GetConfig() Config {
 	var inputFeePpk uint = 0
-	if len(os.Getenv("INPUT_FEE_PPK")) > 0 {
-		fee, err := strconv.ParseUint(os.Getenv("INPUT_FEE_PPK"), 10, 16)
+	if inputFeeEnv, ok := os.LookupEnv("INPUT_FEE_PPK"); ok {
+		fee, err := strconv.ParseUint(inputFeeEnv, 10, 16)
 		if err != nil {
-			log.Fatalf("unable to parse INPUT_FEE_PPK: %v", err)
+			log.Fatalf("invalid INPUT_FEE_PPK: %v", err)
 		}
 		inputFeePpk = uint(fee)
 	}
@@ -36,12 +53,38 @@ func GetConfig() Config {
 		log.Fatalf("invalid DERIVATION_PATH_IDX: %v", err)
 	}
 
+	mintLimits := MintLimits{}
+	if maxBalanceEnv, ok := os.LookupEnv("MAX_BALANCE"); ok {
+		maxBalance, err := strconv.ParseUint(maxBalanceEnv, 10, 64)
+		if err != nil {
+			log.Fatalf("invalid MAX_BALANCE: %v", err)
+		}
+		mintLimits.MaxBalance = maxBalance
+	}
+
+	if maxMintEnv, ok := os.LookupEnv("MINTING_MAX_AMOUNT"); ok {
+		maxMint, err := strconv.ParseUint(maxMintEnv, 10, 64)
+		if err != nil {
+			log.Fatalf("invalid MINTING_MAX_AMOUNT: %v", err)
+		}
+		mintLimits.MintingSettings = MintMethodSettings{MaxAmount: maxMint}
+	}
+
+	if maxMeltEnv, ok := os.LookupEnv("MELTING_MAX_AMOUNT"); ok {
+		maxMelt, err := strconv.ParseUint(maxMeltEnv, 10, 64)
+		if err != nil {
+			log.Fatalf("invalid MELTING_MAX_AMOUNT: %v", err)
+		}
+		mintLimits.MeltingSettings = MeltMethodSettings{MaxAmount: maxMelt}
+	}
+
 	return Config{
 		DerivationPathIdx: uint32(derivationPathIdx),
 		Port:              os.Getenv("MINT_PORT"),
 		DBPath:            os.Getenv("MINT_DB_PATH"),
 		DBMigrationPath:   "../../mint/storage/sqlite/migrations",
 		InputFeePpk:       inputFeePpk,
+		Limits:            mintLimits,
 	}
 }
 
@@ -93,13 +136,23 @@ func (m *Mint) getMintInfo() (*nut06.MintInfo, error) {
 	nuts := nut06.NutsMap{
 		4: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
-				{Method: "bolt11", Unit: "sat"},
+				{
+					Method:    "bolt11",
+					Unit:      "sat",
+					MinAmount: m.Limits.MintingSettings.MinAmount,
+					MaxAmount: m.Limits.MintingSettings.MaxAmount,
+				},
 			},
 			Disabled: false,
 		},
 		5: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
-				{Method: "bolt11", Unit: "sat"},
+				{
+					Method:    "bolt11",
+					Unit:      "sat",
+					MinAmount: m.Limits.MeltingSettings.MinAmount,
+					MaxAmount: m.Limits.MeltingSettings.MaxAmount,
+				},
 			},
 			Disabled: false,
 		},
