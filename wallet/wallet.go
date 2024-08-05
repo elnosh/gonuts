@@ -716,6 +716,12 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 	// if state field is present, use that instead of paid
 	if meltBolt11Response.State != nut05.Unknown {
 		paid = meltBolt11Response.State == nut05.Paid
+	} else {
+		if paid {
+			meltBolt11Response.State = nut05.Paid
+		} else {
+			meltBolt11Response.State = nut05.Unpaid
+		}
 	}
 	if !paid {
 		// save proofs if invoice was not paid
