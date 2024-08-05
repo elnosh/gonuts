@@ -35,18 +35,18 @@ type Mint struct {
 	db storage.MintDB
 
 	// active keysets
-	ActiveKeysets map[string]crypto.MintKeyset
+	activeKeysets map[string]crypto.MintKeyset
 
 	// map of all keysets (both active and inactive)
-	Keysets map[string]crypto.MintKeyset
+	keysets map[string]crypto.MintKeyset
 
-	LightningClient lightning.Client
-	MintInfo        *nut06.MintInfo
-	Limits          MintLimits
+	lightningClient lightning.Client
+	mintInfo        nut06.MintInfo
+	limits          MintLimits
 }
 
 func LoadMint(config Config) (*Mint, error) {
-	path := config.DBPath
+	path := config.MintPath
 	if len(path) == 0 {
 		path = mintPath()
 	}
@@ -87,8 +87,8 @@ func LoadMint(config Config) (*Mint, error) {
 
 	mint := &Mint{
 		db:            db,
-		ActiveKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
-		Limits:        config.Limits,
+		activeKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
+		limits:        config.Limits,
 	}
 
 	dbKeysets, err := mint.db.GetKeysets()
@@ -135,20 +135,23 @@ func LoadMint(config Config) (*Mint, error) {
 			return nil, fmt.Errorf("error saving new active keyset: %v", err)
 		}
 	}
+	mint.keysets = mintKeysets
+	mint.keysets[activeKeyset.Id] = *activeKeyset
+	if config.LightningClient == nil {
+		return nil, errors.New("invalid lightning client")
+	}
+	mint.lightningClient = config.LightningClient
 
-	mint.Keysets = mintKeysets
-	mint.Keysets[activeKeyset.Id] = *activeKeyset
-	mint.LightningClient = lightning.NewLightningClient()
-	mint.MintInfo, err = mint.getMintInfo()
+	err = mint.SetMintInfo(config.MintInfo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error setting mint info: %v", err)
 	}
 
-	for _, keyset := range mint.Keysets {
+	for _, keyset := range mint.keysets {
 		if keyset.Id != activeKeyset.Id && keyset.Active {
 			keyset.Active = false
 			mint.db.UpdateKeysetActive(keyset.Id, false)
-			mint.Keysets[keyset.Id] = keyset
+			mint.keysets[keyset.Id] = keyset
 		}
 	}
 
@@ -186,17 +189,17 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	}
 
 	// check limits
-	if m.Limits.MintingSettings.MaxAmount > 0 {
-		if amount > m.Limits.MintingSettings.MaxAmount {
+	if m.limits.MintingSettings.MaxAmount > 0 {
+		if amount > m.limits.MintingSettings.MaxAmount {
 			return storage.MintQuote{}, cashu.MintAmountExceededErr
 		}
 	}
-	if m.Limits.MaxBalance > 0 {
+	if m.limits.MaxBalance > 0 {
 		balance, err := m.db.GetBalance()
 		if err != nil {
 			return storage.MintQuote{}, err
 		}
-		if balance+amount > m.Limits.MaxBalance {
+		if balance+amount > m.limits.MaxBalance {
 			return storage.MintQuote{}, cashu.MintingDisabled
 		}
 	}
@@ -243,7 +246,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 	}
 
 	// check if the invoice has been paid
-	status, err := m.LightningClient.InvoiceStatus(mintQuote.PaymentHash)
+	status, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 	if err != nil {
 		msg := fmt.Sprintf("error getting status of payment request: %v", err)
 		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
@@ -274,7 +277,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 	}
 	var blindedSignatures cashu.BlindedSignatures
 
-	status, err := m.LightningClient.InvoiceStatus(mintQuote.PaymentHash)
+	status, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 	if err != nil {
 		msg := fmt.Sprintf("error getting status of payment request: %v", err)
 		return nil, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
@@ -395,8 +398,8 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 	satAmount := uint64(bolt11.MSatoshi) / 1000
 
 	// check melt limit
-	if m.Limits.MeltingSettings.MaxAmount > 0 {
-		if satAmount > m.Limits.MeltingSettings.MaxAmount {
+	if m.limits.MeltingSettings.MaxAmount > 0 {
+		if satAmount > m.limits.MeltingSettings.MaxAmount {
 			return storage.MeltQuote{}, cashu.MeltAmountExceededErr
 		}
 	}
@@ -407,7 +410,7 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 	}
 
 	// Fee reserve that is required by the mint
-	fee := m.LightningClient.FeeReserve(satAmount)
+	fee := m.lightningClient.FeeReserve(satAmount)
 	expiry := uint64(time.Now().Add(time.Minute * QuoteExpiryMins).Unix())
 
 	meltQuote := storage.MeltQuote{
@@ -483,7 +486,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 
 	// if proofs are valid, ask the lightning backend
 	// to make the payment
-	preimage, err := m.LightningClient.SendPayment(meltQuote.InvoiceRequest, meltQuote.Amount)
+	preimage, err := m.lightningClient.SendPayment(meltQuote.InvoiceRequest, meltQuote.Amount)
 	if err != nil {
 		return storage.MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.LightningBackendErrCode)
 	}
@@ -533,7 +536,7 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 		// check that id in the proof matches id of any
 		// of the mint's keyset
 		var k *secp256k1.PrivateKey
-		if keyset, ok := m.Keysets[proof.Id]; !ok {
+		if keyset, ok := m.keysets[proof.Id]; !ok {
 			return cashu.UnknownKeysetErr
 		} else {
 			if key, ok := keyset.Keys[proof.Amount]; ok {
@@ -566,11 +569,11 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 	blindedSignatures := make(cashu.BlindedSignatures, len(blindedMessages))
 
 	for i, msg := range blindedMessages {
-		if _, ok := m.Keysets[msg.Id]; !ok {
+		if _, ok := m.keysets[msg.Id]; !ok {
 			return nil, cashu.UnknownKeysetErr
 		}
 		var k *secp256k1.PrivateKey
-		keyset, ok := m.ActiveKeysets[msg.Id]
+		keyset, ok := m.activeKeysets[msg.Id]
 		if !ok {
 			return nil, cashu.InactiveKeysetSignatureRequest
 		} else {
@@ -605,7 +608,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 // requestInvoices requests an invoice from the Lightning backend
 // for the given amount
 func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
-	invoice, err := m.LightningClient.CreateInvoice(amount)
+	invoice, err := m.lightningClient.CreateInvoice(amount)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +620,95 @@ func (m *Mint) TransactionFees(inputs cashu.Proofs) uint {
 	for _, proof := range inputs {
 		// note: not checking that proof id is from valid keyset
 		// because already doing that in call to verifyProofs
-		fees += m.Keysets[proof.Id].InputFeePpk
+		fees += m.keysets[proof.Id].InputFeePpk
 	}
 	return (fees + 999) / 1000
+}
+
+func (m *Mint) GetActiveKeyset() crypto.MintKeyset {
+	var keyset crypto.MintKeyset
+	for _, k := range m.activeKeysets {
+		keyset = k
+		break
+	}
+	return keyset
+}
+
+func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
+	nuts := nut06.NutsMap{
+		4: nut06.NutSetting{
+			Methods: []nut06.MethodSetting{
+				{
+					Method:    BOLT11_METHOD,
+					Unit:      SAT_UNIT,
+					MinAmount: m.limits.MintingSettings.MinAmount,
+					MaxAmount: m.limits.MintingSettings.MaxAmount,
+				},
+			},
+			Disabled: false,
+		},
+		5: nut06.NutSetting{
+			Methods: []nut06.MethodSetting{
+				{
+					Method:    BOLT11_METHOD,
+					Unit:      SAT_UNIT,
+					MinAmount: m.limits.MeltingSettings.MinAmount,
+					MaxAmount: m.limits.MeltingSettings.MaxAmount,
+				},
+			},
+			Disabled: false,
+		},
+		7:  map[string]bool{"supported": false},
+		8:  map[string]bool{"supported": false},
+		9:  map[string]bool{"supported": false},
+		10: map[string]bool{"supported": false},
+		11: map[string]bool{"supported": false},
+		12: map[string]bool{"supported": false},
+	}
+
+	info := nut06.MintInfo{
+		Name:            mintInfo.Name,
+		Version:         "gonuts/0.0.1",
+		Description:     mintInfo.Description,
+		LongDescription: mintInfo.LongDescription,
+		Contact:         mintInfo.Contact,
+		Motd:            mintInfo.Motd,
+		Nuts:            nuts,
+	}
+	m.mintInfo = info
+	return nil
+}
+
+func (m *Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
+	seed, err := m.db.GetSeed()
+	if err != nil {
+		return nut06.MintInfo{}, err
+	}
+	master, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		return nut06.MintInfo{}, err
+	}
+	publicKey, err := master.ECPubKey()
+	if err != nil {
+		return nut06.MintInfo{}, err
+	}
+
+	mintingDisabled := false
+	mintBalance, err := m.db.GetBalance()
+	if err != nil {
+		msg := fmt.Sprintf("error getting mint balance: %v", err)
+		return nut06.MintInfo{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+
+	if m.limits.MaxBalance > 0 {
+		if mintBalance >= m.limits.MaxBalance {
+			mintingDisabled = true
+		}
+	}
+	nut04 := m.mintInfo.Nuts[4].(nut06.NutSetting)
+	nut04.Disabled = mintingDisabled
+	m.mintInfo.Nuts[4] = nut04
+	m.mintInfo.Pubkey = hex.EncodeToString(publicKey.SerializeCompressed())
+
+	return m.mintInfo, nil
 }
