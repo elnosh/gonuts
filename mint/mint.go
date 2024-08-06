@@ -668,7 +668,7 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
 
 	info := nut06.MintInfo{
 		Name:            mintInfo.Name,
-		Version:         "gonuts/0.0.1",
+		Version:         "gonuts/0.2.0",
 		Description:     mintInfo.Description,
 		LongDescription: mintInfo.LongDescription,
 		Contact:         mintInfo.Contact,
