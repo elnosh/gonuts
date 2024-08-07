@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	btcdocker "github.com/elnosh/btc-docker-test"
-	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -86,7 +85,9 @@ func testMain(m *testing.M) int {
 	defer func() {
 		os.RemoveAll(testMintPath)
 	}()
-	go mint.StartMintServer(testMint)
+	go func() {
+		log.Fatal(testMint.Start())
+	}()
 
 	mintPath := filepath.Join(".", "testmintwithfees")
 	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "8888", mintPath, dbMigrationPath, 100)
@@ -97,7 +98,9 @@ func testMain(m *testing.M) int {
 	defer func() {
 		os.RemoveAll(mintPath)
 	}()
-	go mint.StartMintServer(mintWithFees)
+	go func() {
+		log.Fatal(mintWithFees.Start())
+	}()
 
 	return m.Run()
 }
@@ -250,7 +253,9 @@ func TestReceive(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testMintPath)
 	}()
-	go mint.StartMintServer(testMint)
+	go func() {
+		t.Fatal(testMint.Start())
+	}()
 
 	mint2URL := "http://127.0.0.1:3339"
 	testWalletPath2 := filepath.Join(".", "/testreceivewallet2")

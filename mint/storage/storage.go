@@ -26,6 +26,8 @@ type MintDB interface {
 	SaveMeltQuote(MeltQuote) error
 	GetMeltQuote(string) (*MeltQuote, error)
 	UpdateMeltQuote(quoteId string, preimage string, state nut05.State) error
+
+	Close()
 }
 
 type DBKeyset struct {

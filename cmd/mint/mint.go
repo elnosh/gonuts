@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/mint"
@@ -30,6 +33,11 @@ func configFromEnv() (*mint.Config, error) {
 	derivationPathIdx, err := strconv.ParseUint(os.Getenv("DERIVATION_PATH_IDX"), 10, 32)
 	if err != nil {
 		return nil, fmt.Errorf("invalid DERIVATION_PATH_IDX: %v", err)
+	}
+
+	port := os.Getenv("MINT_PORT")
+	if len(port) == 0 {
+		port = "3338"
 	}
 
 	mintLimits := mint.MintLimits{}
@@ -126,7 +134,7 @@ func configFromEnv() (*mint.Config, error) {
 
 	return &mint.Config{
 		DerivationPathIdx: uint32(derivationPathIdx),
-		Port:              os.Getenv("MINT_PORT"),
+		Port:              port,
 		MintPath:          os.Getenv("MINT_DB_PATH"),
 		DBMigrationPath:   "../../mint/storage/sqlite/migrations",
 		InputFeePpk:       inputFeePpk,
@@ -151,5 +159,20 @@ func main() {
 		log.Fatalf("error starting mint server: %v", err)
 	}
 
-	mint.StartMintServer(mintServer)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		<-c
+		mintServer.LogInfo("starting shutdown")
+		mintServer.Shutdown()
+	}()
+
+	mintServer.LogInfo("mint server listening on port: " + mintConfig.Port)
+	if err := mintServer.Start(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("error runnming mint: %v\n", err)
+	} else if err == http.ErrServerClosed {
+		mintServer.LogInfo("shutdown complete")
+	}
+
 }

@@ -1,11 +1,11 @@
 package mint
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -28,9 +28,8 @@ type MintServer struct {
 	logger     *slog.Logger
 }
 
-func StartMintServer(server *MintServer) {
-	server.logger.Info("mint server listening on: " + server.httpServer.Addr)
-	log.Fatal(server.httpServer.ListenAndServe())
+func (ms *MintServer) Start() error {
+	return ms.httpServer.ListenAndServe()
 }
 
 func SetupMintServer(config Config) (*MintServer, error) {
@@ -44,8 +43,16 @@ func SetupMintServer(config Config) (*MintServer, error) {
 		return nil, err
 	}
 	mintServer := &MintServer{mint: mint, logger: logger}
-	mintServer.setupHttpServer(config.Port)
+	err = mintServer.setupHttpServer(config.Port)
+	if err != nil {
+		return nil, err
+	}
 	return mintServer, nil
+}
+
+func (ms *MintServer) Shutdown() {
+	ms.mint.db.Close()
+	ms.httpServer.Shutdown(context.Background())
 }
 
 func setupLogger() (*slog.Logger, error) {
@@ -73,12 +80,12 @@ func (ms *MintServer) LogInfo(format string, v ...any) {
 	ms.logger.Info(msg)
 }
 
-// func (m *Mint) LogError(format string, v ...any) {
-// 	msg := fmt.Sprintf(format, v...)
-// 	m.logger.Error(msg)
-// }
+func (ms *MintServer) LogError(format string, v ...any) {
+	msg := fmt.Sprintf(format, v...)
+	ms.logger.Error(msg)
+}
 
-func (ms *MintServer) setupHttpServer(port string) {
+func (ms *MintServer) setupHttpServer(port string) error {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet, http.MethodOptions)
@@ -96,7 +103,7 @@ func (ms *MintServer) setupHttpServer(port string) {
 	r.Use(setupHeaders)
 
 	if len(port) == 0 {
-		port = "3338"
+		return errors.New("port cannot be empty")
 	}
 	server := &http.Server{
 		Addr:    "127.0.0.1:" + port,
@@ -104,6 +111,7 @@ func (ms *MintServer) setupHttpServer(port string) {
 	}
 
 	ms.httpServer = server
+	return nil
 }
 
 func setupHeaders(next http.Handler) http.Handler {
