@@ -287,8 +287,13 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 			return nil, cashu.MintQuoteAlreadyIssued
 		}
 
-		blindedMessagesAmount := blindedMessages.Amount()
-		// check overflow
+		var blindedMessagesAmount uint64
+		B_s := make([]string, len(blindedMessages))
+		for i, bm := range blindedMessages {
+			blindedMessagesAmount += bm.Amount
+			B_s[i] = bm.B_
+		}
+
 		if len(blindedMessages) > 0 {
 			for _, msg := range blindedMessages {
 				if blindedMessagesAmount < msg.Amount {
@@ -303,7 +308,15 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 			return nil, cashu.OutputsOverQuoteAmountErr
 		}
 
-		var err error
+		sigs, err := m.db.GetBlindSignatures(B_s)
+		if err != nil {
+			msg := fmt.Sprintf("could not get signatures from db: %v", err)
+			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
+		if len(sigs) > 0 {
+			return nil, cashu.BlindedMessageAlreadySigned
+		}
+
 		blindedSignatures, err = m.signBlindedMessages(blindedMessages)
 		if err != nil {
 			return nil, err
@@ -341,7 +354,13 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		Ys[i] = Yhex
 	}
 
-	blindedMessagesAmount := blindedMessages.Amount()
+	var blindedMessagesAmount uint64
+	B_s := make([]string, len(blindedMessages))
+	for i, bm := range blindedMessages {
+		blindedMessagesAmount += bm.Amount
+		B_s[i] = bm.B_
+	}
+
 	// check overflow
 	if len(blindedMessages) > 0 {
 		for _, msg := range blindedMessages {
@@ -358,6 +377,15 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	err := m.verifyProofs(proofs, Ys)
 	if err != nil {
 		return nil, err
+	}
+
+	sigs, err := m.db.GetBlindSignatures(B_s)
+	if err != nil {
+		msg := fmt.Sprintf("could not get signatures from db: %v", err)
+		return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+	if len(sigs) > 0 {
+		return nil, cashu.BlindedMessageAlreadySigned
 	}
 
 	// if verification complete, sign blinded messages
@@ -600,6 +628,11 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 			C_: C_hex, Id: keyset.Id}
 
 		blindedSignatures[i] = blindedSignature
+
+		if err := m.db.SaveBlindSignature(msg.B_, C_hex, msg.Id, msg.Amount); err != nil {
+			msg := fmt.Sprintf("error saving signatures: %v", err)
+			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
 	}
 
 	return blindedSignatures, nil

@@ -318,3 +318,38 @@ func (sqlite *SQLiteDB) UpdateMeltQuote(quoteId, preimage string, state nut05.St
 	}
 	return nil
 }
+
+func (sqlite *SQLiteDB) SaveBlindSignature(B_, C_, keysetId string, amount uint64) error {
+	_, err := sqlite.db.Exec(`
+		INSERT INTO blind_signatures (b_, c_, keyset_id, amount) VALUES (?, ?, ?, ?)`,
+		B_, C_, keysetId, amount,
+	)
+	return err
+}
+
+func (sqlite *SQLiteDB) GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error) {
+	signatures := cashu.BlindedSignatures{}
+	query := `SELECT amount, c_, keyset_id FROM blind_signatures WHERE b_ in (?` + strings.Repeat(",?", len(B_s)-1) + `)`
+
+	args := make([]any, len(B_s))
+	for i, B_ := range B_s {
+		args[i] = B_
+	}
+
+	rows, err := sqlite.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var blindSignature cashu.BlindedSignature
+		err := rows.Scan(&blindSignature.Amount, &blindSignature.C_, &blindSignature.Id)
+		if err != nil {
+			return nil, err
+		}
+		signatures = append(signatures, blindSignature)
+	}
+
+	return signatures, nil
+}
