@@ -1,13 +1,16 @@
 package mint
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -18,6 +21,8 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
+	"github.com/elnosh/gonuts/cashu/nuts/nut10"
+	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/mint/storage"
@@ -388,6 +393,13 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		return nil, cashu.BlindedMessageAlreadySigned
 	}
 
+	// if sig all, verify signatures in blinded messages
+	if nut11.ProofsSigAll(proofs) {
+		if err := verifyP2PKBlindedMessages(proofs, blindedMessages); err != nil {
+			return nil, err
+		}
+	}
+
 	// if verification complete, sign blinded messages
 	blindedSignatures, err := m.signBlindedMessages(blindedMessages)
 	if err != nil {
@@ -512,6 +524,10 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		return storage.MeltQuote{}, cashu.InsufficientProofsAmount
 	}
 
+	if nut11.ProofsSigAll(proofs) {
+		return storage.MeltQuote{}, nut11.SigAllOnlySwap
+	}
+
 	// if proofs are valid, ask the lightning backend
 	// to make the payment
 	preimage, err := m.lightningClient.SendPayment(meltQuote.InvoiceRequest, meltQuote.Amount)
@@ -574,6 +590,13 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 			}
 		}
 
+		// if P2PK locked proof, verify valid witness
+		if nut11.IsSecretP2PK(proof) {
+			if err := verifyP2PKLockedProof(proof); err != nil {
+				return err
+			}
+		}
+
 		Cbytes, err := hex.DecodeString(proof.C)
 		if err != nil {
 			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
@@ -588,6 +611,154 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 			return cashu.InvalidProofErr
 		}
 	}
+	return nil
+}
+
+func verifyP2PKLockedProof(proof cashu.Proof) error {
+	p2pkWellKnownSecret, err := nut10.DeserializeSecret(proof.Secret)
+	if err != nil {
+		return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+	}
+
+	var p2pkWitness nut11.P2PKWitness
+	err = json.Unmarshal([]byte(proof.Witness), &p2pkWitness)
+	if err != nil {
+		errmsg := fmt.Sprintf("invalid witness: %v", err)
+		return cashu.BuildCashuError(errmsg, nut11.NUT11ErrCode)
+	}
+	if len(p2pkWitness.Signatures) < 1 {
+		return nut11.EmptyWitnessErr
+	}
+
+	p2pkTags, err := nut11.ParseP2PKTags(p2pkWellKnownSecret.Tags)
+	if err != nil {
+		return err
+	}
+
+	signaturesRequired := 1
+	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
+	// if refund pubkey present, check signature
+	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
+		if len(p2pkTags.Refund) == 0 {
+			return nil
+		} else {
+			hash := sha256.Sum256([]byte(proof.Secret))
+			if !nut11.HasValidSignatures(hash[:], p2pkWitness, signaturesRequired, p2pkTags.Refund) {
+				return nut11.NotEnoughSignaturesErr
+			}
+		}
+	} else {
+		pubkey, err := nut11.ParsePublicKey(p2pkWellKnownSecret.Data)
+		if err != nil {
+			return err
+		}
+		keys := []*btcec.PublicKey{pubkey}
+		// message to sign
+		hash := sha256.Sum256([]byte(proof.Secret))
+
+		if p2pkTags.NSigs > 0 {
+			signaturesRequired = p2pkTags.NSigs
+			if len(p2pkTags.Pubkeys) == 0 {
+				return nut11.EmptyPubkeysErr
+			}
+			keys = append(keys, p2pkTags.Pubkeys...)
+		}
+
+		if !nut11.HasValidSignatures(hash[:], p2pkWitness, signaturesRequired, keys) {
+			return nut11.NotEnoughSignaturesErr
+		}
+	}
+	return nil
+}
+
+func verifyP2PKBlindedMessages(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) error {
+	isSigAll := false
+	for _, proof := range proofs {
+		secret, err := nut10.DeserializeSecret(proof.Secret)
+		if err != nil {
+			continue
+		}
+
+		if nut11.IsSigAll(secret) {
+			isSigAll = true
+			break
+		}
+	}
+
+	if isSigAll {
+		secret, err := nut10.DeserializeSecret(proofs[0].Secret)
+		if err != nil {
+			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+		}
+		pubkeys, err := nut11.PublicKeys(secret)
+		if err != nil {
+			return err
+		}
+
+		signaturesRequired := 1
+		p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
+		if err != nil {
+			return err
+		}
+		if p2pkTags.NSigs > 0 {
+			signaturesRequired = p2pkTags.NSigs
+		}
+
+		for _, proof := range proofs {
+			secret, err := nut10.DeserializeSecret(proof.Secret)
+			if err != nil {
+				return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			}
+			// all flags need to be SIG_ALL
+			if !nut11.IsSigAll(secret) {
+				return nut11.AllSigAllFlagsErr
+			}
+
+			currentSignaturesRequired := 1
+			p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
+			if err != nil {
+				return err
+			}
+			if p2pkTags.NSigs > 0 {
+				currentSignaturesRequired = p2pkTags.NSigs
+			}
+
+			currentKeys, err := nut11.PublicKeys(secret)
+			if err != nil {
+				return err
+			}
+
+			// list of valid keys should be the same
+			// across all proofs
+			if !reflect.DeepEqual(pubkeys, currentKeys) {
+				return nut11.SigAllKeysMustBeEqualErr
+			}
+
+			// all n_sigs must be same
+			if signaturesRequired != currentSignaturesRequired {
+				return nut11.NSigsMustBeEqualErr
+			}
+		}
+
+		for _, bm := range blindedMessages {
+			hash := sha256.Sum256([]byte(bm.B_))
+
+			var witness nut11.P2PKWitness
+			err := json.Unmarshal([]byte(bm.Witness), &witness)
+			if err != nil {
+				errmsg := fmt.Sprintf("invalid witness: %v", err)
+				return cashu.BuildCashuError(errmsg, nut11.NUT11ErrCode)
+			}
+			if len(witness.Signatures) < 1 {
+				return nut11.EmptyWitnessErr
+			}
+
+			if !nut11.HasValidSignatures(hash[:], witness, signaturesRequired, pubkeys) {
+				return nut11.NotEnoughSignaturesErr
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -694,8 +865,8 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
 		7:  map[string]bool{"supported": false},
 		8:  map[string]bool{"supported": false},
 		9:  map[string]bool{"supported": false},
-		10: map[string]bool{"supported": false},
-		11: map[string]bool{"supported": false},
+		10: map[string]bool{"supported": true},
+		11: map[string]bool{"supported": true},
 		12: map[string]bool{"supported": false},
 	}
 

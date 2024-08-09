@@ -8,6 +8,46 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 )
 
+type SecretKind int
+
+const (
+	AnyoneCanSpend SecretKind = iota
+	P2PK
+)
+
+func SecretType(proof cashu.Proof) SecretKind {
+	var rawJsonSecret []json.RawMessage
+	// if not valid json, assume it is random secret
+	if err := json.Unmarshal([]byte(proof.Secret), &rawJsonSecret); err != nil {
+		return AnyoneCanSpend
+	}
+
+	// Well-known secret should have a length of at least 2
+	if len(rawJsonSecret) < 2 {
+		return AnyoneCanSpend
+	}
+
+	var kind string
+	if err := json.Unmarshal(rawJsonSecret[0], &kind); err != nil {
+		return AnyoneCanSpend
+	}
+
+	if kind == "P2PK" {
+		return P2PK
+	}
+
+	return AnyoneCanSpend
+}
+
+func (kind SecretKind) String() string {
+	switch kind {
+	case P2PK:
+		return "P2PK"
+	default:
+		return "anyonecanspend"
+	}
+}
+
 type WellKnownSecret struct {
 	Nonce string     `json:"nonce"`
 	Data  string     `json:"data"`
@@ -15,7 +55,7 @@ type WellKnownSecret struct {
 }
 
 // SerializeSecret returns the json string to be put in the secret field of a proof
-func SerializeSecret(kind cashu.SecretKind, secretData WellKnownSecret) (string, error) {
+func SerializeSecret(kind SecretKind, secretData WellKnownSecret) (string, error) {
 	jsonSecret, err := json.Marshal(secretData)
 	if err != nil {
 		return "", err

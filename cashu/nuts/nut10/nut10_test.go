@@ -7,6 +7,44 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 )
 
+func TestSecretType(t *testing.T) {
+	tests := []struct {
+		proof          cashu.Proof
+		expectedKind   SecretKind
+		expectedIsP2PK bool
+	}{
+		{
+			proof:          cashu.Proof{Secret: `["P2PK", {"nonce":"da62796403af76c80cd6ce9153ed3746","data":"033281c37677ea273eb7183b783067f5244933ef78d8c3f15b1a77cb246099c26e","tags":[["sigflag","SIG_ALL"]]}]`},
+			expectedKind:   P2PK,
+			expectedIsP2PK: true,
+		},
+
+		{
+			proof:          cashu.Proof{Secret: `["DIFFERENT", {"nonce":"da62796403af76c80cd6ce9153ed3746","data":"033281c37677ea273eb7183b783067f5244933ef78d8c3f15b1a77cb246099c26e","tags":[]}]`},
+			expectedKind:   AnyoneCanSpend,
+			expectedIsP2PK: false,
+		},
+
+		{
+			proof:          cashu.Proof{Secret: `someranadomsecret`},
+			expectedKind:   AnyoneCanSpend,
+			expectedIsP2PK: false,
+		},
+	}
+
+	for _, test := range tests {
+		kind := SecretType(test.proof)
+		if kind != test.expectedKind {
+			t.Fatalf("expected '%v' but got '%v' instead", test.expectedKind.String(), kind.String())
+		}
+
+		isP2PK := kind == P2PK
+		if isP2PK != test.expectedIsP2PK {
+			t.Fatalf("expected '%v' but got '%v' instead", test.expectedIsP2PK, isP2PK)
+		}
+	}
+}
+
 func TestSerializeSecret(t *testing.T) {
 	secretData := WellKnownSecret{
 		Nonce: "da62796403af76c80cd6ce9153ed3746",
@@ -16,7 +54,7 @@ func TestSerializeSecret(t *testing.T) {
 		},
 	}
 
-	serialized, err := SerializeSecret(cashu.P2PK, secretData)
+	serialized, err := SerializeSecret(P2PK, secretData)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
