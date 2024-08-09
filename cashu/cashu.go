@@ -220,8 +220,9 @@ const (
 	DBErrCode               CashuErrCode = 1
 	LightningBackendErrCode CashuErrCode = 2
 
-	UnitErrCode          CashuErrCode = 11005
-	PaymentMethodErrCode CashuErrCode = 11006
+	UnitErrCode                        CashuErrCode = 11005
+	PaymentMethodErrCode               CashuErrCode = 11006
+	BlindedMessageAlreadySignedErrCode CashuErrCode = 10002
 
 	InvalidProofErrCode            CashuErrCode = 10003
 	ProofAlreadyUsedErrCode        CashuErrCode = 11001
@@ -249,6 +250,7 @@ var (
 	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
 	UnitNotSupportedErr          = Error{Detail: "unit not supported", Code: UnitErrCode}
 	InvalidBlindedMessageAmount  = Error{Detail: "invalid amount in blinded message", Code: StandardErrCode}
+	BlindedMessageAlreadySigned  = Error{Detail: "blinded message already signed", Code: BlindedMessageAlreadySignedErrCode}
 	MintQuoteRequestNotPaid      = Error{Detail: "quote request has not been paid", Code: MintQuoteRequestNotPaidErrCode}
 	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}
 	MintingDisabled              = Error{Detail: "minting is disabled", Code: MintingDisabledErrCode}

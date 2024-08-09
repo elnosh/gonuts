@@ -238,6 +238,25 @@ func TestMintTokens(t *testing.T) {
 	if !errors.Is(err, cashu.MintQuoteAlreadyIssued) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintQuoteAlreadyIssued, err)
 	}
+
+	// test mint with blinded messages already signed
+	mintQuoteResponse, err = testMint.RequestMintQuote(testutils.BOLT11_METHOD, mintAmount, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("error requesting mint quote: %v", err)
+	}
+
+	sendPaymentRequest = lnrpc.SendRequest{
+		PaymentRequest: mintQuoteResponse.PaymentRequest,
+	}
+	response, _ = lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	}
+
+	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
+	if !errors.Is(err, cashu.BlindedMessageAlreadySigned) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.BlindedMessageAlreadySigned, err)
+	}
 }
 
 func TestSwap(t *testing.T) {
@@ -278,6 +297,17 @@ func TestSwap(t *testing.T) {
 	_, err = testMint.Swap(proofs, newBlindedMessages)
 	if !errors.Is(err, cashu.ProofAlreadyUsedErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofAlreadyUsedErr, err)
+	}
+
+	proofs, err = testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	// test with blinded messages already signed
+	_, err = testMint.Swap(proofs, newBlindedMessages)
+	if !errors.Is(err, cashu.BlindedMessageAlreadySigned) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.BlindedMessageAlreadySigned, err)
 	}
 
 	// mint with fees
