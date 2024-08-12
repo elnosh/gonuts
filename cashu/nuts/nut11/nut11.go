@@ -46,7 +46,7 @@ var (
 	TooManyTagsErr           = cashu.Error{Detail: "too many tags", Code: NUT11ErrCode}
 	NSigsMustBePositiveErr   = cashu.Error{Detail: "n_sigs must be a positive integer", Code: NUT11ErrCode}
 	EmptyPubkeysErr          = cashu.Error{Detail: "pubkeys tag cannot be empty if n_sigs tag is present", Code: NUT11ErrCode}
-	EmptyWitnessErr          = cashu.Error{Detail: "witness cannot be empty", Code: NUT11ErrCode}
+	InvalidWitness           = cashu.Error{Detail: "invalid witness", Code: NUT11ErrCode}
 	NotEnoughSignaturesErr   = cashu.Error{Detail: "not enough valid signatures provided", Code: NUT11ErrCode}
 	AllSigAllFlagsErr        = cashu.Error{Detail: "all flags must be SIG_ALL", Code: NUT11ErrCode}
 	SigAllKeysMustBeEqualErr = cashu.Error{Detail: "all public keys must be the same for SIG_ALL", Code: NUT11ErrCode}
@@ -68,7 +68,7 @@ type P2PKTags struct {
 
 // P2PKSecret returns a secret with a spending condition
 // that will lock ecash to a public key
-func P2PKSecret(pubkey string) (string, error) {
+func P2PKSecret(pubkey string, p2pkTags P2PKTags) (string, error) {
 	// generate random nonce
 	nonceBytes := make([]byte, 32)
 	_, err := rand.Read(nonceBytes)
@@ -77,9 +77,39 @@ func P2PKSecret(pubkey string) (string, error) {
 	}
 	nonce := hex.EncodeToString(nonceBytes)
 
+	var tags [][]string
+	if len(p2pkTags.Sigflag) > 0 {
+		tags = append(tags, []string{SIGFLAG, p2pkTags.Sigflag})
+	}
+	if p2pkTags.NSigs > 0 {
+		numStr := strconv.Itoa(p2pkTags.NSigs)
+		tags = append(tags, []string{NSIGS, numStr})
+	}
+	if len(p2pkTags.Pubkeys) > 0 {
+		pubkeys := []string{PUBKEYS}
+		for _, pubkey := range p2pkTags.Pubkeys {
+			key := hex.EncodeToString(pubkey.SerializeCompressed())
+			pubkeys = append(pubkeys, key)
+		}
+		tags = append(tags, pubkeys)
+	}
+	if p2pkTags.Locktime > 0 {
+		locktime := strconv.Itoa(int(p2pkTags.Locktime))
+		tags = append(tags, []string{LOCKTIME, locktime})
+	}
+	if len(p2pkTags.Refund) > 0 {
+		refundKeys := []string{REFUND}
+		for _, pubkey := range p2pkTags.Refund {
+			key := hex.EncodeToString(pubkey.SerializeCompressed())
+			refundKeys = append(refundKeys, key)
+		}
+		tags = append(tags, refundKeys)
+	}
+
 	secretData := nut10.WellKnownSecret{
 		Nonce: nonce,
 		Data:  pubkey,
+		Tags:  tags,
 	}
 
 	secret, err := nut10.SerializeSecret(nut10.P2PK, secretData)

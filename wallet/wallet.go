@@ -615,7 +615,6 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 
 	fees := uint64(w.fees(proofsToSwap, mint))
 	// if proofs are P2PK locked, sign appropriately
-	//if proofsToSwap[0].IsSecretP2PK() {
 	if nut11.IsSecretP2PK(proofsToSwap[0]) {
 		nut10secret, err := nut10.DeserializeSecret(proofsToSwap[0].Secret)
 		if err != nil {
@@ -1202,7 +1201,7 @@ func blindedMessagesFromLock(splitAmounts []uint64, keysetId string, lockPubkey 
 			return nil, nil, nil, err
 		}
 
-		secret, err := nut11.P2PKSecret(pubkey)
+		secret, err := nut11.P2PKSecret(pubkey, nut11.P2PKTags{})
 		if err != nil {
 			return nil, nil, nil, err
 		}

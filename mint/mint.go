@@ -623,11 +623,7 @@ func verifyP2PKLockedProof(proof cashu.Proof) error {
 	var p2pkWitness nut11.P2PKWitness
 	err = json.Unmarshal([]byte(proof.Witness), &p2pkWitness)
 	if err != nil {
-		errmsg := fmt.Sprintf("invalid witness: %v", err)
-		return cashu.BuildCashuError(errmsg, nut11.NUT11ErrCode)
-	}
-	if len(p2pkWitness.Signatures) < 1 {
-		return nut11.EmptyWitnessErr
+		p2pkWitness.Signatures = []string{}
 	}
 
 	p2pkTags, err := nut11.ParseP2PKTags(p2pkWellKnownSecret.Tags)
@@ -643,6 +639,9 @@ func verifyP2PKLockedProof(proof cashu.Proof) error {
 			return nil
 		} else {
 			hash := sha256.Sum256([]byte(proof.Secret))
+			if len(p2pkWitness.Signatures) < 1 {
+				return nut11.InvalidWitness
+			}
 			if !nut11.HasValidSignatures(hash[:], p2pkWitness, signaturesRequired, p2pkTags.Refund) {
 				return nut11.NotEnoughSignaturesErr
 			}
@@ -664,6 +663,9 @@ func verifyP2PKLockedProof(proof cashu.Proof) error {
 			keys = append(keys, p2pkTags.Pubkeys...)
 		}
 
+		if len(p2pkWitness.Signatures) < 1 {
+			return nut11.InvalidWitness
+		}
 		if !nut11.HasValidSignatures(hash[:], p2pkWitness, signaturesRequired, keys) {
 			return nut11.NotEnoughSignaturesErr
 		}
@@ -672,90 +674,76 @@ func verifyP2PKLockedProof(proof cashu.Proof) error {
 }
 
 func verifyP2PKBlindedMessages(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) error {
-	isSigAll := false
+	secret, err := nut10.DeserializeSecret(proofs[0].Secret)
+	if err != nil {
+		return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+	}
+	pubkeys, err := nut11.PublicKeys(secret)
+	if err != nil {
+		return err
+	}
+
+	signaturesRequired := 1
+	p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
+	if err != nil {
+		return err
+	}
+	if p2pkTags.NSigs > 0 {
+		signaturesRequired = p2pkTags.NSigs
+	}
+
+	// Check that the conditions across all proofs are the same
 	for _, proof := range proofs {
 		secret, err := nut10.DeserializeSecret(proof.Secret)
 		if err != nil {
-			continue
-		}
-
-		if nut11.IsSigAll(secret) {
-			isSigAll = true
-			break
-		}
-	}
-
-	if isSigAll {
-		secret, err := nut10.DeserializeSecret(proofs[0].Secret)
-		if err != nil {
 			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
 		}
-		pubkeys, err := nut11.PublicKeys(secret)
-		if err != nil {
-			return err
+		// all flags need to be SIG_ALL
+		if !nut11.IsSigAll(secret) {
+			return nut11.AllSigAllFlagsErr
 		}
 
-		signaturesRequired := 1
+		currentSignaturesRequired := 1
 		p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
 		if err != nil {
 			return err
 		}
 		if p2pkTags.NSigs > 0 {
-			signaturesRequired = p2pkTags.NSigs
+			currentSignaturesRequired = p2pkTags.NSigs
 		}
 
-		for _, proof := range proofs {
-			secret, err := nut10.DeserializeSecret(proof.Secret)
-			if err != nil {
-				return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-			}
-			// all flags need to be SIG_ALL
-			if !nut11.IsSigAll(secret) {
-				return nut11.AllSigAllFlagsErr
-			}
-
-			currentSignaturesRequired := 1
-			p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
-			if err != nil {
-				return err
-			}
-			if p2pkTags.NSigs > 0 {
-				currentSignaturesRequired = p2pkTags.NSigs
-			}
-
-			currentKeys, err := nut11.PublicKeys(secret)
-			if err != nil {
-				return err
-			}
-
-			// list of valid keys should be the same
-			// across all proofs
-			if !reflect.DeepEqual(pubkeys, currentKeys) {
-				return nut11.SigAllKeysMustBeEqualErr
-			}
-
-			// all n_sigs must be same
-			if signaturesRequired != currentSignaturesRequired {
-				return nut11.NSigsMustBeEqualErr
-			}
+		currentKeys, err := nut11.PublicKeys(secret)
+		if err != nil {
+			return err
 		}
 
-		for _, bm := range blindedMessages {
-			hash := sha256.Sum256([]byte(bm.B_))
+		// list of valid keys should be the same
+		// across all proofs
+		if !reflect.DeepEqual(pubkeys, currentKeys) {
+			return nut11.SigAllKeysMustBeEqualErr
+		}
 
-			var witness nut11.P2PKWitness
-			err := json.Unmarshal([]byte(bm.Witness), &witness)
-			if err != nil {
-				errmsg := fmt.Sprintf("invalid witness: %v", err)
-				return cashu.BuildCashuError(errmsg, nut11.NUT11ErrCode)
-			}
-			if len(witness.Signatures) < 1 {
-				return nut11.EmptyWitnessErr
-			}
+		// all n_sigs must be same
+		if signaturesRequired != currentSignaturesRequired {
+			return nut11.NSigsMustBeEqualErr
+		}
+	}
 
-			if !nut11.HasValidSignatures(hash[:], witness, signaturesRequired, pubkeys) {
-				return nut11.NotEnoughSignaturesErr
-			}
+	for _, bm := range blindedMessages {
+		B_bytes, err := hex.DecodeString(bm.B_)
+		if err != nil {
+			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+		}
+		hash := sha256.Sum256(B_bytes)
+
+		var witness nut11.P2PKWitness
+		err = json.Unmarshal([]byte(bm.Witness), &witness)
+		if err != nil || len(witness.Signatures) < 1 {
+			return nut11.InvalidWitness
+		}
+
+		if !nut11.HasValidSignatures(hash[:], witness, signaturesRequired, pubkeys) {
+			return nut11.NotEnoughSignaturesErr
 		}
 	}
 
