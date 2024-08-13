@@ -343,13 +343,17 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 	return mintResponse, nil
 }
 
+func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Response, error) {
+	return GetMintQuoteState(w.currentMint.mintURL, quoteId)
+}
+
 // MintTokens will check whether if the mint quote has been paid.
 // If yes, it will create blinded messages that will send to the mint
 // to get the blinded signatures.
 // If successful, it will unblind the signatures to generate proofs
 // and store the proofs in the db.
 func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
-	mintQuote, err := GetMintQuoteState(w.currentMint.mintURL, quoteId)
+	mintQuote, err := w.MintQuoteState(quoteId)
 	if err != nil {
 		return nil, err
 	}
