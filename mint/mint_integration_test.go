@@ -801,4 +801,55 @@ func TestNUT11P2PK(t *testing.T) {
 		t.Fatalf("unexpected error in swap: %v", err)
 	}
 
+	// get locked proofs for melting
+	lockedProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), nut11.P2PKTags{}, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+
+	invoice := lnrpc.Invoice{Value: 500}
+	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+	meltQuote, err := p2pkMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	_, err = p2pkMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	if !errors.Is(err, nut11.InvalidWitness) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
+	}
+
+	signedProofs, _ = testutils.AddSignaturesToInputs(lockedProofs, []*btcec.PrivateKey{lock})
+	_, err = p2pkMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	if err != nil {
+		t.Fatalf("unexpected error melting: %v", err)
+	}
+
+	// test melt with SIG_ALL fails
+	tags = nut11.P2PKTags{
+		Sigflag: nut11.SIGALL,
+	}
+	lockedProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	signedProofs, _ = testutils.AddSignaturesToInputs(lockedProofs, []*btcec.PrivateKey{lock})
+
+	invoice = lnrpc.Invoice{Value: 500}
+	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+	meltQuote, err = p2pkMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	_, err = p2pkMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	if !errors.Is(err, nut11.SigAllOnlySwap) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.SigAllOnlySwap, err)
+	}
+
 }

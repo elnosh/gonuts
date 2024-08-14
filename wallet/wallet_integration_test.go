@@ -580,10 +580,57 @@ func TestWalletBalanceFees(t *testing.T) {
 			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet2.GetBalance())
 		}
 	}
-
 }
 
 func TestSendToPubkey(t *testing.T) {
+	p2pkMintPath := filepath.Join(".", "p2pkmint1")
+	p2pkMint, err := testutils.CreateTestMintServer(lnd1, "8889", p2pkMintPath, dbMigrationPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(p2pkMintPath)
+	}()
+	go func() {
+		t.Fatal(p2pkMint.Start())
+	}()
+	p2pkMintURL := "http://127.0.0.1:8889"
+
+	p2pkMintPath2 := filepath.Join(".", "p2pkmint2")
+	p2pkMint2, err := testutils.CreateTestMintServer(lnd2, "8890", p2pkMintPath, dbMigrationPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(p2pkMintPath2)
+	}()
+	go func() {
+		t.Fatal(p2pkMint2.Start())
+	}()
+	p2pkMintURL2 := "http://127.0.0.1:8890"
+
+	testWalletPath := filepath.Join(".", "/testwalletp2pk")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, p2pkMintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	testWalletPath2 := filepath.Join(".", "/testwalletp2pk2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, p2pkMintURL2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	testP2PK(t, testWallet, testWallet2, false)
+}
+
+func TestSendToPubkeyNutshell(t *testing.T) {
 	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx)
 	if err != nil {
 		t.Fatalf("error starting nutshell mint: %v", err)
@@ -615,18 +662,38 @@ func TestSendToPubkey(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
+	testP2PK(t, testWallet, testWallet2, true)
+}
+
+func testP2PK(
+	t *testing.T,
+	testWallet *wallet.Wallet,
+	testWallet2 *wallet.Wallet,
+	fakeBackend bool,
+) {
 	mintRequest, err := testWallet.RequestMint(20000)
 	if err != nil {
 		t.Fatalf("unexpected error in mint request: %v", err)
 	}
+
+	if !fakeBackend {
+		//pay invoice
+		sendPaymentRequest := lnrpc.SendRequest{
+			PaymentRequest: mintRequest.Request,
+		}
+		response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+		if len(response.PaymentError) > 0 {
+			t.Fatalf("error paying invoice: %v", response.PaymentError)
+		}
+	}
+
 	_, err = testWallet.MintTokens(mintRequest.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error in mint tokens: %v", err)
 	}
 
 	receiverPubkey := testWallet2.GetReceivePubkey()
-
-	lockedEcash, err := testWallet.SendToPubkey(500, nutshellURL, receiverPubkey, true)
+	lockedEcash, err := testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
@@ -653,7 +720,7 @@ func TestSendToPubkey(t *testing.T) {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", amountReceived, balance)
 	}
 
-	lockedEcash, err = testWallet.SendToPubkey(500, nutshellURL, receiverPubkey, true)
+	lockedEcash, err = testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
