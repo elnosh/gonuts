@@ -11,11 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
@@ -657,6 +660,145 @@ func TestMintLimits(t *testing.T) {
 	mintQuoteResponse, err = limitsMint.RequestMintQuote(testutils.BOLT11_METHOD, 9000, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error requesting mint quote: %v", err)
+	}
+}
+
+func TestNUT11P2PK(t *testing.T) {
+	lock, _ := btcec.NewPrivateKey()
+
+	p2pkMintPath := filepath.Join(".", "p2pkmint")
+	p2pkMint, err := testutils.CreateTestMint(lnd1, p2pkMintPath, dbMigrationPath, 0, mint.MintLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(p2pkMintPath)
+	}()
+
+	keyset := p2pkMint.GetActiveKeyset()
+
+	var mintAmount uint64 = 1500
+	lockedProofs, err := testutils.GetProofsWithLock(mintAmount, lock.PubKey(), nut11.P2PKTags{}, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	// swap with proofs that do not have valid witness
+	_, err = p2pkMint.Swap(lockedProofs, blindedMessages)
+	if !errors.Is(err, nut11.InvalidWitness) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
+	}
+
+	// invalid proofs signed with another key
+	anotherKey, _ := btcec.NewPrivateKey()
+	invalidProofs, _ := nut11.AddSignatureToInputs(lockedProofs, anotherKey)
+	_, err = p2pkMint.Swap(invalidProofs, blindedMessages)
+	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
+	}
+
+	// valid signed proofs
+	signedProofs, _ := nut11.AddSignatureToInputs(lockedProofs, lock)
+	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	// test multisig
+	key1, _ := btcec.NewPrivateKey()
+	key2, _ := btcec.NewPrivateKey()
+	multisigKeys := []*btcec.PublicKey{key1.PubKey(), key2.PubKey()}
+	tags := nut11.P2PKTags{
+		Sigflag: nut11.SIGALL,
+		NSigs:   2,
+		Pubkeys: multisigKeys,
+	}
+	multisigProofs, err := testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+
+	// proofs with only 1 signature but require 2
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+	notEnoughSigsProofs, _ := nut11.AddSignatureToInputs(multisigProofs, lock)
+	_, err = p2pkMint.Swap(notEnoughSigsProofs, blindedMessages)
+	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
+	}
+
+	signingKeys := []*btcec.PrivateKey{key1, key2}
+	// enough signatures but blinded messages not signed
+	signedProofs, _ = testutils.AddSignaturesToInputs(multisigProofs, signingKeys)
+	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	if !errors.Is(err, nut11.InvalidWitness) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
+	}
+
+	// inputs and outputs with valid signatures
+	signedBlindedMessages, _ := testutils.AddSignaturesToOutputs(blindedMessages, signingKeys)
+	_, err = p2pkMint.Swap(signedProofs, signedBlindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	// test with locktime
+	tags = nut11.P2PKTags{
+		Locktime: time.Now().Add(time.Minute * 1).Unix(),
+	}
+	locktimeProofs, err := testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+	// unsigned proofs
+	_, err = p2pkMint.Swap(locktimeProofs, blindedMessages)
+	if !errors.Is(err, nut11.InvalidWitness) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
+	}
+
+	signedProofs, _ = nut11.AddSignatureToInputs(locktimeProofs, lock)
+	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	tags = nut11.P2PKTags{
+		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
+	}
+	locktimeProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+	// locktime expired so spendable without signature
+	_, err = p2pkMint.Swap(locktimeProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	// test locktime expired but with refund keys
+	tags = nut11.P2PKTags{
+		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
+		Refund:   []*btcec.PublicKey{key1.PubKey()},
+	}
+	locktimeProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	// unsigned proofs should fail because there were refund pubkeys in the tags
+	_, err = p2pkMint.Swap(locktimeProofs, blindedMessages)
+	if err == nil {
+		t.Fatal("expected error but got 'nil' instead")
+	}
+
+	// sign with refund pubkey
+	signedProofs, _ = testutils.AddSignaturesToInputs(locktimeProofs, []*btcec.PrivateKey{key1})
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
 	}
 
 }

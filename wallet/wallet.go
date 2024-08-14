@@ -510,7 +510,7 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, error) {
 	var nut10secret nut10.WellKnownSecret
 	// if P2PK, add signature to Witness in the proofs
-	if proofsToSwap[0].IsSecretP2PK() {
+	if nut11.IsSecretP2PK(proofsToSwap[0]) {
 		var err error
 		nut10secret, err = nut10.DeserializeSecret(proofsToSwap[0].Secret)
 		if err != nil {
@@ -559,7 +559,7 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 	}
 
 	// if P2PK locked ecash has `SIG_ALL` flag, sign outputs
-	if proofsToSwap[0].IsSecretP2PK() && nut11.IsSigAll(nut10secret) {
+	if nut11.IsSecretP2PK(proofsToSwap[0]) && nut11.IsSigAll(nut10secret) {
 		outputs, err = nut11.AddSignatureToOutputs(outputs, w.privateKey)
 		if err != nil {
 			return nil, fmt.Errorf("error signing outputs: %v", err)
@@ -615,7 +615,7 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 
 	fees := uint64(w.fees(proofsToSwap, mint))
 	// if proofs are P2PK locked, sign appropriately
-	if proofsToSwap[0].IsSecretP2PK() {
+	if nut11.IsSecretP2PK(proofsToSwap[0]) {
 		nut10secret, err := nut10.DeserializeSecret(proofsToSwap[0].Secret)
 		if err != nil {
 			return nil, err
@@ -1201,7 +1201,7 @@ func blindedMessagesFromLock(splitAmounts []uint64, keysetId string, lockPubkey 
 			return nil, nil, nil, err
 		}
 
-		secret, err := nut11.P2PKSecret(pubkey)
+		secret, err := nut11.P2PKSecret(pubkey, nut11.P2PKTags{})
 		if err != nil {
 			return nil, nil, nil, err
 		}
