@@ -203,6 +203,7 @@ func (w *Wallet) addMint(mint string) (*walletMint, error) {
 	}
 
 	for _, keyset := range mintInfo.activeKeysets {
+
 		w.db.SaveKeyset(&keyset)
 	}
 	for _, keyset := range mintInfo.inactiveKeysets {
@@ -236,21 +237,23 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error
 
 		_, err := hex.DecodeString(keyset.Id)
 		if keyset.Unit == "sat" && err == nil {
-			activeKeyset := crypto.WalletKeyset{
-				MintURL:     mintURL,
-				Unit:        keyset.Unit,
-				Active:      true,
-				InputFeePpk: inputFeePpk,
-			}
-
 			keys, err := crypto.MapPubKeys(keysetsResponse.Keysets[0].Keys)
 			if err != nil {
 				return nil, err
 			}
+			id := crypto.DeriveKeysetId(keys)
+			if id != keyset.Id {
+				return nil, fmt.Errorf("Got invalid keyset. Derived id: '%v' but got '%v' from mint", id, keyset.Id)
+			}
 
-			activeKeyset.PublicKeys = keys
-			id := crypto.DeriveKeysetId(activeKeyset.PublicKeys)
-			activeKeyset.Id = id
+			activeKeyset := crypto.WalletKeyset{
+				Id:          id,
+				MintURL:     mintURL,
+				Unit:        keyset.Unit,
+				Active:      true,
+				PublicKeys:  keys,
+				InputFeePpk: inputFeePpk,
+			}
 			activeKeysets[id] = activeKeyset
 		}
 	}
