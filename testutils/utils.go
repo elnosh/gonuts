@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -567,9 +568,9 @@ type NutshellMintContainer struct {
 	Host string
 }
 
-func CreateNutshellMintContainer(ctx context.Context) (*NutshellMintContainer, error) {
+func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int) (*NutshellMintContainer, error) {
 	req := testcontainers.ContainerRequest{
-		Image:        "cashubtc/nutshell:0.15.3",
+		Image:        "cashubtc/nutshell:0.16.0",
 		ExposedPorts: []string{"3338"},
 		Cmd: []string{
 			"poetry",
@@ -581,6 +582,7 @@ func CreateNutshellMintContainer(ctx context.Context) (*NutshellMintContainer, e
 			"MINT_LISTEN_PORT":        "3338",
 			"MINT_BACKEND_BOLT11_SAT": "FakeWallet",
 			"MINT_PRIVATE_KEY":        "secretkey",
+			"MINT_INPUT_FEE_PPK":      strconv.Itoa(inputFeePpk),
 		},
 		WaitingFor: wait.ForListeningPort("3338"),
 	}

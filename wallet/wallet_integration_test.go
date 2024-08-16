@@ -630,41 +630,6 @@ func TestSendToPubkey(t *testing.T) {
 	testP2PK(t, testWallet, testWallet2, false)
 }
 
-func TestSendToPubkeyNutshell(t *testing.T) {
-	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx)
-	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
-	}
-	defer nutshellMint.Terminate(ctx)
-	nutshellURL := nutshellMint.Host
-
-	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx)
-	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
-	}
-	defer nutshellMint2.Terminate(ctx)
-
-	testWalletPath := filepath.Join(".", "/testwalletp2pk")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
-
-	testWalletPath2 := filepath.Join(".", "/testwalletp2pk2")
-	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, nutshellMint2.Host)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
-
-	testP2PK(t, testWallet, testWallet2, true)
-}
-
 func testP2PK(
 	t *testing.T,
 	testWallet *wallet.Wallet,
@@ -737,8 +702,97 @@ func testP2PK(
 	}
 }
 
+// TESTS AGAINST NUTSHELL MINT
+
+// test regular wallet ops against Nutshell
+func TestNutshell(t *testing.T) {
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 100)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
+	nutshellURL := nutshellMint.Host
+
+	// test mint with fees
+	testWalletPath := filepath.Join(".", "/nutshellWallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	mintRes, err := testWallet.RequestMint(10000)
+	if err != nil {
+		t.Fatalf("unexpected error requesting mint: %v", err)
+	}
+
+	_, err = testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error minting tokens: %v", err)
+	}
+
+	var sendAmount uint64 = 2000
+	token, err := testWallet.Send(sendAmount, nutshellURL, true)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+
+	fees, _ := testutils.Fees(token.Token[0].Proofs, nutshellURL)
+	if token.TotalAmount() != sendAmount+uint64(fees) {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
+	}
+
+	amountReceived, err := testWallet.Receive(*token, false)
+	if err != nil {
+		t.Fatalf("unexpected error receiving: %v", err)
+	}
+
+	fees, _ = testutils.Fees(token.Token[0].Proofs, nutshellURL)
+	if amountReceived != token.TotalAmount()-uint64(fees) {
+		t.Fatalf("expected received amount of '%v' but got '%v' instead", token.TotalAmount()-uint64(fees), amountReceived)
+	}
+
+}
+
+func TestSendToPubkeyNutshell(t *testing.T) {
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
+	nutshellURL := nutshellMint.Host
+
+	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 0)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint2.Terminate(ctx)
+
+	testWalletPath := filepath.Join(".", "/testwalletp2pk")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	testWalletPath2 := filepath.Join(".", "/testwalletp2pk2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, nutshellMint2.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	testP2PK(t, testWallet, testWallet2, true)
+}
+
 func TestWalletRestore(t *testing.T) {
-	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx)
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
 	if err != nil {
 		t.Fatalf("error starting nutshell mint: %v", err)
 	}
