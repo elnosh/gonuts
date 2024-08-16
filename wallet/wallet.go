@@ -861,7 +861,9 @@ func (w *Wallet) selectProofsToSend(
 	}
 
 	if selectedProofsSum < amount+fees {
-		return nil, ErrInsufficientMintBalance
+		return nil, fmt.Errorf(
+			"insufficient funds for transaction. Amount needed %v + %v(fees) = %v",
+			amount, fees, amount+fees)
 	}
 
 	return selectedProofs, nil
