@@ -170,7 +170,7 @@ func main() {
 
 	mintServer.LogInfo("mint server listening on port: " + mintConfig.Port)
 	if err := mintServer.Start(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("error runnming mint: %v\n", err)
+		log.Fatalf("error running mint: %v\n", err)
 	} else if err == http.ErrServerClosed {
 		mintServer.LogInfo("shutdown complete")
 	}

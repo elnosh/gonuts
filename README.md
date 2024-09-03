@@ -23,7 +23,7 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 - [ ] [NUT-08](https://github.com/cashubtc/nuts/blob/main/08.md)
 - [x] [NUT-09](https://github.com/cashubtc/nuts/blob/main/09.md) (Wallet only)
 - [x] [NUT-10](https://github.com/cashubtc/nuts/blob/main/10.md)
-- [x] [NUT-11](https://github.com/cashubtc/nuts/blob/main/11.md) (Wallet only)
+- [x] [NUT-11](https://github.com/cashubtc/nuts/blob/main/11.md) 
 - [ ] [NUT-12](https://github.com/cashubtc/nuts/blob/main/12.md)
 - [x] [NUT-13](https://github.com/cashubtc/nuts/blob/main/13.md)
 - [ ] [NUT-14](https://github.com/cashubtc/nuts/blob/main/14.md)
