@@ -331,5 +331,13 @@ func parse(response *http.Response) (*http.Response, error) {
 		return nil, errResponse
 	}
 
+	if response.StatusCode != 200 {
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s", body)
+	}
+
 	return response, nil
 }

@@ -226,7 +226,7 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error
 	}
 
 	activeKeysets := make(map[string]crypto.WalletKeyset)
-	for _, keyset := range keysetsResponse.Keysets {
+	for i, keyset := range keysetsResponse.Keysets {
 
 		var inputFeePpk uint
 		for _, response := range keysets.Keysets {
@@ -237,7 +237,7 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error
 
 		_, err := hex.DecodeString(keyset.Id)
 		if keyset.Unit == "sat" && err == nil {
-			keys, err := crypto.MapPubKeys(keysetsResponse.Keysets[0].Keys)
+			keys, err := crypto.MapPubKeys(keysetsResponse.Keysets[i].Keys)
 			if err != nil {
 				return nil, err
 			}
