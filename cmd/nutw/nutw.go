@@ -29,19 +29,10 @@ func walletConfig() wallet.Config {
 	path := setWalletPath()
 	// default config
 	config := wallet.Config{WalletPath: path, CurrentMintURL: "http://127.0.0.1:3338"}
+	env := envPath(path)
 
-	envPath := filepath.Join(path, ".env")
-	if _, err := os.Stat(envPath); err != nil {
-		wd, err := os.Getwd()
-		if err != nil {
-			envPath = ""
-		} else {
-			envPath = filepath.Join(wd, ".env")
-		}
-	}
-
-	if len(envPath) > 0 {
-		err := godotenv.Load(envPath)
+	if len(env) > 0 {
+		err := godotenv.Load(env)
 		if err == nil {
 			config.CurrentMintURL = getMintURL()
 		}
@@ -62,6 +53,19 @@ func setWalletPath() string {
 		log.Fatal(err)
 	}
 	return path
+}
+
+func envPath(walletPath string) string {
+	envPath := filepath.Join(walletPath, ".env")
+	if _, err := os.Stat(envPath); err != nil {
+		wd, err := os.Getwd()
+		if err != nil {
+			envPath = ""
+		} else {
+			envPath = filepath.Join(wd, ".env")
+		}
+	}
+	return envPath
 }
 
 func getMintURL() string {
@@ -108,6 +112,7 @@ func main() {
 			p2pkLockCmd,
 			mnemonicCmd,
 			restoreCmd,
+			currentMintCmd,
 			decodeCmd,
 		},
 	}
@@ -427,6 +432,63 @@ func restore(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("restored proofs for amount of: %v\n", proofs.Amount())
+	return nil
+}
+
+var currentMintCmd = &cli.Command{
+	Name:  "currentmint",
+	Usage: "See and change default mint",
+	Subcommands: []*cli.Command{
+		{
+			Name:      "set",
+			Usage:     "Change the current mint",
+			ArgsUsage: "[MINT URL]",
+			Action:    setCurrentMint,
+		},
+	},
+	Action: currentMint,
+}
+
+func currentMint(ctx *cli.Context) error {
+	config := walletConfig()
+	fmt.Printf("current mint: %v\n", config.CurrentMintURL)
+	return nil
+}
+
+func setCurrentMint(ctx *cli.Context) error {
+	args := ctx.Args()
+	if args.Len() < 1 {
+		printErr(errors.New("specify new mint url to set as default"))
+	}
+	mintURL := args.First()
+	_, err := url.ParseRequestURI(mintURL)
+	if err != nil {
+		printErr(fmt.Errorf("invalid mint url: %v", err))
+	}
+
+	path := setWalletPath()
+	envFilePath := envPath(path)
+
+	envFileData, err := os.ReadFile(envFilePath)
+	if err != nil {
+		printErr(fmt.Errorf("could not read .env file: %v", err))
+	}
+
+	lines := strings.Split(string(envFileData), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "MINT_URL=") {
+			// replace line in file setting mint url
+			lines[i] = fmt.Sprintf("MINT_URL=%s", mintURL)
+		}
+	}
+	changed := strings.Join(lines, "\n")
+
+	if err := os.WriteFile(envFilePath, []byte(changed), 0644); err != nil {
+		printErr(err)
+	}
+
+	fmt.Println("updated mint successfully")
+
 	return nil
 }
 
