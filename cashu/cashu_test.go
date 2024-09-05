@@ -5,17 +5,17 @@ import (
 	"testing"
 )
 
-func TestDecodeToken(t *testing.T) {
+func TestDecodeTokenV3(t *testing.T) {
 	tests := []struct {
 		tokenString      string
 		tokenWithPadding string
-		expected         Token
+		expected         TokenV3
 	}{
 		{
 			tokenString:      "cashuAeyJ0b2tlbiI6W3sibWludCI6Imh0dHBzOi8vODMzMy5zcGFjZTozMzM4IiwicHJvb2ZzIjpbeyJhbW91bnQiOjIsImlkIjoiMDA5YTFmMjkzMjUzZTQxZSIsInNlY3JldCI6IjQwNzkxNWJjMjEyYmU2MWE3N2UzZTZkMmFlYjRjNzI3OTgwYmRhNTFjZDA2YTZhZmMyOWUyODYxNzY4YTc4MzciLCJDIjoiMDJiYzkwOTc5OTdkODFhZmIyY2M3MzQ2YjVlNDM0NWE5MzQ2YmQyYTUwNmViNzk1ODU5OGE3MmYwY2Y4NTE2M2VhIn0seyJhbW91bnQiOjgsImlkIjoiMDA5YTFmMjkzMjUzZTQxZSIsInNlY3JldCI6ImZlMTUxMDkzMTRlNjFkNzc1NmIwZjhlZTBmMjNhNjI0YWNhYTNmNGUwNDJmNjE0MzNjNzI4YzcwNTdiOTMxYmUiLCJDIjoiMDI5ZThlNTA1MGI4OTBhN2Q2YzA5NjhkYjE2YmMxZDVkNWZhMDQwZWExZGUyODRmNmVjNjlkNjEyOTlmNjcxMDU5In1dfV0sInVuaXQiOiJzYXQiLCJtZW1vIjoiVGhhbmsgeW91IHZlcnkgbXVjaC4ifQ",
 			tokenWithPadding: "cashuAeyJ0b2tlbiI6W3sibWludCI6Imh0dHBzOi8vODMzMy5zcGFjZTozMzM4IiwicHJvb2ZzIjpbeyJhbW91bnQiOjIsImlkIjoiMDA5YTFmMjkzMjUzZTQxZSIsInNlY3JldCI6IjQwNzkxNWJjMjEyYmU2MWE3N2UzZTZkMmFlYjRjNzI3OTgwYmRhNTFjZDA2YTZhZmMyOWUyODYxNzY4YTc4MzciLCJDIjoiMDJiYzkwOTc5OTdkODFhZmIyY2M3MzQ2YjVlNDM0NWE5MzQ2YmQyYTUwNmViNzk1ODU5OGE3MmYwY2Y4NTE2M2VhIn0seyJhbW91bnQiOjgsImlkIjoiMDA5YTFmMjkzMjUzZTQxZSIsInNlY3JldCI6ImZlMTUxMDkzMTRlNjFkNzc1NmIwZjhlZTBmMjNhNjI0YWNhYTNmNGUwNDJmNjE0MzNjNzI4YzcwNTdiOTMxYmUiLCJDIjoiMDI5ZThlNTA1MGI4OTBhN2Q2YzA5NjhkYjE2YmMxZDVkNWZhMDQwZWExZGUyODRmNmVjNjlkNjEyOTlmNjcxMDU5In1dfV0sInVuaXQiOiJzYXQiLCJtZW1vIjoiVGhhbmsgeW91IHZlcnkgbXVjaC4ifQ==",
-			expected: Token{
-				Token: []TokenProof{
+			expected: TokenV3{
+				Token: []TokenV3Proof{
 					{
 						Mint: "https://8333.space:3338",
 						Proofs: Proofs{
@@ -41,12 +41,12 @@ func TestDecodeToken(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		token, _ := DecodeToken(test.tokenString)
+		token, _ := DecodeTokenV3(test.tokenString)
 		if token.Unit != test.expected.Unit {
 			t.Errorf("expected '%v' but got '%v' instead", test.expected.Unit, token.Unit)
 		}
 
-		tokenPadding, _ := DecodeToken(test.tokenWithPadding)
+		tokenPadding, _ := DecodeTokenV3(test.tokenWithPadding)
 		if !reflect.DeepEqual(token, tokenPadding) {
 			t.Error("decoded tokens do not match")
 		}
@@ -79,14 +79,14 @@ func TestDecodeToken(t *testing.T) {
 	}
 }
 
-func TestTokenToString(t *testing.T) {
+func TestSerializeTokenV3(t *testing.T) {
 	tests := []struct {
-		token    Token
+		token    TokenV3
 		expected string
 	}{
 		{
-			token: Token{
-				Token: []TokenProof{
+			token: TokenV3{
+				Token: []TokenV3Proof{
 					{
 						Mint: "https://8333.space:3338",
 						Proofs: Proofs{
@@ -114,7 +114,10 @@ func TestTokenToString(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		tokenString := test.token.ToString()
+		tokenString, err := test.token.Serialize()
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if tokenString != test.expected {
 			t.Errorf("expected '%v'\n\n but got '%v' instead", test.expected, tokenString)
