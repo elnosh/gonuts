@@ -534,7 +534,7 @@ func decode(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	jsonToken, err := json.MarshalIndent(token, "", " ")
+	jsonToken, err := json.MarshalIndent(token, "", "  ")
 	if err != nil {
 		printErr(err)
 	}

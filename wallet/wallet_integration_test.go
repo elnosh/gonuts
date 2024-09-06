@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -169,12 +170,12 @@ func TestSend(t *testing.T) {
 	}
 
 	var sendAmount uint64 = 4200
-	token, err := testWallet.Send(sendAmount, mintURL, true)
+	proofsToSend, err := testWallet.Send(sendAmount, mintURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-	if token.TotalAmount() != sendAmount {
-		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount, token.TotalAmount())
+	if proofsToSend.Amount() != sendAmount {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount, proofsToSend.Amount())
 	}
 
 	// test with invalid mint
@@ -206,26 +207,26 @@ func TestSend(t *testing.T) {
 	}
 
 	sendAmount = 2000
-	token, err = feesWallet.Send(sendAmount, mintWithFeesURL, true)
+	proofsToSend, err = feesWallet.Send(sendAmount, mintWithFeesURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
 
-	fees, err := testutils.Fees(token.Token[0].Proofs, mintWithFeesURL)
+	fees, err := testutils.Fees(proofsToSend, mintWithFeesURL)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-	if token.TotalAmount() != sendAmount+uint64(fees) {
-		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
+	if proofsToSend.Amount() != sendAmount+uint64(fees) {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), proofsToSend.Amount())
 	}
 
 	// send without fees to receive
-	token, err = feesWallet.Send(sendAmount, mintWithFeesURL, false)
+	proofsToSend, err = feesWallet.Send(sendAmount, mintWithFeesURL, false)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-	if token.TotalAmount() != sendAmount {
-		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
+	if proofsToSend.Amount() != sendAmount {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), proofsToSend.Amount())
 	}
 }
 
@@ -272,13 +273,14 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	token, err := testWallet2.Send(1500, mint2URL, true)
+	proofsToSend, err := testWallet2.Send(1500, mint2URL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
+	token, _ := cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT)
 
 	// test receive swap == true
-	_, err = testWallet.Receive(*token, true)
+	_, err = testWallet.Receive(token, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in receive: %v", err)
 	}
@@ -292,13 +294,14 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("expected '%v' in list of trusted of trusted mints", defaultMint)
 	}
 
-	token2, err := testWallet2.Send(1500, mint2URL, true)
+	proofsToSend, err = testWallet2.Send(1500, mint2URL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
+	token, _ = cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT)
 
 	// test receive swap == false
-	_, err = testWallet.Receive(*token2, false)
+	_, err = testWallet.Receive(token, false)
 	if err != nil {
 		t.Fatalf("got unexpected error in receive: %v", err)
 	}
@@ -340,23 +343,24 @@ func TestReceiveFees(t *testing.T) {
 	}()
 
 	var sendAmount uint64 = 2000
-	token, err := testWallet.Send(sendAmount, mintURL, true)
+	proofsToSend, err := testWallet.Send(sendAmount, mintURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
 
-	amountReceived, err := testWallet2.Receive(*token, false)
+	amountReceived, err := testWallet2.Receive(token, false)
 	if err != nil {
 		t.Fatalf("got unexpected error in receive: %v", err)
 	}
 
-	fees, err := testutils.Fees(token.Token[0].Proofs, mintURL)
+	fees, err := testutils.Fees(proofsToSend, mintURL)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
 
-	if amountReceived != token.TotalAmount()-uint64(fees) {
-		t.Fatalf("expected received amount of '%v' but got '%v' instead", token.TotalAmount()-uint64(fees), amountReceived)
+	if amountReceived != proofsToSend.Amount()-uint64(fees) {
+		t.Fatalf("expected received amount of '%v' but got '%v' instead", proofsToSend.Amount()-uint64(fees), amountReceived)
 	}
 }
 
@@ -538,14 +542,15 @@ func TestWalletBalanceFees(t *testing.T) {
 	sendAmounts := []uint64{1200, 2000, 5000}
 
 	for _, sendAmount := range sendAmounts {
-		token, err := balanceTestWallet.Send(sendAmount, mintURL, true)
+		proofsToSend, err := balanceTestWallet.Send(sendAmount, mintURL, true)
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
+		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
 
 		// test balance in receiving wallet
 		balanceBeforeReceive := balanceTestWallet2.GetBalance()
-		_, err = balanceTestWallet2.Receive(*token, false)
+		_, err = balanceTestWallet2.Receive(token, false)
 		if err != nil {
 			t.Fatalf("got unexpected error: %v", err)
 		}
@@ -557,19 +562,20 @@ func TestWalletBalanceFees(t *testing.T) {
 
 	// test without including fees in send
 	for _, sendAmount := range sendAmounts {
-		token, err := balanceTestWallet.Send(sendAmount, mintURL, false)
+		proofsToSend, err := balanceTestWallet.Send(sendAmount, mintURL, false)
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
+		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
 
-		fees, err := testutils.Fees(token.Token[0].Proofs, mintURL)
+		fees, err := testutils.Fees(proofsToSend, mintURL)
 		if err != nil {
 			t.Fatalf("got unexpected error: %v", err)
 		}
 
 		// test balance in receiving wallet
 		balanceBeforeReceive := balanceTestWallet2.GetBalance()
-		_, err = balanceTestWallet2.Receive(*token, false)
+		_, err = balanceTestWallet2.Receive(token, false)
 		if err != nil {
 			t.Fatalf("got unexpected error: %v", err)
 		}
@@ -658,19 +664,20 @@ func testP2PK(
 	}
 
 	receiverPubkey := testWallet2.GetReceivePubkey()
-	lockedEcash, err := testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
+	lockedProofs, err := testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
+	lockedEcash, _ := cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT)
 
 	// try receiving invalid
-	_, err = testWallet.Receive(*lockedEcash, true)
+	_, err = testWallet.Receive(lockedEcash, true)
 	if err == nil {
 		t.Fatal("expected error trying to redeem locked ecash")
 	}
 
 	// this should unlock ecash and swap to trusted mint
-	amountReceived, err := testWallet2.Receive(*lockedEcash, true)
+	amountReceived, err := testWallet2.Receive(lockedEcash, true)
 	if err != nil {
 		t.Fatalf("unexpected error receiving locked ecash: %v", err)
 	}
@@ -685,13 +692,14 @@ func testP2PK(
 		t.Fatalf("expected balance of '%v' but got '%v' instead", amountReceived, balance)
 	}
 
-	lockedEcash, err = testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
+	lockedProofs, err = testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
+	lockedEcash, _ = cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT)
 
 	// unlock ecash and trust mint
-	amountReceived, err = testWallet2.Receive(*lockedEcash, false)
+	amountReceived, err = testWallet2.Receive(lockedEcash, false)
 	if err != nil {
 		t.Fatalf("unexpected error receiving locked ecash: %v", err)
 	}
@@ -734,24 +742,25 @@ func TestNutshell(t *testing.T) {
 	}
 
 	var sendAmount uint64 = 2000
-	token, err := testWallet.Send(sendAmount, nutshellURL, true)
+	proofsToSend, err := testWallet.Send(sendAmount, nutshellURL, true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
+	token, _ := cashu.NewTokenV4(proofsToSend, nutshellURL, testutils.SAT_UNIT)
 
-	fees, _ := testutils.Fees(token.Token[0].Proofs, nutshellURL)
-	if token.TotalAmount() != sendAmount+uint64(fees) {
-		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), token.TotalAmount())
+	fees, _ := testutils.Fees(proofsToSend, nutshellURL)
+	if proofsToSend.Amount() != sendAmount+uint64(fees) {
+		t.Fatalf("expected token amount of '%v' but got '%v' instead", sendAmount+uint64(fees), proofsToSend.Amount())
 	}
 
-	amountReceived, err := testWallet.Receive(*token, false)
+	amountReceived, err := testWallet.Receive(token, false)
 	if err != nil {
 		t.Fatalf("unexpected error receiving: %v", err)
 	}
 
-	fees, _ = testutils.Fees(token.Token[0].Proofs, nutshellURL)
-	if amountReceived != token.TotalAmount()-uint64(fees) {
-		t.Fatalf("expected received amount of '%v' but got '%v' instead", token.TotalAmount()-uint64(fees), amountReceived)
+	fees, _ = testutils.Fees(proofsToSend, nutshellURL)
+	if amountReceived != proofsToSend.Amount()-uint64(fees) {
+		t.Fatalf("expected received amount of '%v' but got '%v' instead", proofsToSend.Amount()-uint64(fees), amountReceived)
 	}
 
 }
@@ -828,23 +837,25 @@ func TestWalletRestore(t *testing.T) {
 	}
 
 	var sendAmount1 uint64 = 5000
-	token, err := testWallet.Send(sendAmount1, mintURL, true)
+	proofsToSend, err := testWallet.Send(sendAmount1, mintURL, true)
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
 
-	_, err = testWallet2.Receive(*token, false)
+	_, err = testWallet2.Receive(token, false)
 	if err != nil {
 		t.Fatalf("got unexpected error in receive: %v", err)
 	}
 
 	var sendAmount2 uint64 = 1000
-	token, err = testWallet.Send(sendAmount2, mintURL, true)
+	proofsToSend, err = testWallet.Send(sendAmount2, mintURL, true)
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
+	token, _ = cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
 
-	_, err = testWallet2.Receive(*token, false)
+	_, err = testWallet2.Receive(token, false)
 	if err != nil {
 		t.Fatalf("got unexpected error in receive: %v", err)
 	}

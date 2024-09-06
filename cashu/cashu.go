@@ -186,10 +186,10 @@ func (t TokenV3) Serialize() (string, error) {
 }
 
 type TokenV4 struct {
-	MintURL     string         `json:"m"`
-	Unit        string         `json:"u"`
 	TokenProofs []TokenV4Proof `json:"t"`
 	Memo        string         `json:"d,omitempty"`
+	MintURL     string         `json:"m"`
+	Unit        string         `json:"u"`
 }
 
 type TokenV4Proof struct {
@@ -296,7 +296,7 @@ func (t TokenV4) Serialize() (string, error) {
 		return "", err
 	}
 
-	token := "cashuB" + base64.URLEncoding.EncodeToString(cborData)
+	token := "cashuB" + base64.RawURLEncoding.EncodeToString(cborData)
 	return token, nil
 }
 
