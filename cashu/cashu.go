@@ -326,7 +326,7 @@ const (
 	LightningBackendErrCode CashuErrCode = 2
 
 	UnitErrCode                        CashuErrCode = 11005
-	PaymentMethodErrCode               CashuErrCode = 11006
+	PaymentMethodErrCode               CashuErrCode = 11007
 	BlindedMessageAlreadySignedErrCode CashuErrCode = 10002
 
 	InvalidProofErrCode            CashuErrCode = 10003
@@ -336,14 +336,13 @@ const (
 	UnknownKeysetErrCode  CashuErrCode = 12001
 	InactiveKeysetErrCode CashuErrCode = 12002
 
+	AmountLimitExceeded            CashuErrCode = 11006
 	MintQuoteRequestNotPaidErrCode CashuErrCode = 20001
 	MintQuoteAlreadyIssuedErrCode  CashuErrCode = 20002
 	MintingDisabledErrCode         CashuErrCode = 20003
-	MintAmountExceededErrCode      CashuErrCode = 20004
 
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
-	MeltAmountExceededErrCode   CashuErrCode = 20007
 
 	QuoteErrCode CashuErrCode = 20008
 )
@@ -359,7 +358,7 @@ var (
 	MintQuoteRequestNotPaid      = Error{Detail: "quote request has not been paid", Code: MintQuoteRequestNotPaidErrCode}
 	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}
 	MintingDisabled              = Error{Detail: "minting is disabled", Code: MintingDisabledErrCode}
-	MintAmountExceededErr        = Error{Detail: "max amount for minting exceeded", Code: MintAmountExceededErrCode}
+	MintAmountExceededErr        = Error{Detail: "max amount for minting exceeded", Code: AmountLimitExceeded}
 	OutputsOverQuoteAmountErr    = Error{Detail: "sum of the output amounts is greater than quote amount", Code: StandardErrCode}
 	ProofAlreadyUsedErr          = Error{Detail: "proofs already used", Code: ProofAlreadyUsedErrCode}
 	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
@@ -367,12 +366,12 @@ var (
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
 	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: QuoteErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
-	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: MeltAmountExceededErrCode}
+	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: AmountLimitExceeded}
 	InsufficientProofsAmount     = Error{
 		Detail: "amount of input proofs is below amount needed for transaction",
 		Code:   InsufficientProofAmountErrCode,
 	}
-	InactiveKeysetSignatureRequest = Error{Detail: "requested signature from non-active keyset", Code: InactiveKeysetErrCode}
+	InactiveKeysetSignatureRequest = Error{Detail: "requested signature from inactive keyset", Code: InactiveKeysetErrCode}
 )
 
 // Given an amount, it returns list of amounts e.g 13 -> [1, 4, 8]
