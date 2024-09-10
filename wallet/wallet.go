@@ -426,7 +426,7 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 }
 
 // Send will return a cashu token with proofs for the given amount
-func (w *Wallet) Send(amount uint64, mintURL string, includeFees bool) (*cashu.Token, error) {
+func (w *Wallet) Send(amount uint64, mintURL string, includeFees bool) (cashu.Proofs, error) {
 	selectedMint, ok := w.mints[mintURL]
 	if !ok {
 		return nil, ErrMintNotExist
@@ -437,8 +437,7 @@ func (w *Wallet) Send(amount uint64, mintURL string, includeFees bool) (*cashu.T
 		return nil, err
 	}
 
-	token := cashu.NewToken(proofsToSend, mintURL, "sat")
-	return &token, nil
+	return proofsToSend, nil
 }
 
 // SendToPubkey returns a cashu token with proofs that are locked to
@@ -448,7 +447,7 @@ func (w *Wallet) SendToPubkey(
 	mintURL string,
 	pubkey *btcec.PublicKey,
 	includeFees bool,
-) (*cashu.Token, error) {
+) (cashu.Proofs, error) {
 	selectedMint, ok := w.mints[mintURL]
 	if !ok {
 		return nil, ErrMintNotExist
@@ -469,13 +468,15 @@ func (w *Wallet) SendToPubkey(
 		return nil, err
 	}
 
-	token := cashu.NewToken(lockedProofs, mintURL, "sat")
-	return &token, nil
+	return lockedProofs, nil
 }
 
 // Receives Cashu token. If swap is true, it will swap the funds to the configured default mint.
 // If false, it will add the proofs from the mint and add that mint to the list of trusted mints.
 func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) {
+	proofsToSwap := token.Proofs()
+	tokenMint := token.Mint()
+
 	if swapToTrusted {
 		trustedMintProofs, err := w.swapToTrusted(token)
 		if err != nil {
@@ -483,26 +484,19 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		}
 		return trustedMintProofs.Amount(), nil
 	} else {
-		proofsToSwap := make(cashu.Proofs, 0)
-		for _, tokenProof := range token.Token {
-			proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
-		}
-
-		tokenMintURL := token.Token[0].Mint
 		// only add mint if not previously trusted
-		_, ok := w.mints[tokenMintURL]
+		_, ok := w.mints[tokenMint]
 		if !ok {
-			_, err := w.addMint(tokenMintURL)
+			_, err := w.addMint(tokenMint)
 			if err != nil {
 				return 0, err
 			}
 		}
 
-		proofs, err := w.swap(proofsToSwap, tokenMintURL)
+		proofs, err := w.swap(proofsToSwap, tokenMint)
 		if err != nil {
 			return 0, err
 		}
-
 		w.saveProofs(proofs)
 
 		return proofs.Amount(), nil
@@ -597,14 +591,10 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 // to the wallet's configured default mint
 func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 	invoicePct := 0.99
-	tokenAmount := token.TotalAmount()
-	tokenMintURL := token.Token[0].Mint
+	tokenAmount := token.Amount()
 	amount := float64(tokenAmount) * invoicePct
-
-	proofsToSwap := make(cashu.Proofs, 0)
-	for _, tokenProof := range token.Token {
-		proofsToSwap = append(proofsToSwap, tokenProof.Proofs...)
-	}
+	tokenMintURL := token.Mint()
+	proofsToSwap := token.Proofs()
 
 	var mintResponse *nut04.PostMintQuoteBolt11Response
 	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response

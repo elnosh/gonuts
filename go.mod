@@ -8,6 +8,7 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
 	github.com/elnosh/btc-docker-test v0.0.0-20240730150514-6d94d76b8881
+	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/gorilla/mux v1.8.0
 	github.com/joho/godotenv v1.5.1
@@ -153,6 +154,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect

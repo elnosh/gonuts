@@ -169,7 +169,7 @@ func receive(ctx *cli.Context) error {
 
 	swap := true
 	trustedMints := nutw.TrustedMints()
-	mintURL := token.Token[0].Mint
+	mintURL := token.Mint()
 
 	isTrusted := slices.Contains(trustedMints, mintURL)
 	if !isTrusted {
@@ -193,7 +193,7 @@ func receive(ctx *cli.Context) error {
 		swap = false
 	}
 
-	receivedAmount, err := nutw.Receive(*token, swap)
+	receivedAmount, err := nutw.Receive(token, swap)
 	if err != nil {
 		printErr(err)
 	}
@@ -275,8 +275,11 @@ func mintTokens(paymentRequest string) error {
 	return nil
 }
 
-const lockFlag = "lock"
-const noFeesFlag = "no-fees"
+const (
+	lockFlag   = "lock"
+	noFeesFlag = "no-fees"
+	legacyFlag = "legacy"
+)
 
 var sendCmd = &cli.Command{
 	Name:      "send",
@@ -291,6 +294,11 @@ var sendCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:               noFeesFlag,
 			Usage:              "do not include fees for receiver in the token generated",
+			DisableDefaultText: true,
+		},
+		&cli.BoolFlag{
+			Name:               legacyFlag,
+			Usage:              "generate token in legacy (V3) format",
 			DisableDefaultText: true,
 		},
 	},
@@ -315,7 +323,7 @@ func send(ctx *cli.Context) error {
 		includeFees = false
 	}
 
-	var token *cashu.Token
+	var proofsToSend cashu.Proofs
 	// if lock flag is set, get ecash locked to the pubkey
 	if ctx.IsSet(lockFlag) {
 		lockpubkey := ctx.String(lockFlag)
@@ -328,18 +336,33 @@ func send(ctx *cli.Context) error {
 			printErr(err)
 		}
 
-		token, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, includeFees)
+		proofsToSend, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, includeFees)
 		if err != nil {
 			printErr(err)
 		}
 	} else {
-		token, err = nutw.Send(sendAmount, selectedMint, includeFees)
+		proofsToSend, err = nutw.Send(sendAmount, selectedMint, includeFees)
 		if err != nil {
 			printErr(err)
 		}
 	}
 
-	fmt.Printf("%v\n", token.ToString())
+	var token cashu.Token
+	if ctx.Bool(legacyFlag) {
+		token = cashu.NewTokenV3(proofsToSend, selectedMint, "sat")
+	} else {
+		token, err = cashu.NewTokenV4(proofsToSend, selectedMint, "sat")
+		if err != nil {
+			printErr(fmt.Errorf("could not serialize token: %v", err))
+		}
+	}
+
+	tokenString, err := token.Serialize()
+	if err != nil {
+		printErr(fmt.Errorf("could not serialize token: %v", err))
+	}
+	fmt.Printf("%v\n", tokenString)
+
 	return nil
 }
 
@@ -515,8 +538,7 @@ func decode(ctx *cli.Context) error {
 	if err != nil {
 		printErr(err)
 	}
-
-	fmt.Println(string(jsonToken))
+	fmt.Printf("token: %s\n", jsonToken)
 
 	return nil
 }

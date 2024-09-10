@@ -12,6 +12,12 @@ import (
 	"fmt"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/fxamacker/cbor/v2"
+)
+
+var (
+	ErrInvalidTokenV3 = errors.New("invalid V3 token")
+	ErrInvalidTokenV4 = errors.New("invalid V4 token")
 )
 
 // Cashu BlindedMessage. See https://github.com/cashubtc/nuts/blob/main/00.md#blindedmessage
@@ -86,32 +92,51 @@ func (proofs Proofs) Amount() uint64 {
 }
 
 // Cashu token. See https://github.com/cashubtc/nuts/blob/main/00.md#token-format
-type Token struct {
-	Token []TokenProof `json:"token"`
-	Unit  string       `json:"unit"`
-	Memo  string       `json:"memo,omitempty"`
+type Token interface {
+	Proofs() Proofs
+	Mint() string
+	Amount() uint64
+	Serialize() (string, error)
 }
 
-type TokenProof struct {
+func DecodeToken(tokenstr string) (Token, error) {
+	token, err := DecodeTokenV4(tokenstr)
+	if err != nil {
+		// if err, try decoding as V3
+		tokenV3, err := DecodeTokenV3(tokenstr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid token: %v", err)
+		}
+		return tokenV3, nil
+	}
+	return token, nil
+}
+
+type TokenV3 struct {
+	Token []TokenV3Proof `json:"token"`
+	Unit  string         `json:"unit"`
+	Memo  string         `json:"memo,omitempty"`
+}
+
+type TokenV3Proof struct {
 	Mint   string `json:"mint"`
 	Proofs Proofs `json:"proofs"`
 }
 
-func NewToken(proofs Proofs, mint string, unit string) Token {
-	tokenProof := TokenProof{Mint: mint, Proofs: proofs}
-	return Token{Token: []TokenProof{tokenProof}, Unit: unit}
+func NewTokenV3(proofs Proofs, mint string, unit string) TokenV3 {
+	tokenProof := TokenV3Proof{Mint: mint, Proofs: proofs}
+	return TokenV3{Token: []TokenV3Proof{tokenProof}, Unit: unit}
 }
 
-func DecodeToken(tokenstr string) (*Token, error) {
+func DecodeTokenV3(tokenstr string) (*TokenV3, error) {
 	prefixVersion := tokenstr[:6]
 	base64Token := tokenstr[6:]
+
 	if prefixVersion != "cashuA" {
-		return nil, errors.New("invalid token")
+		return nil, ErrInvalidTokenV3
 	}
 
-	var tokenBytes []byte
-	var err error
-	tokenBytes, err = base64.URLEncoding.DecodeString(base64Token)
+	tokenBytes, err := base64.URLEncoding.DecodeString(base64Token)
 	if err != nil {
 		tokenBytes, err = base64.RawURLEncoding.DecodeString(base64Token)
 		if err != nil {
@@ -119,7 +144,7 @@ func DecodeToken(tokenstr string) (*Token, error) {
 		}
 	}
 
-	var token Token
+	var token TokenV3
 	err = json.Unmarshal(tokenBytes, &token)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshaling token: %v", err)
@@ -128,20 +153,19 @@ func DecodeToken(tokenstr string) (*Token, error) {
 	return &token, nil
 }
 
-// ToString serializes the token to a string
-func (t *Token) ToString() string {
-	jsonBytes, err := json.Marshal(t)
-	if err != nil {
-		panic(err)
+func (t TokenV3) Proofs() Proofs {
+	proofs := make(Proofs, 0)
+	for _, tokenProof := range t.Token {
+		proofs = append(proofs, tokenProof.Proofs...)
 	}
-
-	token := base64.URLEncoding.EncodeToString(jsonBytes)
-	return "cashuA" + token
+	return proofs
 }
 
-// TotalAmount returns the total amount
-// from the array of Proofs in the token
-func (t *Token) TotalAmount() uint64 {
+func (t TokenV3) Mint() string {
+	return t.Token[0].Mint
+}
+
+func (t TokenV3) Amount() uint64 {
 	var totalAmount uint64 = 0
 	for _, tokenProof := range t.Token {
 		for _, proof := range tokenProof.Proofs {
@@ -149,6 +173,131 @@ func (t *Token) TotalAmount() uint64 {
 		}
 	}
 	return totalAmount
+}
+
+func (t TokenV3) Serialize() (string, error) {
+	jsonBytes, err := json.Marshal(t)
+	if err != nil {
+		return "", err
+	}
+
+	token := "cashuA" + base64.URLEncoding.EncodeToString(jsonBytes)
+	return token, nil
+}
+
+type TokenV4 struct {
+	TokenProofs []TokenV4Proof `json:"t"`
+	Memo        string         `json:"d,omitempty"`
+	MintURL     string         `json:"m"`
+	Unit        string         `json:"u"`
+}
+
+type TokenV4Proof struct {
+	Id     []byte    `json:"i"`
+	Proofs []ProofV4 `json:"p"`
+}
+
+type ProofV4 struct {
+	Amount  uint64 `json:"a"`
+	Secret  string `json:"s"`
+	C       []byte `json:"c"`
+	Witness string `json:"w,omitempty"`
+}
+
+func NewTokenV4(proofs Proofs, mint string, unit string) (TokenV4, error) {
+	proofsMap := make(map[string][]ProofV4)
+	for _, proof := range proofs {
+		C, err := hex.DecodeString(proof.C)
+		if err != nil {
+			return TokenV4{}, fmt.Errorf("invalid C: %v", err)
+		}
+		proofV4 := ProofV4{
+			Amount:  proof.Amount,
+			Secret:  proof.Secret,
+			C:       C,
+			Witness: proof.Witness,
+		}
+		proofsMap[proof.Id] = append(proofsMap[proof.Id], proofV4)
+	}
+
+	proofsV4 := make([]TokenV4Proof, len(proofsMap))
+	i := 0
+	for k, v := range proofsMap {
+		keysetIdBytes, err := hex.DecodeString(k)
+		if err != nil {
+			return TokenV4{}, fmt.Errorf("invalid keyset id: %v", err)
+		}
+		proofV4 := TokenV4Proof{Id: keysetIdBytes, Proofs: v}
+		proofsV4[i] = proofV4
+		i++
+	}
+
+	return TokenV4{MintURL: mint, Unit: unit, TokenProofs: proofsV4}, nil
+}
+
+func DecodeTokenV4(tokenstr string) (*TokenV4, error) {
+	prefixVersion := tokenstr[:6]
+	base64Token := tokenstr[6:]
+	if prefixVersion != "cashuB" {
+		return nil, ErrInvalidTokenV4
+	}
+
+	tokenBytes, err := base64.URLEncoding.DecodeString(base64Token)
+	if err != nil {
+		tokenBytes, err = base64.RawURLEncoding.DecodeString(base64Token)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding token: %v", err)
+		}
+	}
+
+	var tokenV4 TokenV4
+	err = cbor.Unmarshal(tokenBytes, &tokenV4)
+	if err != nil {
+		return nil, fmt.Errorf("cbor.Unmarshal: %v", err)
+	}
+
+	return &tokenV4, nil
+}
+
+func (t TokenV4) Proofs() Proofs {
+	proofs := make(Proofs, 0)
+	for _, tokenV4Proof := range t.TokenProofs {
+		keysetId := hex.EncodeToString(tokenV4Proof.Id)
+		for _, proofV4 := range tokenV4Proof.Proofs {
+			proof := Proof{
+				Amount:  proofV4.Amount,
+				Id:      keysetId,
+				Secret:  proofV4.Secret,
+				C:       hex.EncodeToString(proofV4.C),
+				Witness: proofV4.Witness,
+			}
+			proofs = append(proofs, proof)
+		}
+	}
+	return proofs
+}
+
+func (t TokenV4) Mint() string {
+	return t.MintURL
+}
+
+func (t TokenV4) Amount() uint64 {
+	var totalAmount uint64
+	proofs := t.Proofs()
+	for _, proof := range proofs {
+		totalAmount += proof.Amount
+	}
+	return totalAmount
+}
+
+func (t TokenV4) Serialize() (string, error) {
+	cborData, err := cbor.Marshal(t)
+	if err != nil {
+		return "", err
+	}
+
+	token := "cashuB" + base64.RawURLEncoding.EncodeToString(cborData)
+	return token, nil
 }
 
 type CashuErrCode int
