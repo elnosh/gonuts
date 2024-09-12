@@ -170,9 +170,9 @@ func (sqlite *SQLiteDB) SaveProofs(proofs cashu.Proofs) error {
 	return nil
 }
 
-func (sqlite *SQLiteDB) GetProofsUsed(Ys []string) ([]cashu.Proof, error) {
-	proofs := []cashu.Proof{}
-	query := `SELECT amount, keyset_id, secret, c FROM proofs WHERE y in (?` + strings.Repeat(",?", len(Ys)-1) + `)`
+func (sqlite *SQLiteDB) GetProofsUsed(Ys []string) ([]storage.DBProof, error) {
+	proofs := []storage.DBProof{}
+	query := `SELECT * FROM proofs WHERE y in (?` + strings.Repeat(",?", len(Ys)-1) + `)`
 
 	args := make([]any, len(Ys))
 	for i, y := range Ys {
@@ -186,8 +186,9 @@ func (sqlite *SQLiteDB) GetProofsUsed(Ys []string) ([]cashu.Proof, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var proof cashu.Proof
+		var proof storage.DBProof
 		err := rows.Scan(
+			&proof.Y,
 			&proof.Amount,
 			&proof.Id,
 			&proof.Secret,

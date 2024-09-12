@@ -18,6 +18,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
 )
@@ -98,6 +99,7 @@ func (ms *MintServer) setupHttpServer(port string) error {
 	r.HandleFunc("/v1/melt/quote/{method}", ms.meltQuoteRequest).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/checkstate", ms.tokenStateCheck).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet, http.MethodOptions)
 
 	r.Use(setupHeaders)
@@ -474,6 +476,28 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	ms.writeResponse(rw, req, jsonRes, "")
+}
+
+func (ms *MintServer) tokenStateCheck(rw http.ResponseWriter, req *http.Request) {
+	var stateRequest nut07.PostCheckStateRequest
+	err := decodeJsonReqBody(req, &stateRequest)
+	if err != nil {
+		ms.writeErr(rw, req, err)
+		return
+	}
+
+	proofStates, err := ms.mint.ProofsStateCheck(stateRequest.Ys)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+	}
+
+	checkStateResponse := nut07.PostCheckStateResponse{States: proofStates}
+	jsonRes, err := json.Marshal(checkStateResponse)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+	ms.writeResponse(rw, req, jsonRes, "returned proof states")
 }
 
 func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {

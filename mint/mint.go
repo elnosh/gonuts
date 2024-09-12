@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -21,6 +22,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/crypto"
@@ -552,6 +554,32 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 	}
 
 	return *meltQuote, nil
+}
+
+func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
+	usedProofs, err := m.db.GetProofsUsed(Ys)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			msg := fmt.Sprintf("could not get used proofs from db: %v", err)
+			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
+	}
+
+	proofStates := make([]nut07.ProofState, len(Ys))
+	for i, y := range Ys {
+		state := nut07.Unspent
+
+		YSpent := slices.ContainsFunc(usedProofs, func(proof storage.DBProof) bool {
+			return proof.Y == y
+		})
+		if YSpent {
+			state = nut07.Spent
+		}
+
+		proofStates[i] = nut07.ProofState{Y: y, State: state}
+	}
+
+	return proofStates, nil
 }
 
 func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {

@@ -50,27 +50,37 @@ type PostCheckStateResponse struct {
 type ProofState struct {
 	Y       string `json:"Y"`
 	State   State  `json:"state"`
-	Witness string `json:"witness"`
+	Witness string `json:"witness,omitempty"`
+}
+
+type TempProofState struct {
+	Y       string `json:"Y"`
+	State   string `json:"state"`
+	Witness string `json:"witness,omitempty"`
+}
+
+func (state *ProofState) MarshalJSON() ([]byte, error) {
+	tempProof := TempProofState{
+		Y:     state.Y,
+		State: state.State.String(),
+	}
+	return json.Marshal(tempProof)
 }
 
 func (state *ProofState) UnmarshalJSON(data []byte) error {
-	var proofString struct {
-		Y       string `json:"Y"`
-		State   string `json:"state"`
-		Witness string `json:"witness"`
-	}
+	var tempProof TempProofState
 
-	if err := json.Unmarshal(data, &proofString); err != nil {
+	if err := json.Unmarshal(data, &tempProof); err != nil {
 		return err
 	}
 
-	state.Y = proofString.Y
-	stateVal := StringToState(proofString.State)
+	state.Y = tempProof.Y
+	stateVal := StringToState(tempProof.State)
 	if stateVal == Unknown {
 		return errors.New("invalid state")
 	}
 	state.State = stateVal
-	state.Witness = proofString.Witness
+	state.Witness = tempProof.Witness
 
 	return nil
 }
