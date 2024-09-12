@@ -219,7 +219,7 @@ func (sqlite *SQLiteDB) SaveMintQuote(mintQuote storage.MintQuote) error {
 	return err
 }
 
-func (sqlite *SQLiteDB) GetMintQuote(quoteId string) (*storage.MintQuote, error) {
+func (sqlite *SQLiteDB) GetMintQuote(quoteId string) (storage.MintQuote, error) {
 	row := sqlite.db.QueryRow("SELECT * FROM mint_quotes WHERE id = ?", quoteId)
 
 	var mintQuote storage.MintQuote
@@ -234,11 +234,11 @@ func (sqlite *SQLiteDB) GetMintQuote(quoteId string) (*storage.MintQuote, error)
 		&mintQuote.Expiry,
 	)
 	if err != nil {
-		return nil, err
+		return storage.MintQuote{}, err
 	}
 	mintQuote.State = nut04.StringToState(state)
 
-	return &mintQuote, nil
+	return mintQuote, nil
 }
 
 func (sqlite *SQLiteDB) UpdateMintQuoteState(quoteId string, state nut04.State) error {
@@ -276,7 +276,7 @@ func (sqlite *SQLiteDB) SaveMeltQuote(meltQuote storage.MeltQuote) error {
 	return err
 }
 
-func (sqlite *SQLiteDB) GetMeltQuote(quoteId string) (*storage.MeltQuote, error) {
+func (sqlite *SQLiteDB) GetMeltQuote(quoteId string) (storage.MeltQuote, error) {
 	row := sqlite.db.QueryRow("SELECT * FROM melt_quotes WHERE id = ?", quoteId)
 
 	var meltQuote storage.MeltQuote
@@ -293,11 +293,11 @@ func (sqlite *SQLiteDB) GetMeltQuote(quoteId string) (*storage.MeltQuote, error)
 		&meltQuote.Preimage,
 	)
 	if err != nil {
-		return nil, err
+		return storage.MeltQuote{}, err
 	}
 	meltQuote.State = nut05.StringToState(state)
 
-	return &meltQuote, nil
+	return meltQuote, nil
 }
 
 func (sqlite *SQLiteDB) UpdateMeltQuote(quoteId, preimage string, state nut05.State) error {
@@ -326,6 +326,22 @@ func (sqlite *SQLiteDB) SaveBlindSignature(B_, C_, keysetId string, amount uint6
 		B_, C_, keysetId, amount,
 	)
 	return err
+}
+
+func (sqlite *SQLiteDB) GetBlindSignature(B_ string) (cashu.BlindedSignature, error) {
+	row := sqlite.db.QueryRow("SELECT amount, c_, keyset_id FROM blind_signatures WHERE b_ = ?", B_)
+
+	var signature cashu.BlindedSignature
+	err := row.Scan(
+		&signature.Amount,
+		&signature.C_,
+		&signature.Id,
+	)
+	if err != nil {
+		return cashu.BlindedSignature{}, err
+	}
+
+	return signature, nil
 }
 
 func (sqlite *SQLiteDB) GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error) {

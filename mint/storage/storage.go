@@ -20,14 +20,15 @@ type MintDB interface {
 	GetProofsUsed(Ys []string) ([]DBProof, error)
 
 	SaveMintQuote(MintQuote) error
-	GetMintQuote(string) (*MintQuote, error)
+	GetMintQuote(string) (MintQuote, error)
 	UpdateMintQuoteState(quoteId string, state nut04.State) error
 
 	SaveMeltQuote(MeltQuote) error
-	GetMeltQuote(string) (*MeltQuote, error)
+	GetMeltQuote(string) (MeltQuote, error)
 	UpdateMeltQuote(quoteId string, preimage string, state nut05.State) error
 
 	SaveBlindSignature(B_, C_, keysetId string, amount uint64) error
+	GetBlindSignature(B_ string) (cashu.BlindedSignature, error)
 	GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error)
 
 	Close()
