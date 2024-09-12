@@ -411,17 +411,22 @@ func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 	return proofs, nil
 }
 
-func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) (cashu.Proofs, error) {
+func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) (
+	cashu.BlindedMessages,
+	[]string,
+	[]*secp256k1.PrivateKey,
+	cashu.BlindedSignatures,
+	error) {
+
 	mintQuoteResponse, err := mint.RequestMintQuote(BOLT11_METHOD, amount, SAT_UNIT)
 	if err != nil {
-		return nil, fmt.Errorf("error requesting mint quote: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("error requesting mint quote: %v", err)
 	}
 
 	keyset := mint.GetActiveKeyset()
-
 	blindedMessages, secrets, rs, err := CreateBlindedMessages(amount, keyset)
 	if err != nil {
-		return nil, fmt.Errorf("error creating blinded message: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("error creating blinded message: %v", err)
 	}
 
 	ctx := context.Background()
@@ -431,12 +436,22 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 	}
 	response, _ := payer.Client.SendPaymentSync(ctx, &sendPaymentRequest)
 	if len(response.PaymentError) > 0 {
-		return nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
+		return nil, nil, nil, nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
 	}
 
 	blindedSignatures, err := mint.MintTokens(BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
 	if err != nil {
-		return nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
+	}
+
+	return blindedMessages, secrets, rs, blindedSignatures, nil
+}
+
+func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) (cashu.Proofs, error) {
+	keyset := mint.GetActiveKeyset()
+	_, secrets, rs, blindedSignatures, err := GetBlindedSignatures(amount, mint, payer)
+	if err != nil {
+		return nil, fmt.Errorf("error generating blinded signatures: %v", err)
 	}
 
 	proofs, err := ConstructProofs(blindedSignatures, secrets, rs, &keyset)

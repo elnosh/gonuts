@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -621,6 +622,58 @@ func TestProofsStateCheck(t *testing.T) {
 	}
 }
 
+func TestRestoreSignatures(t *testing.T) {
+	// create blinded messages
+	blindedMessages, _, _, blindedSignatures, err := testutils.GetBlindedSignatures(5000, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating blinded signatures: %v", err)
+	}
+
+	outputs, signatures, err := testMint.RestoreSignatures(blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error restoring signatures: %v\n", err)
+	}
+
+	if len(outputs) != len(signatures) {
+		t.Fatalf("length of ouputs '%v' does not match length of signatures '%v'\n", len(outputs), len(signatures))
+	}
+	if !reflect.DeepEqual(blindedMessages, outputs) {
+		t.Fatal("outputs in request do not match outputs from mint response")
+	}
+	if !reflect.DeepEqual(blindedSignatures, signatures) {
+		t.Fatal("blinded signatures do not match signatures from mint response")
+	}
+
+	// test with blinded messages that have not been previously signed
+	unsigned, _, _, _ := testutils.CreateBlindedMessages(4200, testMint.GetActiveKeyset())
+	outputs, signatures, err = testMint.RestoreSignatures(unsigned)
+	if err != nil {
+		t.Fatalf("unexpected error restoring signatures: %v\n", err)
+	}
+
+	// response should be empty
+	if len(outputs) != 0 && len(signatures) != 0 {
+		t.Fatalf("expected empty outputs and signatures but got %v and %v\n", len(outputs), len(signatures))
+	}
+
+	// test with only a portion of blinded messages signed
+	partial := append(blindedMessages, unsigned...)
+	outputs, signatures, err = testMint.RestoreSignatures(partial)
+	if err != nil {
+		t.Fatalf("unexpected error restoring signatures: %v\n", err)
+	}
+
+	if len(outputs) != len(signatures) {
+		t.Fatalf("length of ouputs '%v' does not match length of signatures '%v'\n", len(outputs), len(signatures))
+	}
+	if !reflect.DeepEqual(blindedMessages, outputs) {
+		t.Fatal("outputs in request do not match outputs from mint response")
+	}
+	if !reflect.DeepEqual(blindedSignatures, signatures) {
+		t.Fatal("blinded signatures do not match signatures from mint response")
+	}
+}
+
 func TestMintLimits(t *testing.T) {
 	// setup mint with limits
 	limitsMintPath := filepath.Join(".", "limitsMint")
@@ -905,5 +958,4 @@ func TestNUT11P2PK(t *testing.T) {
 	if !errors.Is(err, nut11.SigAllOnlySwap) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.SigAllOnlySwap, err)
 	}
-
 }
