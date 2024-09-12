@@ -489,6 +489,7 @@ func (ms *MintServer) tokenStateCheck(rw http.ResponseWriter, req *http.Request)
 	proofStates, err := ms.mint.ProofsStateCheck(stateRequest.Ys)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		return
 	}
 
 	checkStateResponse := nut07.PostCheckStateResponse{States: proofStates}
