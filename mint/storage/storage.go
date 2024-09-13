@@ -17,7 +17,7 @@ type MintDB interface {
 	UpdateKeysetActive(keysetId string, active bool) error
 
 	SaveProofs(cashu.Proofs) error
-	GetProofsUsed(Ys []string) ([]cashu.Proof, error)
+	GetProofsUsed(Ys []string) ([]DBProof, error)
 
 	SaveMintQuote(MintQuote) error
 	GetMintQuote(string) (*MintQuote, error)
@@ -40,6 +40,14 @@ type DBKeyset struct {
 	Seed              string
 	DerivationPathIdx uint32
 	InputFeePpk       uint
+}
+
+type DBProof struct {
+	Amount uint64
+	Id     string
+	Secret string
+	Y      string
+	C      string
 }
 
 type MintQuote struct {

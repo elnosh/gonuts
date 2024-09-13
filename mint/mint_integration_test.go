@@ -18,6 +18,7 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
@@ -564,7 +565,60 @@ func TestMelt(t *testing.T) {
 	if melt.State != nut05.Paid {
 		t.Fatal("got unexpected unpaid melt quote")
 	}
+}
 
+func TestProofsStateCheck(t *testing.T) {
+	validProofs, err := testutils.GetValidProofsForAmount(5000, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	Ys := make([]string, len(validProofs))
+	for i, proof := range validProofs {
+		Y, _ := crypto.HashToCurve([]byte(proof.Secret))
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+		Ys[i] = Yhex
+	}
+
+	proofStates, err := testMint.ProofsStateCheck(Ys)
+	if err != nil {
+		t.Fatalf("unexpected error checking proof states: %v", err)
+	}
+
+	// proofs should be unspent here
+	for _, proofState := range proofStates {
+		if proofState.State != nut07.Unspent {
+			t.Fatalf("expected proof state '%v' but got '%v'", nut07.Unspent.String(), proofState.State.String())
+		}
+	}
+
+	// spend proofs and check spent state in response from mint
+	proofsToSpend := cashu.Proofs{}
+	numProofs := len(validProofs) / 2
+	Ys = make([]string, numProofs)
+	for i := 0; i < numProofs; i++ {
+		proofsToSpend = append(proofsToSpend, validProofs[i])
+		Y, _ := crypto.HashToCurve([]byte(validProofs[i].Secret))
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+		Ys[i] = Yhex
+	}
+
+	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(proofsToSpend.Amount(), testMint.GetActiveKeyset())
+	_, err = testMint.Swap(proofsToSpend, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	proofStates, err = testMint.ProofsStateCheck(Ys)
+	if err != nil {
+		t.Fatalf("unexpected error checking proof states: %v", err)
+	}
+
+	for _, proofState := range proofStates {
+		if proofState.State != nut07.Spent {
+			t.Fatalf("expected proof state '%v' but got '%v'", nut07.Spent.String(), proofState.State.String())
+		}
+	}
 }
 
 func TestMintLimits(t *testing.T) {
