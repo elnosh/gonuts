@@ -268,7 +268,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 		}
 	}
 
-	return *mintQuote, nil
+	return mintQuote, nil
 }
 
 // MintTokens verifies whether the mint quote with id has been paid and proceeds to
@@ -484,7 +484,7 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (storage.MeltQuote, err
 		return storage.MeltQuote{}, cashu.QuoteNotExistErr
 	}
 
-	return *meltQuote, nil
+	return meltQuote, nil
 }
 
 // MeltTokens verifies whether proofs provided are valid
@@ -553,7 +553,7 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 	}
 
-	return *meltQuote, nil
+	return meltQuote, nil
 }
 
 func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
@@ -580,6 +580,26 @@ func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
 	}
 
 	return proofStates, nil
+}
+
+func (m *Mint) RestoreSignatures(blindedMessages cashu.BlindedMessages) (cashu.BlindedMessages, cashu.BlindedSignatures, error) {
+	outputs := make(cashu.BlindedMessages, 0, len(blindedMessages))
+	signatures := make(cashu.BlindedSignatures, 0, len(blindedMessages))
+
+	for _, bm := range blindedMessages {
+		sig, err := m.db.GetBlindSignature(bm.B_)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		} else if err != nil {
+			msg := fmt.Sprintf("could not get signature from db: %v", err)
+			return nil, nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
+
+		outputs = append(outputs, bm)
+		signatures = append(signatures, sig)
+	}
+
+	return outputs, signatures, nil
 }
 
 func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
@@ -878,9 +898,9 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
 			},
 			Disabled: false,
 		},
-		7:  map[string]bool{"supported": false},
+		7:  map[string]bool{"supported": true},
 		8:  map[string]bool{"supported": false},
-		9:  map[string]bool{"supported": false},
+		9:  map[string]bool{"supported": true},
 		10: map[string]bool{"supported": true},
 		11: map[string]bool{"supported": true},
 		12: map[string]bool{"supported": false},

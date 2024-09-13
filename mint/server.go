@@ -19,6 +19,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut07"
+	"github.com/elnosh/gonuts/cashu/nuts/nut09"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
 )
@@ -100,6 +101,7 @@ func (ms *MintServer) setupHttpServer(port string) error {
 	r.HandleFunc("/v1/melt/quote/{method}/{quote_id}", ms.meltQuoteState).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/v1/melt/{method}", ms.meltTokens).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/v1/checkstate", ms.tokenStateCheck).Methods(http.MethodPost, http.MethodOptions)
+	r.HandleFunc("/v1/restore", ms.restoreSignatures).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet, http.MethodOptions)
 
 	r.Use(setupHeaders)
@@ -501,10 +503,38 @@ func (ms *MintServer) tokenStateCheck(rw http.ResponseWriter, req *http.Request)
 	ms.writeResponse(rw, req, jsonRes, "returned proof states")
 }
 
+func (ms *MintServer) restoreSignatures(rw http.ResponseWriter, req *http.Request) {
+	var restoreRequest nut09.PostRestoreRequest
+	err := decodeJsonReqBody(req, &restoreRequest)
+	if err != nil {
+		ms.writeErr(rw, req, err)
+		return
+	}
+
+	blindedMessages, blindedSignatures, err := ms.mint.RestoreSignatures(restoreRequest.Outputs)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		return
+	}
+
+	restoreResponse := nut09.PostRestoreResponse{
+		Outputs:    blindedMessages,
+		Signatures: blindedSignatures,
+	}
+
+	jsonRes, err := json.Marshal(restoreResponse)
+	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+
+	ms.writeResponse(rw, req, jsonRes, "returned signatures from restore request")
+}
+
 func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
 	mintInfo, err := ms.mint.RetrieveMintInfo()
 	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr)
+		ms.writeErr(rw, req, cashu.StandardErr, err.Error())
 		return
 	}
 	jsonRes, err := json.Marshal(mintInfo)
