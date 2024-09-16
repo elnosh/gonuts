@@ -4,8 +4,8 @@ package lightning
 type Client interface {
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceStatus(hash string) (Invoice, error)
-	FeeReserve(amount uint64) uint64
 	SendPayment(request string, amount uint64) (string, error)
+	FeeReserve(amount uint64) uint64
 }
 
 type Invoice struct {

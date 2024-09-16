@@ -88,11 +88,6 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 	return invoice, nil
 }
 
-func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
-	fee := math.Ceil(float64(amount) * FeePercent)
-	return uint64(fee)
-}
-
 type SendPaymentResponse struct {
 	PaymentError    string `json:"payment_error"`
 	PaymentPreimage string `json:"payment_preimage"`
@@ -118,4 +113,9 @@ func (lnd *LndClient) SendPayment(request string, amount uint64) (string, error)
 
 	preimage := hex.EncodeToString(sendPaymentResponse.PaymentPreimage)
 	return preimage, nil
+}
+
+func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
+	fee := math.Ceil(float64(amount) * FeePercent)
+	return uint64(fee)
 }
