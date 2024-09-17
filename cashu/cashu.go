@@ -66,6 +66,9 @@ type BlindedSignature struct {
 	Amount uint64 `json:"amount"`
 	C_     string `json:"C_"`
 	Id     string `json:"id"`
+	// doing pointer here so that omitempty works.
+	// an empty struct would still get marshalled
+	DLEQ *DLEQProof `json:"dleq,omitempty"`
 }
 
 type BlindedSignatures []BlindedSignature
@@ -77,9 +80,18 @@ type Proof struct {
 	Secret  string `json:"secret"`
 	C       string `json:"C"`
 	Witness string `json:"witness,omitempty"`
+	// doing pointer here so that omitempty works.
+	// an empty struct would still get marshalled
+	DLEQ *DLEQProof `json:"dleq,omitempty"`
 }
 
 type Proofs []Proof
+
+type DLEQProof struct {
+	E string `json:"e"`
+	S string `json:"s"`
+	R string `json:"r,omitempty"`
+}
 
 // Amount returns the total amount from
 // the array of Proof
