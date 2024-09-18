@@ -210,10 +210,17 @@ type TokenV4Proof struct {
 }
 
 type ProofV4 struct {
-	Amount  uint64 `json:"a"`
-	Secret  string `json:"s"`
-	C       []byte `json:"c"`
-	Witness string `json:"w,omitempty"`
+	Amount  uint64  `json:"a"`
+	Secret  string  `json:"s"`
+	C       []byte  `json:"c"`
+	Witness string  `json:"w,omitempty"`
+	DLEQ    *DLEQV4 `json:"d,omitempty"`
+}
+
+type DLEQV4 struct {
+	E []byte `json:"e"`
+	S []byte `json:"s"`
+	R []byte `json:"r"`
 }
 
 func NewTokenV4(proofs Proofs, mint string, unit string) (TokenV4, error) {
@@ -282,6 +289,14 @@ func (t TokenV4) Proofs() Proofs {
 				Secret:  proofV4.Secret,
 				C:       hex.EncodeToString(proofV4.C),
 				Witness: proofV4.Witness,
+			}
+			if proofV4.DLEQ != nil {
+				dleq := &DLEQProof{
+					E: hex.EncodeToString(proofV4.DLEQ.E),
+					S: hex.EncodeToString(proofV4.DLEQ.S),
+					R: hex.EncodeToString(proofV4.DLEQ.R),
+				}
+				proof.DLEQ = dleq
 			}
 			proofs = append(proofs, proof)
 		}
