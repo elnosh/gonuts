@@ -320,25 +320,44 @@ func (sqlite *SQLiteDB) UpdateMeltQuote(quoteId, preimage string, state nut05.St
 	return nil
 }
 
-func (sqlite *SQLiteDB) SaveBlindSignature(B_, C_, keysetId string, amount uint64) error {
+func (sqlite *SQLiteDB) SaveBlindSignature(B_ string, blindSignature cashu.BlindedSignature) error {
 	_, err := sqlite.db.Exec(`
-		INSERT INTO blind_signatures (b_, c_, keyset_id, amount) VALUES (?, ?, ?, ?)`,
-		B_, C_, keysetId, amount,
+		INSERT INTO blind_signatures (b_, c_, keyset_id, amount, e, s) VALUES (?, ?, ?, ?, ?, ?)`,
+		B_,
+		blindSignature.C_,
+		blindSignature.Id,
+		blindSignature.Amount,
+		blindSignature.DLEQ.E,
+		blindSignature.DLEQ.S,
 	)
 	return err
 }
 
 func (sqlite *SQLiteDB) GetBlindSignature(B_ string) (cashu.BlindedSignature, error) {
-	row := sqlite.db.QueryRow("SELECT amount, c_, keyset_id FROM blind_signatures WHERE b_ = ?", B_)
+	row := sqlite.db.QueryRow("SELECT amount, c_, keyset_id, e, s FROM blind_signatures WHERE b_ = ?", B_)
 
 	var signature cashu.BlindedSignature
+	var e sql.NullString
+	var s sql.NullString
+
 	err := row.Scan(
 		&signature.Amount,
 		&signature.C_,
 		&signature.Id,
+		&e,
+		&s,
 	)
 	if err != nil {
 		return cashu.BlindedSignature{}, err
+	}
+
+	if !e.Valid || !s.Valid {
+		signature.DLEQ = nil
+	} else {
+		signature.DLEQ = &cashu.DLEQProof{
+			E: e.String,
+			S: s.String,
+		}
 	}
 
 	return signature, nil
@@ -346,7 +365,7 @@ func (sqlite *SQLiteDB) GetBlindSignature(B_ string) (cashu.BlindedSignature, er
 
 func (sqlite *SQLiteDB) GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error) {
 	signatures := cashu.BlindedSignatures{}
-	query := `SELECT amount, c_, keyset_id FROM blind_signatures WHERE b_ in (?` + strings.Repeat(",?", len(B_s)-1) + `)`
+	query := `SELECT amount, c_, keyset_id, e, s FROM blind_signatures WHERE b_ in (?` + strings.Repeat(",?", len(B_s)-1) + `)`
 
 	args := make([]any, len(B_s))
 	for i, B_ := range B_s {
@@ -360,12 +379,31 @@ func (sqlite *SQLiteDB) GetBlindSignatures(B_s []string) (cashu.BlindedSignature
 	defer rows.Close()
 
 	for rows.Next() {
-		var blindSignature cashu.BlindedSignature
-		err := rows.Scan(&blindSignature.Amount, &blindSignature.C_, &blindSignature.Id)
+		var signature cashu.BlindedSignature
+		var e sql.NullString
+		var s sql.NullString
+
+		err := rows.Scan(
+			&signature.Amount,
+			&signature.C_,
+			&signature.Id,
+			&e,
+			&s,
+		)
 		if err != nil {
 			return nil, err
 		}
-		signatures = append(signatures, blindSignature)
+
+		if !e.Valid || !s.Valid {
+			signature.DLEQ = nil
+		} else {
+			signature.DLEQ = &cashu.DLEQProof{
+				E: e.String,
+				S: s.String,
+			}
+		}
+
+		signatures = append(signatures, signature)
 	}
 
 	return signatures, nil

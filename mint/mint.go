@@ -831,12 +831,22 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 		C_ := crypto.SignBlindedMessage(B_, k)
 		C_hex := hex.EncodeToString(C_.SerializeCompressed())
 
-		blindedSignature := cashu.BlindedSignature{Amount: msg.Amount,
-			C_: C_hex, Id: keyset.Id}
+		// DLEQ proof
+		e, s := crypto.GenerateDLEQ(k, B_, C_)
+
+		blindedSignature := cashu.BlindedSignature{
+			Amount: msg.Amount,
+			C_:     C_hex,
+			Id:     keyset.Id,
+			DLEQ: &cashu.DLEQProof{
+				E: hex.EncodeToString(e.Serialize()),
+				S: hex.EncodeToString(s.Serialize()),
+			},
+		}
 
 		blindedSignatures[i] = blindedSignature
 
-		if err := m.db.SaveBlindSignature(msg.B_, C_hex, msg.Id, msg.Amount); err != nil {
+		if err := m.db.SaveBlindSignature(msg.B_, blindedSignature); err != nil {
 			msg := fmt.Sprintf("error saving signatures: %v", err)
 			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
 		}
@@ -845,7 +855,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 	return blindedSignatures, nil
 }
 
-// requestInvoices requests an invoice from the Lightning backend
+// requestInvoice requests an invoice from the Lightning backend
 // for the given amount
 func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
 	invoice, err := m.lightningClient.CreateInvoice(amount)
