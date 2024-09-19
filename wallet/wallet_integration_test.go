@@ -277,7 +277,7 @@ func TestReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT, false)
 
 	// test receive swap == true
 	_, err = testWallet.Receive(token, true)
@@ -298,7 +298,7 @@ func TestReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ = cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT)
+	token, _ = cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT, false)
 
 	// test receive swap == false
 	_, err = testWallet.Receive(token, false)
@@ -347,7 +347,7 @@ func TestReceiveFees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 	amountReceived, err := testWallet2.Receive(token, false)
 	if err != nil {
@@ -546,7 +546,7 @@ func TestWalletBalanceFees(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
-		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 		// test balance in receiving wallet
 		balanceBeforeReceive := balanceTestWallet2.GetBalance()
@@ -566,7 +566,7 @@ func TestWalletBalanceFees(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
-		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 		fees, err := testutils.Fees(proofsToSend, mintURL)
 		if err != nil {
@@ -648,7 +648,7 @@ func testWalletRestore(
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 	_, err = testWallet2.Receive(token, false)
 	if err != nil {
@@ -660,7 +660,7 @@ func testWalletRestore(
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
-	token, _ = cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+	token, _ = cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 	_, err = testWallet2.Receive(token, false)
 	if err != nil {
@@ -764,7 +764,7 @@ func testP2PK(
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
-	lockedEcash, _ := cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT)
+	lockedEcash, _ := cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT, false)
 
 	// try receiving invalid
 	_, err = testWallet.Receive(lockedEcash, true)
@@ -792,7 +792,7 @@ func testP2PK(
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
-	lockedEcash, _ = cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT)
+	lockedEcash, _ = cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT, false)
 
 	// unlock ecash and trust mint
 	amountReceived, err = testWallet2.Receive(lockedEcash, false)
@@ -842,7 +842,7 @@ func TestNutshell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, nutshellURL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, nutshellURL, testutils.SAT_UNIT, false)
 
 	fees, _ := testutils.Fees(proofsToSend, nutshellURL)
 	if proofsToSend.Amount() != sendAmount+uint64(fees) {

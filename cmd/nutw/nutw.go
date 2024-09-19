@@ -276,9 +276,10 @@ func mintTokens(paymentRequest string) error {
 }
 
 const (
-	lockFlag   = "lock"
-	noFeesFlag = "no-fees"
-	legacyFlag = "legacy"
+	lockFlag        = "lock"
+	noFeesFlag      = "no-fees"
+	legacyFlag      = "legacy"
+	includeDLEQFlag = "include-dleq"
 )
 
 var sendCmd = &cli.Command{
@@ -299,6 +300,11 @@ var sendCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:               legacyFlag,
 			Usage:              "generate token in legacy (V3) format",
+			DisableDefaultText: true,
+		},
+		&cli.BoolFlag{
+			Name:               includeDLEQFlag,
+			Usage:              "include DLEQ proofs",
 			DisableDefaultText: true,
 		},
 	},
@@ -347,11 +353,16 @@ func send(ctx *cli.Context) error {
 		}
 	}
 
+	includeDLEQ := false
+	if ctx.Bool(includeDLEQFlag) {
+		includeDLEQ = true
+	}
+
 	var token cashu.Token
 	if ctx.Bool(legacyFlag) {
-		token = cashu.NewTokenV3(proofsToSend, selectedMint, "sat")
+		token = cashu.NewTokenV3(proofsToSend, selectedMint, "sat", includeDLEQ)
 	} else {
-		token, err = cashu.NewTokenV4(proofsToSend, selectedMint, "sat")
+		token, err = cashu.NewTokenV4(proofsToSend, selectedMint, "sat", includeDLEQ)
 		if err != nil {
 			printErr(fmt.Errorf("could not serialize token: %v", err))
 		}
@@ -404,7 +415,7 @@ func pay(ctx *cli.Context) error {
 
 var p2pkLockCmd = &cli.Command{
 	Name:   "p2pk-lock",
-	Usage:  "Retrieves a public key to which ecash can locked",
+	Usage:  "Retrieves a public key to which ecash can be locked",
 	Before: setupWallet,
 	Action: p2pkLock,
 }

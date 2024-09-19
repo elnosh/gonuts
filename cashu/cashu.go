@@ -135,7 +135,13 @@ type TokenV3Proof struct {
 	Proofs Proofs `json:"proofs"`
 }
 
-func NewTokenV3(proofs Proofs, mint string, unit string) TokenV3 {
+func NewTokenV3(proofs Proofs, mint, unit string, includeDLEQ bool) TokenV3 {
+	if !includeDLEQ {
+		for i := 0; i < len(proofs); i++ {
+			proofs[i].DLEQ = nil
+		}
+	}
+
 	tokenProof := TokenV3Proof{Mint: mint, Proofs: proofs}
 	return TokenV3{Token: []TokenV3Proof{tokenProof}, Unit: unit}
 }
@@ -223,7 +229,7 @@ type DLEQV4 struct {
 	R []byte `json:"r"`
 }
 
-func NewTokenV4(proofs Proofs, mint string, unit string) (TokenV4, error) {
+func NewTokenV4(proofs Proofs, mint, unit string, includeDLEQ bool) (TokenV4, error) {
 	proofsMap := make(map[string][]ProofV4)
 	for _, proof := range proofs {
 		C, err := hex.DecodeString(proof.C)
@@ -235,6 +241,35 @@ func NewTokenV4(proofs Proofs, mint string, unit string) (TokenV4, error) {
 			Secret:  proof.Secret,
 			C:       C,
 			Witness: proof.Witness,
+		}
+		if includeDLEQ {
+			if proof.DLEQ != nil {
+				e, err := hex.DecodeString(proof.DLEQ.E)
+				if err != nil {
+					return TokenV4{}, fmt.Errorf("invalid e in DLEQ proof: %v", err)
+				}
+				s, err := hex.DecodeString(proof.DLEQ.S)
+				if err != nil {
+					return TokenV4{}, fmt.Errorf("invalid s in DLEQ proof: %v", err)
+				}
+
+				var r []byte
+				if len(proof.DLEQ.R) > 0 {
+					r, err = hex.DecodeString(proof.DLEQ.R)
+					if err != nil {
+						return TokenV4{}, fmt.Errorf("invalid r in DLEQ proof: %v", err)
+					}
+				} else {
+					return TokenV4{}, errors.New("r in DLEQ proof cannot be empty")
+				}
+
+				dleq := &DLEQV4{
+					E: e,
+					S: s,
+					R: r,
+				}
+				proofV4.DLEQ = dleq
+			}
 		}
 		proofsMap[proof.Id] = append(proofsMap[proof.Id], proofV4)
 	}
