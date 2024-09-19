@@ -14,6 +14,7 @@ import (
 
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -894,6 +895,66 @@ func TestSendToPubkeyNutshell(t *testing.T) {
 	}()
 
 	testP2PK(t, testWallet, testWallet2, true)
+}
+
+func TestDLEQProofsNutshell(t *testing.T) {
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
+	nutshellURL := nutshellMint.Host
+
+	testWalletPath := filepath.Join(".", "/testwalletdleq")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	keysets, err := wallet.GetMintActiveKeysets(nutshellURL)
+	if err != nil {
+		t.Fatalf("unexpected error getting keysets: %v", err)
+	}
+
+	mintRes, err := testWallet.RequestMint(10000)
+	if err != nil {
+		t.Fatalf("unexpected error requesting mint: %v", err)
+	}
+
+	proofs, err := testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error minting tokens: %v", err)
+	}
+
+	for _, proof := range proofs {
+		if proof.DLEQ == nil {
+			t.Fatal("got nil DLEQ proof from MintTokens")
+		}
+
+		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		if !nut12.VerifyProofDLEQ(proof, pubkey) {
+			t.Fatal("invalid DLEQ proof returned from MintTokens")
+		}
+	}
+
+	proofsToSend, err := testWallet.Send(2100, nutshellURL, false)
+	if err != nil {
+		t.Fatalf("unexpected error in Send: %v", err)
+	}
+	for _, proof := range proofsToSend {
+		if proof.DLEQ == nil {
+			t.Fatal("got nil DLEQ proof from Send")
+		}
+
+		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		if !nut12.VerifyProofDLEQ(proof, pubkey) {
+			t.Fatal("invalid DLEQ proof returned from Send")
+		}
+	}
+
 }
 
 func TestWalletRestoreNutshell(t *testing.T) {
