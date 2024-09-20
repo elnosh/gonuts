@@ -807,6 +807,75 @@ func testP2PK(
 	}
 }
 
+func TestDLEQProofs(t *testing.T) {
+	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testdleqwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	testDLEQ(t, testWallet, false)
+}
+
+func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
+	mintURL := testWallet.CurrentMint()
+	keysets, err := wallet.GetMintActiveKeysets(mintURL)
+	if err != nil {
+		t.Fatalf("unexpected error getting keysets: %v", err)
+	}
+
+	mintRes, err := testWallet.RequestMint(10000)
+	if err != nil {
+		t.Fatalf("unexpected error requesting mint: %v", err)
+	}
+
+	if !fakeBackend {
+		//pay invoice
+		sendPaymentRequest := lnrpc.SendRequest{
+			PaymentRequest: mintRes.Request,
+		}
+		response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+		if len(response.PaymentError) > 0 {
+			t.Fatalf("error paying invoice: %v", response.PaymentError)
+		}
+
+	}
+	proofs, err := testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error minting tokens: %v", err)
+	}
+
+	for _, proof := range proofs {
+		if proof.DLEQ == nil {
+			t.Fatal("got nil DLEQ proof from MintTokens")
+		}
+
+		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		if !nut12.VerifyProofDLEQ(proof, pubkey) {
+			t.Fatal("invalid DLEQ proof returned from MintTokens")
+		}
+	}
+
+	proofsToSend, err := testWallet.Send(2100, mintURL, false)
+	if err != nil {
+		t.Fatalf("unexpected error in Send: %v", err)
+	}
+	for _, proof := range proofsToSend {
+		if proof.DLEQ == nil {
+			t.Fatal("got nil DLEQ proof from Send")
+		}
+
+		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		if !nut12.VerifyProofDLEQ(proof, pubkey) {
+			t.Fatal("invalid DLEQ proof returned from Send")
+		}
+	}
+}
+
 // TESTS AGAINST NUTSHELL MINT
 
 // test regular wallet ops against Nutshell
@@ -859,7 +928,6 @@ func TestNutshell(t *testing.T) {
 	if amountReceived != proofsToSend.Amount()-uint64(fees) {
 		t.Fatalf("expected received amount of '%v' but got '%v' instead", proofsToSend.Amount()-uint64(fees), amountReceived)
 	}
-
 }
 
 func TestSendToPubkeyNutshell(t *testing.T) {
@@ -905,7 +973,7 @@ func TestDLEQProofsNutshell(t *testing.T) {
 	defer nutshellMint.Terminate(ctx)
 	nutshellURL := nutshellMint.Host
 
-	testWalletPath := filepath.Join(".", "/testwalletdleq")
+	testWalletPath := filepath.Join(".", "/testwalletdleqnutshell")
 	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
 	if err != nil {
 		t.Fatal(err)
@@ -914,47 +982,7 @@ func TestDLEQProofsNutshell(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	keysets, err := wallet.GetMintActiveKeysets(nutshellURL)
-	if err != nil {
-		t.Fatalf("unexpected error getting keysets: %v", err)
-	}
-
-	mintRes, err := testWallet.RequestMint(10000)
-	if err != nil {
-		t.Fatalf("unexpected error requesting mint: %v", err)
-	}
-
-	proofs, err := testWallet.MintTokens(mintRes.Quote)
-	if err != nil {
-		t.Fatalf("unexpected error minting tokens: %v", err)
-	}
-
-	for _, proof := range proofs {
-		if proof.DLEQ == nil {
-			t.Fatal("got nil DLEQ proof from MintTokens")
-		}
-
-		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
-		if !nut12.VerifyProofDLEQ(proof, pubkey) {
-			t.Fatal("invalid DLEQ proof returned from MintTokens")
-		}
-	}
-
-	proofsToSend, err := testWallet.Send(2100, nutshellURL, false)
-	if err != nil {
-		t.Fatalf("unexpected error in Send: %v", err)
-	}
-	for _, proof := range proofsToSend {
-		if proof.DLEQ == nil {
-			t.Fatal("got nil DLEQ proof from Send")
-		}
-
-		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
-		if !nut12.VerifyProofDLEQ(proof, pubkey) {
-			t.Fatal("invalid DLEQ proof returned from Send")
-		}
-	}
-
+	testDLEQ(t, testWallet, true)
 }
 
 func TestWalletRestoreNutshell(t *testing.T) {
