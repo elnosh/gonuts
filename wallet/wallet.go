@@ -25,6 +25,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut09"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
+	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/storage"
@@ -397,7 +398,7 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	}
 
 	// unblind the signatures from the promises and build the proofs
-	proofs, err := constructProofs(mintResponse.Signatures, secrets, rs, activeKeyset)
+	proofs, err := constructProofs(mintResponse.Signatures, blindedMessages, secrets, rs, activeKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}
@@ -476,6 +477,27 @@ func (w *Wallet) SendToPubkey(
 func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) {
 	proofsToSwap := token.Proofs()
 	tokenMint := token.Mint()
+
+	var keysets map[string]crypto.WalletKeyset
+	mint, ok := w.mints[tokenMint]
+	if !ok {
+		// get keysets if mint not trusted
+		var err error
+		keysets, err = GetMintActiveKeysets(tokenMint)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		keysets = mint.activeKeysets
+		for id, keyset := range mint.inactiveKeysets {
+			keysets[id] = keyset
+		}
+	}
+
+	// verify DLEQ in proofs if present
+	if !nut12.VerifyProofsDLEQ(proofsToSwap, keysets) {
+		return 0, errors.New("invalid DLEQ proof")
+	}
 
 	if swapToTrusted {
 		trustedMintProofs, err := w.swapToTrusted(token)
@@ -571,7 +593,7 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 	}
 
 	// unblind signatures to get proofs and save them to db
-	proofs, err := constructProofs(swapResponse.Signatures, secrets, rs, activeSatKeyset)
+	proofs, err := constructProofs(swapResponse.Signatures, outputs, secrets, rs, activeSatKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
@@ -944,7 +966,7 @@ func (w *Wallet) swapToSend(
 		w.db.DeleteProof(proof.Secret)
 	}
 
-	proofsFromSwap, err := constructProofs(swapResponse.Signatures, secrets, rs, activeSatKeyset)
+	proofsFromSwap, err := constructProofs(swapResponse.Signatures, blindedMessages, secrets, rs, activeSatKeyset)
 	if err != nil {
 		return nil, fmt.Errorf("wallet.ConstructProofs: %v", err)
 	}
@@ -1217,6 +1239,7 @@ func blindedMessagesFromLock(splitAmounts []uint64, keysetId string, lockPubkey 
 // constructProofs unblinds the blindedSignatures and returns the proofs
 func constructProofs(
 	blindedSignatures cashu.BlindedSignatures,
+	blindedMessages cashu.BlindedMessages,
 	secrets []string,
 	rs []*secp256k1.PrivateKey,
 	keyset *crypto.WalletKeyset,
@@ -1233,6 +1256,25 @@ func constructProofs(
 			return nil, errors.New("key not found")
 		}
 
+		var dleq *cashu.DLEQProof
+		// verify DLEQ if present
+		if blindedSignature.DLEQ != nil {
+			if !nut12.VerifyBlindSignatureDLEQ(
+				*blindedSignature.DLEQ,
+				pubkey,
+				blindedMessages[i].B_,
+				blindedSignature.C_,
+			) {
+				return nil, errors.New("got blinded signature with invalid DLEQ proof")
+			} else {
+				dleq = &cashu.DLEQProof{
+					E: blindedSignature.DLEQ.E,
+					S: blindedSignature.DLEQ.S,
+					R: hex.EncodeToString(rs[i].Serialize()),
+				}
+			}
+		}
+
 		C, err := unblindSignature(blindedSignature.C_, rs[i], pubkey)
 		if err != nil {
 			return nil, err
@@ -1243,6 +1285,7 @@ func constructProofs(
 			Secret: secrets[i],
 			C:      C,
 			Id:     blindedSignature.Id,
+			DLEQ:   dleq,
 		}
 		proofs[i] = proof
 	}

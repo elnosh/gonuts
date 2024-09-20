@@ -66,6 +66,9 @@ type BlindedSignature struct {
 	Amount uint64 `json:"amount"`
 	C_     string `json:"C_"`
 	Id     string `json:"id"`
+	// doing pointer here so that omitempty works.
+	// an empty struct would still get marshalled
+	DLEQ *DLEQProof `json:"dleq,omitempty"`
 }
 
 type BlindedSignatures []BlindedSignature
@@ -77,9 +80,18 @@ type Proof struct {
 	Secret  string `json:"secret"`
 	C       string `json:"C"`
 	Witness string `json:"witness,omitempty"`
+	// doing pointer here so that omitempty works.
+	// an empty struct would still get marshalled
+	DLEQ *DLEQProof `json:"dleq,omitempty"`
 }
 
 type Proofs []Proof
+
+type DLEQProof struct {
+	E string `json:"e"`
+	S string `json:"s"`
+	R string `json:"r,omitempty"`
+}
 
 // Amount returns the total amount from
 // the array of Proof
@@ -123,7 +135,13 @@ type TokenV3Proof struct {
 	Proofs Proofs `json:"proofs"`
 }
 
-func NewTokenV3(proofs Proofs, mint string, unit string) TokenV3 {
+func NewTokenV3(proofs Proofs, mint, unit string, includeDLEQ bool) TokenV3 {
+	if !includeDLEQ {
+		for i := 0; i < len(proofs); i++ {
+			proofs[i].DLEQ = nil
+		}
+	}
+
 	tokenProof := TokenV3Proof{Mint: mint, Proofs: proofs}
 	return TokenV3{Token: []TokenV3Proof{tokenProof}, Unit: unit}
 }
@@ -198,13 +216,20 @@ type TokenV4Proof struct {
 }
 
 type ProofV4 struct {
-	Amount  uint64 `json:"a"`
-	Secret  string `json:"s"`
-	C       []byte `json:"c"`
-	Witness string `json:"w,omitempty"`
+	Amount  uint64  `json:"a"`
+	Secret  string  `json:"s"`
+	C       []byte  `json:"c"`
+	Witness string  `json:"w,omitempty"`
+	DLEQ    *DLEQV4 `json:"d,omitempty"`
 }
 
-func NewTokenV4(proofs Proofs, mint string, unit string) (TokenV4, error) {
+type DLEQV4 struct {
+	E []byte `json:"e"`
+	S []byte `json:"s"`
+	R []byte `json:"r"`
+}
+
+func NewTokenV4(proofs Proofs, mint, unit string, includeDLEQ bool) (TokenV4, error) {
 	proofsMap := make(map[string][]ProofV4)
 	for _, proof := range proofs {
 		C, err := hex.DecodeString(proof.C)
@@ -216,6 +241,35 @@ func NewTokenV4(proofs Proofs, mint string, unit string) (TokenV4, error) {
 			Secret:  proof.Secret,
 			C:       C,
 			Witness: proof.Witness,
+		}
+		if includeDLEQ {
+			if proof.DLEQ != nil {
+				e, err := hex.DecodeString(proof.DLEQ.E)
+				if err != nil {
+					return TokenV4{}, fmt.Errorf("invalid e in DLEQ proof: %v", err)
+				}
+				s, err := hex.DecodeString(proof.DLEQ.S)
+				if err != nil {
+					return TokenV4{}, fmt.Errorf("invalid s in DLEQ proof: %v", err)
+				}
+
+				var r []byte
+				if len(proof.DLEQ.R) > 0 {
+					r, err = hex.DecodeString(proof.DLEQ.R)
+					if err != nil {
+						return TokenV4{}, fmt.Errorf("invalid r in DLEQ proof: %v", err)
+					}
+				} else {
+					return TokenV4{}, errors.New("r in DLEQ proof cannot be empty")
+				}
+
+				dleq := &DLEQV4{
+					E: e,
+					S: s,
+					R: r,
+				}
+				proofV4.DLEQ = dleq
+			}
 		}
 		proofsMap[proof.Id] = append(proofsMap[proof.Id], proofV4)
 	}
@@ -270,6 +324,14 @@ func (t TokenV4) Proofs() Proofs {
 				Secret:  proofV4.Secret,
 				C:       hex.EncodeToString(proofV4.C),
 				Witness: proofV4.Witness,
+			}
+			if proofV4.DLEQ != nil {
+				dleq := &DLEQProof{
+					E: hex.EncodeToString(proofV4.DLEQ.E),
+					S: hex.EncodeToString(proofV4.DLEQ.S),
+					R: hex.EncodeToString(proofV4.DLEQ.R),
+				}
+				proof.DLEQ = dleq
 			}
 			proofs = append(proofs, proof)
 		}

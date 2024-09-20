@@ -166,3 +166,56 @@ func TestVerify(t *testing.T) {
 		t.Error("failed verification")
 	}
 }
+
+func TestHashE(t *testing.T) {
+	R1Hex, _ := hex.DecodeString("020000000000000000000000000000000000000000000000000000000000000001")
+	R2Hex, _ := hex.DecodeString("020000000000000000000000000000000000000000000000000000000000000001")
+	KHex, _ := hex.DecodeString("020000000000000000000000000000000000000000000000000000000000000001")
+	C_Hex, _ := hex.DecodeString("02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2")
+
+	R1, _ := secp256k1.ParsePubKey(R1Hex)
+	R2, _ := secp256k1.ParsePubKey(R2Hex)
+	K, _ := secp256k1.ParsePubKey(KHex)
+	C_, _ := secp256k1.ParsePubKey(C_Hex)
+
+	hash := HashE([]*secp256k1.PublicKey{R1, R2, K, C_})
+	hashHex := hex.EncodeToString(hash[:])
+	expected := "a4dc034b74338c28c6bc3ea49731f2a24440fc7c4affc08b31a93fc9fbe6401e"
+
+	if hashHex != expected {
+		t.Errorf("expected '%v' but got '%v' instead\n", expected, hashHex)
+	}
+}
+
+func TestGenerateDLEQ(t *testing.T) {
+	r, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		t.Fatalf("unexpected error generating private key: %v", err)
+	}
+
+	B_, _, _ := BlindMessage("test_message", r)
+	C_ := SignBlindedMessage(B_, r)
+
+	e, s := GenerateDLEQ(r, B_, C_)
+	if !VerifyDLEQ(e, s, r.PubKey(), B_, C_) {
+		t.Errorf("VerifyDLEQ failed")
+	}
+}
+
+func TestVerifyDLEQ(t *testing.T) {
+	eHex, _ := hex.DecodeString("9818e061ee51d5c8edc3342369a554998ff7b4381c8652d724cdf46429be73d9")
+	sHex, _ := hex.DecodeString("9818e061ee51d5c8edc3342369a554998ff7b4381c8652d724cdf46429be73da")
+	AHex, _ := hex.DecodeString("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+	B_Hex, _ := hex.DecodeString("02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2")
+	C_Hex, _ := hex.DecodeString("02a9acc1e48c25eeeb9289b5031cc57da9fe72f3fe2861d264bdc074209b107ba2")
+
+	e := secp256k1.PrivKeyFromBytes(eHex)
+	s := secp256k1.PrivKeyFromBytes(sHex)
+	A, _ := secp256k1.ParsePubKey(AHex)
+	B_, _ := secp256k1.ParsePubKey(B_Hex)
+	C_, _ := secp256k1.ParsePubKey(C_Hex)
+
+	if !VerifyDLEQ(e, s, A, B_, C_) {
+		t.Errorf("VerifyDLEQ failed")
+	}
+}

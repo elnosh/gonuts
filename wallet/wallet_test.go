@@ -101,7 +101,7 @@ func TestConstructProofs(t *testing.T) {
 		rs[i] = secp256k1.PrivKeyFromBytes(key)
 	}
 
-	proofs, err := constructProofs(signatures, secrets, rs, keyset)
+	proofs, err := constructProofs(signatures, cashu.BlindedMessages{}, secrets, rs, keyset)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestConstructProofsError(t *testing.T) {
 			rs[i] = secp256k1.PrivKeyFromBytes(key)
 		}
 
-		proofs, err := constructProofs(test.signatures, test.secrets, rs, test.keyset)
+		proofs, err := constructProofs(test.signatures, cashu.BlindedMessages{}, test.secrets, rs, test.keyset)
 		if proofs != nil {
 			t.Errorf("expected nil proofs but got '%v'", proofs)
 		}

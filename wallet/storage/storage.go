@@ -27,15 +27,18 @@ type DB interface {
 	SaveMnemonicSeed(string, []byte)
 	GetSeed() []byte
 	GetMnemonic() string
+
 	SaveProof(cashu.Proof) error
 	GetProofsByKeysetId(string) cashu.Proofs
 	GetProofs() cashu.Proofs
 	DeleteProof(string) error
+
 	SaveKeyset(*crypto.WalletKeyset) error
 	GetKeysets() crypto.KeysetsMap
 	GetKeyset(string) *crypto.WalletKeyset
 	IncrementKeysetCounter(string, uint32) error
 	GetKeysetCounter(string) uint32
+
 	SaveInvoice(Invoice) error
 	GetInvoice(string) *Invoice
 	GetInvoices() []Invoice

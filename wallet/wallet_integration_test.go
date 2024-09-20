@@ -14,6 +14,7 @@ import (
 
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -277,7 +278,7 @@ func TestReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT, false)
 
 	// test receive swap == true
 	_, err = testWallet.Receive(token, true)
@@ -298,7 +299,7 @@ func TestReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ = cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT)
+	token, _ = cashu.NewTokenV4(proofsToSend, mint2URL, testutils.SAT_UNIT, false)
 
 	// test receive swap == false
 	_, err = testWallet.Receive(token, false)
@@ -347,7 +348,7 @@ func TestReceiveFees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 	amountReceived, err := testWallet2.Receive(token, false)
 	if err != nil {
@@ -546,7 +547,7 @@ func TestWalletBalanceFees(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
-		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 		// test balance in receiving wallet
 		balanceBeforeReceive := balanceTestWallet2.GetBalance()
@@ -566,7 +567,7 @@ func TestWalletBalanceFees(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
-		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 		fees, err := testutils.Fees(proofsToSend, mintURL)
 		if err != nil {
@@ -648,7 +649,7 @@ func testWalletRestore(
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 	_, err = testWallet2.Receive(token, false)
 	if err != nil {
@@ -660,7 +661,7 @@ func testWalletRestore(
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
-	token, _ = cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT)
+	token, _ = cashu.NewTokenV4(proofsToSend, mintURL, testutils.SAT_UNIT, false)
 
 	_, err = testWallet2.Receive(token, false)
 	if err != nil {
@@ -764,7 +765,7 @@ func testP2PK(
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
-	lockedEcash, _ := cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT)
+	lockedEcash, _ := cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT, false)
 
 	// try receiving invalid
 	_, err = testWallet.Receive(lockedEcash, true)
@@ -792,7 +793,7 @@ func testP2PK(
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
-	lockedEcash, _ = cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT)
+	lockedEcash, _ = cashu.NewTokenV4(lockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT, false)
 
 	// unlock ecash and trust mint
 	amountReceived, err = testWallet2.Receive(lockedEcash, false)
@@ -842,7 +843,7 @@ func TestNutshell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, nutshellURL, testutils.SAT_UNIT)
+	token, _ := cashu.NewTokenV4(proofsToSend, nutshellURL, testutils.SAT_UNIT, false)
 
 	fees, _ := testutils.Fees(proofsToSend, nutshellURL)
 	if proofsToSend.Amount() != sendAmount+uint64(fees) {
@@ -894,6 +895,66 @@ func TestSendToPubkeyNutshell(t *testing.T) {
 	}()
 
 	testP2PK(t, testWallet, testWallet2, true)
+}
+
+func TestDLEQProofsNutshell(t *testing.T) {
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
+	nutshellURL := nutshellMint.Host
+
+	testWalletPath := filepath.Join(".", "/testwalletdleq")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	keysets, err := wallet.GetMintActiveKeysets(nutshellURL)
+	if err != nil {
+		t.Fatalf("unexpected error getting keysets: %v", err)
+	}
+
+	mintRes, err := testWallet.RequestMint(10000)
+	if err != nil {
+		t.Fatalf("unexpected error requesting mint: %v", err)
+	}
+
+	proofs, err := testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error minting tokens: %v", err)
+	}
+
+	for _, proof := range proofs {
+		if proof.DLEQ == nil {
+			t.Fatal("got nil DLEQ proof from MintTokens")
+		}
+
+		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		if !nut12.VerifyProofDLEQ(proof, pubkey) {
+			t.Fatal("invalid DLEQ proof returned from MintTokens")
+		}
+	}
+
+	proofsToSend, err := testWallet.Send(2100, nutshellURL, false)
+	if err != nil {
+		t.Fatalf("unexpected error in Send: %v", err)
+	}
+	for _, proof := range proofsToSend {
+		if proof.DLEQ == nil {
+			t.Fatal("got nil DLEQ proof from Send")
+		}
+
+		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		if !nut12.VerifyProofDLEQ(proof, pubkey) {
+			t.Fatal("invalid DLEQ proof returned from Send")
+		}
+	}
+
 }
 
 func TestWalletRestoreNutshell(t *testing.T) {

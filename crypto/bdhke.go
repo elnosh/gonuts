@@ -7,8 +7,10 @@ package crypto
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"math"
+	"reflect"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
@@ -123,4 +125,99 @@ func verify(Y *secp256k1.PublicKey, k *secp256k1.PrivateKey, C *secp256k1.Public
 	pk := secp256k1.NewPublicKey(&result.X, &result.Y)
 
 	return C.IsEqual(pk)
+}
+
+func HashE(publicKeys []*secp256k1.PublicKey) [32]byte {
+	var keys string
+	for _, pk := range publicKeys {
+		keys += hex.EncodeToString(pk.SerializeUncompressed())
+	}
+	return sha256.Sum256([]byte(keys))
+}
+
+func GenerateDLEQ(
+	a *secp256k1.PrivateKey,
+	B_ *secp256k1.PublicKey,
+	C_ *secp256k1.PublicKey,
+) (*secp256k1.PrivateKey, *secp256k1.PrivateKey) {
+	// random r
+	var r *secp256k1.PrivateKey
+	var err error
+	for r == nil || err != nil {
+		r, err = secp256k1.GeneratePrivateKey()
+	}
+
+	// r*B'
+	var B_Point, R2Point secp256k1.JacobianPoint
+	B_.AsJacobian(&B_Point)
+	secp256k1.ScalarMultNonConst(&r.Key, &B_Point, &R2Point)
+	R2Point.ToAffine()
+
+	// R1 = r*G
+	R1 := r.PubKey()
+	// R2 = r*B'
+	R2 := secp256k1.NewPublicKey(&R2Point.X, &R2Point.Y)
+
+	// e = hash(R1,R2,A,C')
+	ebytes := HashE([]*secp256k1.PublicKey{R1, R2, a.PubKey(), C_})
+	e := secp256k1.PrivKeyFromBytes(ebytes[:])
+
+	// s = r + e*a
+	ea := e.Key.Mul(&a.Key)
+	scalar := r.Key.Add(ea)
+	s := secp256k1.NewPrivateKey(scalar)
+
+	// can't return e here because value was modified in Mul
+	// so getting private key e from hash
+	return secp256k1.PrivKeyFromBytes(ebytes[:]), s
+}
+
+func VerifyDLEQ(
+	e *secp256k1.PrivateKey,
+	s *secp256k1.PrivateKey,
+	A *secp256k1.PublicKey,
+	B_ *secp256k1.PublicKey,
+	C_ *secp256k1.PublicKey,
+) bool {
+	var R1Point, R2Point secp256k1.JacobianPoint
+
+	// s*G
+	var SPoint secp256k1.JacobianPoint
+	s.PubKey().AsJacobian(&SPoint)
+
+	// -e*A
+	var eNeg secp256k1.ModNScalar
+	eNeg.NegateVal(&e.Key)
+	var APoint, eA_Point secp256k1.JacobianPoint
+	A.AsJacobian(&APoint)
+	secp256k1.ScalarMultNonConst(&eNeg, &APoint, &eA_Point)
+	eA_Point.ToAffine()
+
+	// R1 = s*G - e*A
+	secp256k1.AddNonConst(&SPoint, &eA_Point, &R1Point)
+	R1Point.ToAffine()
+
+	// s*B'
+	var B_Point, sB_Point secp256k1.JacobianPoint
+	B_.AsJacobian(&B_Point)
+	secp256k1.ScalarMultNonConst(&s.Key, &B_Point, &sB_Point)
+	sB_Point.ToAffine()
+
+	// -e*C'
+	var C_Point, eC_Point secp256k1.JacobianPoint
+	C_.AsJacobian(&C_Point)
+	secp256k1.ScalarMultNonConst(&eNeg, &C_Point, &eC_Point)
+	eC_Point.ToAffine()
+
+	// R2 = s*B' - e*C'
+	secp256k1.AddNonConst(&sB_Point, &eC_Point, &R2Point)
+	R2Point.ToAffine()
+
+	R1PublicKey := secp256k1.NewPublicKey(&R1Point.X, &R1Point.Y)
+	R2PublicKey := secp256k1.NewPublicKey(&R2Point.X, &R2Point.Y)
+
+	hash := HashE([]*secp256k1.PublicKey{R1PublicKey, R2PublicKey, A, C_})
+	ebytes := e.Serialize()
+
+	return reflect.DeepEqual(ebytes, hash[:])
 }
