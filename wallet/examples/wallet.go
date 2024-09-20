@@ -30,16 +30,19 @@ func main() {
 	}
 
 	// Send
+	mint := "http://localhost:3338"
 	includeFees := true
-	token, err := wallet.Send(21, "http://localhost:3338", includeFees)
-	fmt.Println(token.ToString())
+	includeDLEQProof := false
+	proofsToSend, err := wallet.Send(21, mint, includeFees)
+	token, err := cashu.NewTokenV4(proofsToSend, mint, "sat", includeDLEQProof)
+	fmt.Println(token.Serialize())
 
 	// Receive
 	receiveToken, err := cashu.DecodeToken("cashuAeyJ0b2tlbiI6W3sibW...")
 
 	swapToTrustedMint := true
-	amountReceived, err := wallet.Receive(*receiveToken, swapToTrustedMint)
+	amountReceived, err := wallet.Receive(receiveToken, swapToTrustedMint)
 
 	// Melt (pay invoice)
-	meltResponse, err := wallet.Melt("lnbc100n1pja0w9pdqqx...", "http://localhost:3338")
+	meltResponse, err := wallet.Melt("lnbc100n1pja0w9pdqqx...", mint)
 }
