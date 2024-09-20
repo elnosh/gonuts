@@ -21,6 +21,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
+	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
@@ -957,5 +958,46 @@ func TestNUT11P2PK(t *testing.T) {
 	_, err = p2pkMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
 	if !errors.Is(err, nut11.SigAllOnlySwap) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.SigAllOnlySwap, err)
+	}
+}
+
+func TestDLEQProofs(t *testing.T) {
+	var amount uint64 = 5000
+	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	keyset := testMint.GetActiveKeyset()
+
+	// check proofs minted from testMint have valid DLEQ proofs
+	for _, proof := range proofs {
+		if proof.DLEQ == nil {
+			t.Fatal("mint returned nil DLEQ proof")
+		}
+
+		if !nut12.VerifyProofDLEQ(proof, keyset.Keys[proof.Amount].PublicKey) {
+			t.Fatal("generated invalid DLEQ proof from MintTokens")
+		}
+	}
+
+	blindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
+	blindSignatures, err := testMint.Swap(proofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	for i, sig := range blindSignatures {
+		if sig.DLEQ == nil {
+			t.Fatal("mint returned nil DLEQ proof from swap")
+		}
+		if !nut12.VerifyBlindSignatureDLEQ(
+			*sig.DLEQ,
+			keyset.Keys[sig.Amount].PublicKey,
+			blindedMessages[i].B_,
+			sig.C_,
+		) {
+			t.Fatal("mint generated invalid DLEQ proof in swap")
+		}
 	}
 }

@@ -402,8 +402,18 @@ func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 		C := crypto.UnblindSignature(C_, rs[i], keyp.PublicKey)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 
-		proof := cashu.Proof{Amount: blindedSignature.Amount,
-			Secret: secrets[i], C: Cstr, Id: blindedSignature.Id}
+		r := hex.EncodeToString(rs[i].Serialize())
+		proof := cashu.Proof{
+			Amount: blindedSignature.Amount,
+			Secret: secrets[i],
+			C:      Cstr,
+			Id:     blindedSignature.Id,
+			DLEQ: &cashu.DLEQProof{
+				E: blindedSignature.DLEQ.E,
+				S: blindedSignature.DLEQ.S,
+				R: r,
+			},
+		}
 
 		proofs[i] = proof
 	}
