@@ -913,7 +913,7 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
 		9:  map[string]bool{"supported": true},
 		10: map[string]bool{"supported": true},
 		11: map[string]bool{"supported": true},
-		12: map[string]bool{"supported": false},
+		12: map[string]bool{"supported": true},
 	}
 
 	info := nut06.MintInfo{
