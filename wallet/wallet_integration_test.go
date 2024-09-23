@@ -700,7 +700,7 @@ func TestSendToPubkey(t *testing.T) {
 	p2pkMintURL := "http://127.0.0.1:8889"
 
 	p2pkMintPath2 := filepath.Join(".", "p2pkmint2")
-	p2pkMint2, err := testutils.CreateTestMintServer(lnd2, "8890", p2pkMintPath, dbMigrationPath, 0)
+	p2pkMint2, err := testutils.CreateTestMintServer(lnd2, "8890", p2pkMintPath2, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

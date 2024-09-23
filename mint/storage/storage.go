@@ -21,6 +21,7 @@ type MintDB interface {
 
 	SaveMintQuote(MintQuote) error
 	GetMintQuote(string) (MintQuote, error)
+	GetMintQuoteByPaymentHash(string) (MintQuote, error)
 	UpdateMintQuoteState(quoteId string, state nut04.State) error
 
 	SaveMeltQuote(MeltQuote) error

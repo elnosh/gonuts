@@ -241,6 +241,28 @@ func (sqlite *SQLiteDB) GetMintQuote(quoteId string) (storage.MintQuote, error) 
 	return mintQuote, nil
 }
 
+func (sqlite *SQLiteDB) GetMintQuoteByPaymentHash(paymentHash string) (storage.MintQuote, error) {
+	row := sqlite.db.QueryRow("SELECT * FROM mint_quotes WHERE payment_hash = ?", paymentHash)
+
+	var mintQuote storage.MintQuote
+	var state string
+
+	err := row.Scan(
+		&mintQuote.Id,
+		&mintQuote.PaymentRequest,
+		&mintQuote.PaymentHash,
+		&mintQuote.Amount,
+		&state,
+		&mintQuote.Expiry,
+	)
+	if err != nil {
+		return storage.MintQuote{}, err
+	}
+	mintQuote.State = nut04.StringToState(state)
+
+	return mintQuote, nil
+}
+
 func (sqlite *SQLiteDB) UpdateMintQuoteState(quoteId string, state nut04.State) error {
 	updatedState := state.String()
 	result, err := sqlite.db.Exec("UPDATE mint_quotes SET state = ? WHERE id = ?", updatedState, quoteId)

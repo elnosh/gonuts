@@ -81,6 +81,7 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 	invoice := Invoice{
 		PaymentRequest: lookupInvoiceResponse.PaymentRequest,
 		PaymentHash:    hash,
+		Preimage:       hex.EncodeToString(lookupInvoiceResponse.RPreimage),
 		Settled:        invoiceSettled,
 		Amount:         uint64(lookupInvoiceResponse.Value),
 	}

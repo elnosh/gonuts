@@ -11,6 +11,7 @@ type Client interface {
 type Invoice struct {
 	PaymentRequest string
 	PaymentHash    string
+	Preimage       string
 	Settled        bool
 	Amount         uint64
 	Expiry         uint64
