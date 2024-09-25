@@ -246,6 +246,7 @@ func mintConfig(
 		InputFeePpk:       inputFeePpk,
 		Limits:            limits,
 		LightningClient:   lndClient,
+		LogLevel:          mint.Disable,
 	}
 
 	return mintConfig, nil

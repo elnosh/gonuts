@@ -8,8 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -28,11 +27,17 @@ import (
 type MintServer struct {
 	httpServer *http.Server
 	mint       *Mint
-	logger     *slog.Logger
 }
 
 func (ms *MintServer) Start() error {
-	return ms.httpServer.ListenAndServe()
+	ms.mint.logger.Info("mint server listening on: " + ms.httpServer.Addr)
+	err := ms.httpServer.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		return err
+	} else if err == http.ErrServerClosed {
+		ms.mint.logger.Info("shutdown complete")
+	}
+	return nil
 }
 
 func SetupMintServer(config Config) (*MintServer, error) {
@@ -41,11 +46,7 @@ func SetupMintServer(config Config) (*MintServer, error) {
 		return nil, err
 	}
 
-	logger, err := setupLogger()
-	if err != nil {
-		return nil, err
-	}
-	mintServer := &MintServer{mint: mint, logger: logger}
+	mintServer := &MintServer{mint: mint}
 	err = mintServer.setupHttpServer(config.Port)
 	if err != nil {
 		return nil, err
@@ -54,38 +55,9 @@ func SetupMintServer(config Config) (*MintServer, error) {
 }
 
 func (ms *MintServer) Shutdown() {
+	ms.mint.logger.Info("starting shutdown")
 	ms.mint.db.Close()
 	ms.httpServer.Shutdown(context.Background())
-}
-
-func setupLogger() (*slog.Logger, error) {
-	replacer := func(groups []string, a slog.Attr) slog.Attr {
-		if a.Key == slog.SourceKey {
-			source := a.Value.Any().(*slog.Source)
-			source.File = filepath.Base(source.File)
-			source.Function = filepath.Base(source.Function)
-		}
-		return a
-	}
-
-	mintPath := mintPath()
-	logFile, err := os.OpenFile(filepath.Join(mintPath, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
-	if err != nil {
-		return nil, fmt.Errorf("error opening log file: %v", err)
-	}
-	logWriter := io.MultiWriter(os.Stdout, logFile)
-
-	return slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer})), nil
-}
-
-func (ms *MintServer) LogInfo(format string, v ...any) {
-	msg := fmt.Sprintf(format, v...)
-	ms.logger.Info(msg)
-}
-
-func (ms *MintServer) LogError(format string, v ...any) {
-	msg := fmt.Sprintf(format, v...)
-	ms.logger.Error(msg)
 }
 
 func (ms *MintServer) setupHttpServer(port string) error {
@@ -135,16 +107,23 @@ func setupHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func (ms *MintServer) writeResponse(
-	rw http.ResponseWriter,
-	req *http.Request,
-	response []byte,
-	logmsg string,
-) {
-	ms.logger.Info(logmsg, slog.Group("request", slog.String("method", req.Method),
-		slog.String("url", req.URL.String()), slog.Int("code", http.StatusOK)))
+func (ms *MintServer) logRequest(req *http.Request, statusCode int, format string, args ...any) {
+	// this is done to preserve the source position in the log msg from where this
+	// method is called. Otherwise all messages would be logged with
+	// source line of this log method and not the original caller
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:])
+	r := slog.NewRecord(time.Now(), slog.LevelInfo, fmt.Sprintf(format, args...), pcs[0])
 
-	rw.Write(response)
+	r.Add(slog.Group("request",
+		slog.String("method", req.Method),
+		slog.String("url", req.URL.String())),
+	)
+	// add status code attr to log if present
+	if statusCode >= 100 {
+		r.Add(slog.Int("code", statusCode))
+	}
+	_ = ms.mint.logger.Handler().Handle(context.Background(), r)
 }
 
 // errResponse is the error that will be written in the response
@@ -158,7 +137,7 @@ func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errRes
 		log = errLogMsg[0]
 	}
 
-	ms.logger.Error(log, slog.Group("request", slog.String("method", req.Method),
+	ms.mint.logger.Error(log, slog.Group("request", slog.String("method", req.Method),
 		slog.String("url", req.URL.String()), slog.Int("code", code)))
 
 	rw.WriteHeader(code)
@@ -173,8 +152,8 @@ func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-
-	ms.writeResponse(rw, req, jsonRes, "returning active keysets")
+	ms.logRequest(req, http.StatusOK, "returning active keysets")
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) {
@@ -184,8 +163,8 @@ func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) 
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-
-	ms.writeResponse(rw, req, jsonRes, "returning all keysets")
+	ms.logRequest(req, http.StatusOK, "returning list of all keysets")
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
@@ -205,7 +184,8 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ms.writeResponse(rw, req, jsonRes, "returned keyset with id: "+id)
+	ms.logRequest(req, http.StatusOK, "returning keyset with id: %v", id)
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
@@ -218,6 +198,8 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		ms.writeErr(rw, req, err)
 		return
 	}
+
+	ms.logRequest(req, 0, "mint request for %v sats", mintReq.Amount)
 
 	mintQuote, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
 	if err != nil {
@@ -241,15 +223,14 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		Paid:    false,
 		Expiry:  mintQuote.Expiry,
 	}
-
 	jsonRes, err := json.Marshal(&mintQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	logmsg := fmt.Sprintf("mint request for %v %v", mintReq.Amount, mintReq.Unit)
-	ms.writeResponse(rw, req, jsonRes, logmsg)
+	ms.logRequest(req, http.StatusOK, "created mint quote %v", mintQuote.Id)
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) {
@@ -281,14 +262,14 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 		Paid:    paid, // DEPRECATED: remove after wallets have upgraded
 		Expiry:  mintQuote.Expiry,
 	}
-
 	jsonRes, err := json.Marshal(&mintQuoteStateResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	ms.writeResponse(rw, req, jsonRes, "")
+	ms.logRequest(req, http.StatusOK, "returning mint quote with state '%s'", mintQuote.State)
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
@@ -317,14 +298,16 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 		ms.writeErr(rw, req, err)
 		return
 	}
-	signatures := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
 
-	jsonRes, err := json.Marshal(signatures)
+	signatures := nut04.PostMintBolt11Response{Signatures: blindedSignatures}
+	jsonRes, err := json.Marshal(&signatures)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-	ms.writeResponse(rw, req, jsonRes, "returned signatures on mint tokens request")
+
+	ms.logRequest(req, http.StatusOK, "returning signatures on mint tokens request")
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
@@ -350,12 +333,14 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	signatures := nut03.PostSwapResponse{Signatures: blindedSignatures}
-	jsonRes, err := json.Marshal(signatures)
+	jsonRes, err := json.Marshal(&signatures)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-	ms.writeResponse(rw, req, jsonRes, "returned signatures on swap request")
+
+	ms.logRequest(req, http.StatusOK, "returning signatures on swap request")
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request) {
@@ -392,13 +377,16 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		Expiry:     meltQuote.Expiry,
 	}
 
-	jsonRes, err := json.Marshal(meltQuoteResponse)
+	jsonRes, err := json.Marshal(&meltQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	ms.writeResponse(rw, req, jsonRes, "melt quote request")
+	ms.logRequest(req, http.StatusOK,
+		"returning melt quote '%v' for invoice with payment hash: %v", meltQuote.Id, meltQuote.PaymentHash)
+
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) {
@@ -426,13 +414,14 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 		Preimage:   meltQuote.Preimage,
 	}
 
-	jsonRes, err := json.Marshal(quoteState)
+	jsonRes, err := json.Marshal(&quoteState)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	ms.writeResponse(rw, req, jsonRes, "")
+	ms.logRequest(req, http.StatusOK, "returning melt quote with state '%s'", meltQuote.State)
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
@@ -479,12 +468,16 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		Preimage:   meltQuote.Preimage,
 	}
 
-	jsonRes, err := json.Marshal(meltQuoteResponse)
+	jsonRes, err := json.Marshal(&meltQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-	ms.writeResponse(rw, req, jsonRes, "")
+
+	ms.logRequest(req, http.StatusOK,
+		"return from melt tokens for quote '%v'. Quote state: %s", meltQuote.Id, meltQuote.State)
+
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) tokenStateCheck(rw http.ResponseWriter, req *http.Request) {
@@ -502,12 +495,14 @@ func (ms *MintServer) tokenStateCheck(rw http.ResponseWriter, req *http.Request)
 	}
 
 	checkStateResponse := nut07.PostCheckStateResponse{States: proofStates}
-	jsonRes, err := json.Marshal(checkStateResponse)
+	jsonRes, err := json.Marshal(&checkStateResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-	ms.writeResponse(rw, req, jsonRes, "returned proof states")
+
+	ms.logRequest(req, http.StatusOK, "returning proof states")
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) restoreSignatures(rw http.ResponseWriter, req *http.Request) {
@@ -528,14 +523,14 @@ func (ms *MintServer) restoreSignatures(rw http.ResponseWriter, req *http.Reques
 		Outputs:    blindedMessages,
 		Signatures: blindedSignatures,
 	}
-
-	jsonRes, err := json.Marshal(restoreResponse)
+	jsonRes, err := json.Marshal(&restoreResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
 
-	ms.writeResponse(rw, req, jsonRes, "returned signatures from restore request")
+	ms.logRequest(req, http.StatusOK, "returning signatures from restore request")
+	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
@@ -544,12 +539,15 @@ func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
 		ms.writeErr(rw, req, cashu.StandardErr, err.Error())
 		return
 	}
-	jsonRes, err := json.Marshal(mintInfo)
+
+	jsonRes, err := json.Marshal(&mintInfo)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
-	ms.writeResponse(rw, req, jsonRes, "returning mint info")
+
+	ms.logRequest(req, http.StatusOK, "returning mint info")
+	rw.Write(jsonRes)
 }
 
 func buildKeysResponse(keysets map[string]crypto.MintKeyset) nut01.GetKeysResponse {

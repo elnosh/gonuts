@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -164,15 +163,10 @@ func main() {
 
 	go func() {
 		<-c
-		mintServer.LogInfo("starting shutdown")
 		mintServer.Shutdown()
 	}()
 
-	mintServer.LogInfo("mint server listening on port: " + mintConfig.Port)
-	if err := mintServer.Start(); err != nil && err != http.ErrServerClosed {
+	if err := mintServer.Start(); err != nil {
 		log.Fatalf("error running mint: %v\n", err)
-	} else if err == http.ErrServerClosed {
-		mintServer.LogInfo("shutdown complete")
 	}
-
 }

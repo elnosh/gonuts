@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -52,6 +55,7 @@ type Mint struct {
 	lightningClient lightning.Client
 	mintInfo        nut06.MintInfo
 	limits          MintLimits
+	logger          *slog.Logger
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -60,9 +64,14 @@ func LoadMint(config Config) (*Mint, error) {
 		path = mintPath()
 	}
 
+	logger, err := setupLogger(path, config.LogLevel)
+	if err != nil {
+		return nil, err
+	}
+
 	db, err := sqlite.InitSQLite(path, config.DBMigrationPath)
 	if err != nil {
-		log.Fatalf("error starting mint: %v", err)
+		return nil, fmt.Errorf("error setting up sqlite: %v", err)
 	}
 
 	seed, err := db.GetSeed()
@@ -93,11 +102,13 @@ func LoadMint(config Config) (*Mint, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger.Info(fmt.Sprintf("setting active keyset '%v' with fee %v", activeKeyset.Id, activeKeyset.InputFeePpk))
 
 	mint := &Mint{
 		db:            db,
 		activeKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
 		limits:        config.Limits,
+		logger:        logger,
 	}
 
 	dbKeysets, err := mint.db.GetKeysets()
@@ -150,14 +161,11 @@ func LoadMint(config Config) (*Mint, error) {
 		return nil, errors.New("invalid lightning client")
 	}
 	mint.lightningClient = config.LightningClient
-
-	err = mint.SetMintInfo(config.MintInfo)
-	if err != nil {
-		return nil, fmt.Errorf("error setting mint info: %v", err)
-	}
+	mint.SetMintInfo(config.MintInfo)
 
 	for _, keyset := range mint.keysets {
 		if keyset.Id != activeKeyset.Id && keyset.Active {
+			mint.logger.Info(fmt.Sprintf("setting keyset '%v' to inactive", keyset.Id))
 			keyset.Active = false
 			mint.db.UpdateKeysetActive(keyset.Id, false)
 			mint.keysets[keyset.Id] = keyset
@@ -181,6 +189,43 @@ func mintPath() string {
 		log.Fatal(err)
 	}
 	return path
+}
+
+func setupLogger(mintPath string, logLevel LogLevel) (*slog.Logger, error) {
+	replacer := func(groups []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.SourceKey {
+			source := a.Value.Any().(*slog.Source)
+			source.File = filepath.Base(source.File)
+		}
+		if a.Key == slog.TimeKey {
+			a.Value = slog.StringValue(time.Now().Truncate(time.Second * 2).Format(time.DateTime))
+		}
+		return a
+	}
+
+	logFile, err := os.OpenFile(filepath.Join(mintPath, "mint.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("error opening log file: %v", err)
+	}
+
+	var logWriter io.Writer
+	if logLevel == Disable {
+		logWriter = io.Discard
+	} else {
+		logWriter = io.MultiWriter(os.Stdout, logFile)
+	}
+
+	return slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer})), nil
+}
+
+// logInfof formats the strings with args and preserves the source position
+// from where this method is called for the log msg. Otherwise all messages would be logged with
+// source line of this log method and not the original caller
+func (m *Mint) logInfof(format string, args ...any) {
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:])
+	r := slog.NewRecord(time.Now(), slog.LevelInfo, fmt.Sprintf(format, args...), pcs[0])
+	_ = m.logger.Handler().Handle(context.Background(), r)
 }
 
 // RequestMintQuote will process a request to mint tokens
@@ -214,9 +259,10 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	}
 
 	// get an invoice from the lightning backend
+	m.logger.Info(fmt.Sprintf("requesting invoice from lightning backend for %v sats", amount))
 	invoice, err := m.requestInvoice(amount)
 	if err != nil {
-		msg := fmt.Sprintf("error generating payment request: %v", err)
+		msg := fmt.Sprintf("could not generate invoice: %v", err)
 		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
 	}
 
@@ -256,6 +302,7 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 
 	// if previously unpaid, check if invoice has been paid
 	if mintQuote.State == nut04.Unpaid {
+		m.logger.Info(fmt.Sprintf("checking status of invoice with hash '%v'", mintQuote.PaymentHash))
 		status, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 		if err != nil {
 			msg := fmt.Sprintf("error getting invoice status: %v", err)
@@ -290,6 +337,7 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 	invoicePaid := false
 	if mintQuote.State == nut04.Unpaid {
+		m.logger.Info(fmt.Sprintf("checking status of invoice with hash '%v'", mintQuote.PaymentHash))
 		invoiceStatus, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 		if err != nil {
 			msg := fmt.Sprintf("error getting invoice status: %v", err)
@@ -1141,7 +1189,7 @@ func (m *Mint) GetActiveKeyset() crypto.MintKeyset {
 	return keyset
 }
 
-func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
+func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 	nuts := nut06.NutsMap{
 		4: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
@@ -1183,7 +1231,6 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) error {
 		Nuts:            nuts,
 	}
 	m.mintInfo = info
-	return nil
 }
 
 func (m *Mint) RetrieveMintInfo() (nut06.MintInfo, error) {

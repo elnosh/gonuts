@@ -55,7 +55,7 @@ func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 
 	addInvoiceResponse, err := lnd.grpcClient.AddInvoice(context.Background(), &invoiceRequest)
 	if err != nil {
-		return Invoice{}, fmt.Errorf("could not generate invoice: %v", err)
+		return Invoice{}, err
 	}
 	hash := hex.EncodeToString(addInvoiceResponse.RHash)
 

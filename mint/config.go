@@ -5,6 +5,14 @@ import (
 	"github.com/elnosh/gonuts/mint/lightning"
 )
 
+type LogLevel int
+
+const (
+	Info LogLevel = iota
+	Debug
+	Disable
+)
+
 type Config struct {
 	DerivationPathIdx uint32
 	Port              string
@@ -14,6 +22,7 @@ type Config struct {
 	MintInfo          MintInfo
 	Limits            MintLimits
 	LightningClient   lightning.Client
+	LogLevel          LogLevel
 }
 
 type MintInfo struct {
