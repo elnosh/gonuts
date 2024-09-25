@@ -422,7 +422,8 @@ var (
 	MintingDisabled              = Error{Detail: "minting is disabled", Code: MintingDisabledErrCode}
 	MintAmountExceededErr        = Error{Detail: "max amount for minting exceeded", Code: AmountLimitExceeded}
 	OutputsOverQuoteAmountErr    = Error{Detail: "sum of the output amounts is greater than quote amount", Code: StandardErrCode}
-	ProofAlreadyUsedErr          = Error{Detail: "proofs already used", Code: ProofAlreadyUsedErrCode}
+	ProofAlreadyUsedErr          = Error{Detail: "proof already used", Code: ProofAlreadyUsedErrCode}
+	ProofPendingErr              = Error{Detail: "proof is pending", Code: ProofAlreadyUsedErrCode}
 	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
 	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}

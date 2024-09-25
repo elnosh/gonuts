@@ -550,6 +550,13 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		return storage.MeltQuote{}, nut11.SigAllOnlySwap
 	}
 
+	// set proofs as pending before trying to make payment
+	err = m.db.AddPendingProofs(proofs, meltQuote.Id)
+	if err != nil {
+		msg := fmt.Sprintf("error setting proofs as pending in db: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+
 	// before asking backend to send payment, check if quotes can be settled
 	// internally (i.e mint and melt quotes exist with the same invoice)
 	mintQuote, err := m.db.GetMintQuoteByPaymentHash(meltQuote.PaymentHash)
@@ -566,7 +573,6 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		}
 
 		// if payment succeeded, mark melt quote as paid
-		// and invalidate proofs
 		meltQuote.State = nut05.Paid
 		meltQuote.Preimage = preimage
 		err = m.db.UpdateMeltQuote(meltQuote.Id, meltQuote.Preimage, meltQuote.State)
@@ -576,6 +582,13 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		}
 	}
 
+	// if quote is paid, unset pending proofs and mark them as
+	// used by adding them to db
+	err = m.db.RemovePendingProofs(Ys)
+	if err != nil {
+		msg := fmt.Sprintf("error removing proofs from pending: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
 	err = m.db.SaveProofs(proofs)
 	if err != nil {
 		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
@@ -668,7 +681,18 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 		return cashu.NoProofsProvided
 	}
 
-	// check if proofs were alredy used
+	// check if proofs are either pending or already spent
+	pendingProofs, err := m.db.GetPendingProofs(Ys)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			msg := fmt.Sprintf("could not get pending proofs from db: %v", err)
+			return cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
+	}
+	if len(pendingProofs) != 0 {
+		return cashu.ProofPendingErr
+	}
+
 	usedProofs, err := m.db.GetProofsUsed(Ys)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
