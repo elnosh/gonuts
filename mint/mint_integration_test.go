@@ -564,8 +564,41 @@ func TestMelt(t *testing.T) {
 	if melt.State != nut05.Paid {
 		t.Fatal("got unexpected unpaid melt quote")
 	}
-	if melt.State != nut05.Paid {
-		t.Fatal("got unexpected unpaid melt quote")
+
+	// test internal quotes (mint and melt quotes with same invoice)
+	var mintAmount uint64 = 42000
+	mintQuoteResponse, err := testMint.RequestMintQuote(testutils.BOLT11_METHOD, mintAmount, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("error requesting mint quote: %v", err)
+	}
+	keyset := testMint.GetActiveKeyset()
+	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	proofs, err := testutils.GetValidProofsForAmount(mintAmount, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	meltQuote, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, mintQuoteResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	if meltQuote.FeeReserve != 0 {
+		t.Fatal("RequestMeltQuote did not return fee reserve of 0 for internal quote")
+	}
+
+	melt, err = testMint.MeltTokens(testutils.BOLT11_METHOD, meltQuote.Id, proofs)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt: %v", err)
+	}
+	if len(melt.Preimage) == 0 {
+		t.Fatal("melt returned empty preimage")
+	}
+
+	// now mint should work because quote was settled internally
+	_, err = testMint.MintTokens(testutils.BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
+	if err != nil {
+		t.Fatalf("got unexpected error in mint: %v", err)
 	}
 }
 
