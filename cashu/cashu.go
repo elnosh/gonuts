@@ -428,6 +428,7 @@ var (
 	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
 	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: QuoteErrCode}
+	MeltQuotePending             = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
 	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: AmountLimitExceeded}
 	InsufficientProofsAmount     = Error{

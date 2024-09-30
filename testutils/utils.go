@@ -638,3 +638,12 @@ func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int) (*Nutshel
 
 	return nutshellContainer, nil
 }
+
+func GenerateRandomBytes() ([]byte, error) {
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return nil, err
+	}
+	return randomBytes[:], nil
+}

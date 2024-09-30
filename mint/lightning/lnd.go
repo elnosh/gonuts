@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -26,7 +27,8 @@ type LndConfig struct {
 }
 
 type LndClient struct {
-	grpcClient lnrpc.LightningClient
+	grpcClient   lnrpc.LightningClient
+	routerClient routerrpc.RouterClient
 }
 
 func SetupLndClient(config LndConfig) (*LndClient, error) {
@@ -41,7 +43,8 @@ func SetupLndClient(config LndConfig) (*LndClient, error) {
 	}
 
 	grpcClient := lnrpc.NewLightningClient(conn)
-	return &LndClient{grpcClient: grpcClient}, nil
+	routerClient := routerrpc.NewRouterClient(conn)
+	return &LndClient{grpcClient: grpcClient, routerClient: routerClient}, nil
 }
 
 func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
@@ -89,31 +92,66 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 	return invoice, nil
 }
 
-type SendPaymentResponse struct {
-	PaymentError    string `json:"payment_error"`
-	PaymentPreimage string `json:"payment_preimage"`
-}
-
-func (lnd *LndClient) SendPayment(request string, amount uint64) (string, error) {
+func (lnd *LndClient) SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error) {
 	feeLimit := lnd.FeeReserve(amount)
 	sendPaymentRequest := lnrpc.SendRequest{
 		PaymentRequest: request,
 		FeeLimit:       &lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(feeLimit)}},
 	}
 
-	sendPaymentResponse, err := lnd.grpcClient.SendPaymentSync(context.Background(), &sendPaymentRequest)
+	sendPaymentResponse, err := lnd.grpcClient.SendPaymentSync(ctx, &sendPaymentRequest)
 	if err != nil {
-		return "", fmt.Errorf("error making payment: %v", err)
+		// if context deadline is exceeded (1 min), mark payment as pending
+		// if any other error, mark as failed
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return PaymentStatus{PaymentStatus: Pending}, nil
+		} else {
+			return PaymentStatus{PaymentStatus: Failed}, err
+		}
 	}
 	if len(sendPaymentResponse.PaymentError) > 0 {
-		return "", fmt.Errorf("error making payment: %v", sendPaymentResponse.PaymentError)
-	}
-	if len(sendPaymentResponse.PaymentPreimage) == 0 {
-		return "", fmt.Errorf("could not make payment")
+		return PaymentStatus{PaymentStatus: Failed}, fmt.Errorf("payment error: %v", sendPaymentResponse.PaymentError)
 	}
 
 	preimage := hex.EncodeToString(sendPaymentResponse.PaymentPreimage)
-	return preimage, nil
+	paymentResponse := PaymentStatus{Preimage: preimage, PaymentStatus: Succeeded}
+	return paymentResponse, nil
+}
+
+func (lnd *LndClient) OutgoingPaymentStatus(ctx context.Context, hash string) (PaymentStatus, error) {
+	hashBytes, err := hex.DecodeString(hash)
+	if err != nil {
+		return PaymentStatus{}, errors.New("invalid hash provided")
+	}
+
+	trackPaymentRequest := routerrpc.TrackPaymentRequest{
+		PaymentHash: hashBytes,
+		// setting this to only get the final payment update
+		NoInflightUpdates: true,
+	}
+
+	trackPaymentStream, err := lnd.routerClient.TrackPaymentV2(ctx, &trackPaymentRequest)
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, err
+	}
+
+	// this should block until final payment update
+	payment, err := trackPaymentStream.Recv()
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, fmt.Errorf("payment failed: %w", err)
+	}
+	if payment.Status == lnrpc.Payment_UNKNOWN || payment.Status == lnrpc.Payment_FAILED {
+		return PaymentStatus{PaymentStatus: Failed},
+			fmt.Errorf("payment failed: %s", payment.FailureReason.String())
+	}
+	if payment.Status == lnrpc.Payment_IN_FLIGHT {
+		return PaymentStatus{PaymentStatus: Pending}, nil
+	}
+	if payment.Status == lnrpc.Payment_SUCCEEDED {
+		return PaymentStatus{PaymentStatus: Succeeded, Preimage: payment.PaymentPreimage}, nil
+	}
+
+	return PaymentStatus{PaymentStatus: Failed}, errors.New("unknown")
 }
 
 func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
