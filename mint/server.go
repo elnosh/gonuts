@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
@@ -405,7 +406,10 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 	method := vars["method"]
 	quoteId := vars["quote_id"]
 
-	meltQuote, err := ms.mint.GetMeltQuoteState(method, quoteId)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+	defer cancel()
+
+	meltQuote, err := ms.mint.GetMeltQuoteState(ctx, method, quoteId)
 	if err != nil {
 		ms.writeErr(rw, req, err)
 		return
@@ -442,7 +446,10 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	meltQuote, err := ms.mint.MeltTokens(method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+	defer cancel()
+
+	meltQuote, err := ms.mint.MeltTokens(ctx, method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from lightning backend

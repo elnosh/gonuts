@@ -18,6 +18,10 @@ type MintDB interface {
 
 	SaveProofs(cashu.Proofs) error
 	GetProofsUsed(Ys []string) ([]DBProof, error)
+	AddPendingProofs(proofs cashu.Proofs, quoteId string) error
+	GetPendingProofs(Ys []string) ([]DBProof, error)
+	GetPendingProofsByQuote(quoteId string) ([]DBProof, error)
+	RemovePendingProofs(Ys []string) error
 
 	SaveMintQuote(MintQuote) error
 	GetMintQuote(string) (MintQuote, error)

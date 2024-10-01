@@ -204,6 +204,127 @@ func (sqlite *SQLiteDB) GetProofsUsed(Ys []string) ([]storage.DBProof, error) {
 	return proofs, nil
 }
 
+func (sqlite *SQLiteDB) AddPendingProofs(proofs cashu.Proofs, quoteId string) error {
+	tx, err := sqlite.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO pending_proofs (y, amount, keyset_id, secret, c, melt_quote_id) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, proof := range proofs {
+		Y, err := crypto.HashToCurve([]byte(proof.Secret))
+		if err != nil {
+			return err
+		}
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+
+		if _, err := stmt.Exec(Yhex, proof.Amount, proof.Id, proof.Secret, proof.C, quoteId); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (sqlite *SQLiteDB) GetPendingProofs(Ys []string) ([]storage.DBProof, error) {
+	proofs := []storage.DBProof{}
+	query := `SELECT y, amount, keyset_id, secret, c FROM pending_proofs WHERE y in (?` + strings.Repeat(",?", len(Ys)-1) + `)`
+
+	args := make([]any, len(Ys))
+	for i, y := range Ys {
+		args[i] = y
+	}
+
+	rows, err := sqlite.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var proof storage.DBProof
+		err := rows.Scan(
+			&proof.Y,
+			&proof.Amount,
+			&proof.Id,
+			&proof.Secret,
+			&proof.C,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		proofs = append(proofs, proof)
+	}
+
+	return proofs, nil
+}
+
+func (sqlite *SQLiteDB) GetPendingProofsByQuote(quoteId string) ([]storage.DBProof, error) {
+	proofs := []storage.DBProof{}
+	query := `SELECT y, amount, keyset_id, secret, c FROM pending_proofs WHERE melt_quote_id = ?`
+
+	rows, err := sqlite.db.Query(query, quoteId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var proof storage.DBProof
+		err := rows.Scan(
+			&proof.Y,
+			&proof.Amount,
+			&proof.Id,
+			&proof.Secret,
+			&proof.C,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		proofs = append(proofs, proof)
+	}
+
+	return proofs, nil
+}
+
+func (sqlite *SQLiteDB) RemovePendingProofs(Ys []string) error {
+	tx, err := sqlite.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare("DELETE FROM pending_proofs WHERE y = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, y := range Ys {
+		if _, err := stmt.Exec(y); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (sqlite *SQLiteDB) SaveMintQuote(mintQuote storage.MintQuote) error {
 	_, err := sqlite.db.Exec(
 		`INSERT INTO mint_quotes (id, payment_request, payment_hash, amount, state, expiry) 

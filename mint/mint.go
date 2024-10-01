@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -494,7 +496,7 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 
 // GetMeltQuoteState returns the state of a melt quote.
 // Used to check whether a melt quote has been paid.
-func (m *Mint) GetMeltQuoteState(method, quoteId string) (storage.MeltQuote, error) {
+func (m *Mint) GetMeltQuoteState(ctx context.Context, method, quoteId string) (storage.MeltQuote, error) {
 	if method != BOLT11_METHOD {
 		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
@@ -504,12 +506,89 @@ func (m *Mint) GetMeltQuoteState(method, quoteId string) (storage.MeltQuote, err
 		return storage.MeltQuote{}, cashu.QuoteNotExistErr
 	}
 
+	// if quote is pending, check with backend if status of payment has changed
+	if meltQuote.State == nut05.Pending {
+		paymentStatus, err := m.lightningClient.OutgoingPaymentStatus(ctx, meltQuote.PaymentHash)
+		if paymentStatus.PaymentStatus == lightning.Pending {
+			return meltQuote, nil
+		}
+		if err != nil {
+			// if it gets to here, payment failed.
+			// mark quote as unpaid and remove pending proofs
+			if paymentStatus.PaymentStatus == lightning.Failed && strings.Contains(err.Error(), "payment failed") {
+				meltQuote.State = nut05.Unpaid
+				err = m.db.UpdateMeltQuote(meltQuote.Id, "", meltQuote.State)
+				if err != nil {
+					msg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+
+				_, err = m.removePendingProofsForQuote(meltQuote.Id)
+				if err != nil {
+					msg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+			}
+		}
+
+		// settle proofs (remove pending, and add to used)
+		// mark quote as paid and set preimage
+		if paymentStatus.PaymentStatus == lightning.Succeeded {
+			proofs, err := m.removePendingProofsForQuote(meltQuote.Id)
+			if err != nil {
+				msg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			}
+			err = m.db.SaveProofs(proofs)
+			if err != nil {
+				msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			}
+
+			meltQuote.State = nut05.Paid
+			meltQuote.Preimage = paymentStatus.Preimage
+			err = m.db.UpdateMeltQuote(meltQuote.Id, paymentStatus.Preimage, nut05.Paid)
+			if err != nil {
+				msg := fmt.Sprintf("error updating melt quote state: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			}
+		}
+	}
+
 	return meltQuote, nil
+}
+
+func (m *Mint) removePendingProofsForQuote(quoteId string) (cashu.Proofs, error) {
+	dbproofs, err := m.db.GetPendingProofsByQuote(quoteId)
+	if err != nil {
+		return nil, err
+	}
+
+	proofs := make(cashu.Proofs, len(dbproofs))
+	Ys := make([]string, len(dbproofs))
+	for i, dbproof := range dbproofs {
+		Ys[i] = dbproof.Y
+
+		proof := cashu.Proof{
+			Amount: dbproof.Amount,
+			Id:     dbproof.Id,
+			Secret: dbproof.Secret,
+			C:      dbproof.C,
+		}
+		proofs[i] = proof
+	}
+
+	err = m.db.RemovePendingProofs(Ys)
+	if err != nil {
+		return nil, err
+	}
+
+	return proofs, nil
 }
 
 // MeltTokens verifies whether proofs provided are valid
 // and proceeds to attempt payment.
-func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.MeltQuote, error) {
+func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs cashu.Proofs) (storage.MeltQuote, error) {
 	var proofsAmount uint64
 	Ys := make([]string, len(proofs))
 	for i, proof := range proofs {
@@ -534,6 +613,9 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 	if meltQuote.State == nut05.Paid {
 		return storage.MeltQuote{}, cashu.MeltQuoteAlreadyPaid
 	}
+	if meltQuote.State == nut05.Pending {
+		return storage.MeltQuote{}, cashu.MeltQuotePending
+	}
 
 	err = m.verifyProofs(proofs, Ys)
 	if err != nil {
@@ -550,6 +632,19 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		return storage.MeltQuote{}, nut11.SigAllOnlySwap
 	}
 
+	// set proofs as pending before trying to make payment
+	err = m.db.AddPendingProofs(proofs, meltQuote.Id)
+	if err != nil {
+		msg := fmt.Sprintf("error setting proofs as pending in db: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+	meltQuote.State = nut05.Pending
+	err = m.db.UpdateMeltQuote(meltQuote.Id, "", nut05.Pending)
+	if err != nil {
+		msg := fmt.Sprintf("error updating melt quote state: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+
 	// before asking backend to send payment, check if quotes can be settled
 	// internally (i.e mint and melt quotes exist with the same invoice)
 	mintQuote, err := m.db.GetMintQuoteByPaymentHash(meltQuote.PaymentHash)
@@ -558,28 +653,101 @@ func (m *Mint) MeltTokens(method, quoteId string, proofs cashu.Proofs) (storage.
 		if err != nil {
 			return storage.MeltQuote{}, err
 		}
-	} else {
-		// if quote can't be settled internally, ask backend to make payment
-		preimage, err := m.lightningClient.SendPayment(meltQuote.InvoiceRequest, meltQuote.Amount)
+		err := m.db.RemovePendingProofs(Ys)
 		if err != nil {
-			return storage.MeltQuote{}, cashu.BuildCashuError(err.Error(), cashu.LightningBackendErrCode)
-		}
-
-		// if payment succeeded, mark melt quote as paid
-		// and invalidate proofs
-		meltQuote.State = nut05.Paid
-		meltQuote.Preimage = preimage
-		err = m.db.UpdateMeltQuote(meltQuote.Id, meltQuote.Preimage, meltQuote.State)
-		if err != nil {
-			msg := fmt.Sprintf("error updating melt quote state: %v", err)
+			msg := fmt.Sprintf("error removing pending proofs: %v", err)
 			return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
 		}
-	}
+		err = m.db.SaveProofs(proofs)
+		if err != nil {
+			msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+			return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
 
-	err = m.db.SaveProofs(proofs)
-	if err != nil {
-		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+	} else {
+		// if quote can't be settled internally, ask backend to make payment
+		sendPaymentResponse, err := m.lightningClient.SendPayment(ctx, meltQuote.InvoiceRequest, meltQuote.Amount)
+		if err != nil {
+			// if the payment error field was present in the response from SendPayment
+			// the payment most likely failed so we can already return unpaid state here
+			if strings.Contains(err.Error(), "payment error") {
+				meltQuote.State = nut05.Unpaid
+				err = m.db.UpdateMeltQuote(meltQuote.Id, "", meltQuote.State)
+				if err != nil {
+					msg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+				err = m.db.RemovePendingProofs(Ys)
+				if err != nil {
+					msg := fmt.Sprintf("error removing proofs from pending: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+				return meltQuote, nil
+			}
+
+			// if SendPayment failed for something other that payment error
+			// do not return yet, an extra check will be done
+			sendPaymentResponse.PaymentStatus = lightning.Failed
+		}
+
+		switch sendPaymentResponse.PaymentStatus {
+		case lightning.Succeeded:
+			// if payment succeeded:
+			// - unset pending proofs and mark them as spent by adding them to the db
+			// - mark melt quote as paid
+			meltQuote.State = nut05.Paid
+			meltQuote.Preimage = sendPaymentResponse.Preimage
+			err = m.settleProofs(Ys, proofs)
+			if err != nil {
+				return storage.MeltQuote{}, err
+			}
+			err = m.db.UpdateMeltQuote(meltQuote.Id, sendPaymentResponse.Preimage, nut05.Paid)
+			if err != nil {
+				msg := fmt.Sprintf("error updating melt quote state: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			}
+
+		case lightning.Pending:
+			// if payment is pending, leave quote and proofs as pending and return
+			return meltQuote, nil
+
+		case lightning.Failed:
+			// if got failed from SendPayment
+			// do additional check by calling to get outgoing payment status
+			paymentStatus, err := m.lightningClient.OutgoingPaymentStatus(ctx, meltQuote.PaymentHash)
+			if paymentStatus.PaymentStatus == lightning.Pending {
+				return meltQuote, nil
+			}
+			if err != nil {
+				// if it gets to here, most likely the payment failed
+				// so mark quote as unpaid and remove proofs from pending
+				meltQuote.State = nut05.Unpaid
+				err = m.db.UpdateMeltQuote(meltQuote.Id, "", meltQuote.State)
+				if err != nil {
+					msg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+				err = m.db.RemovePendingProofs(Ys)
+				if err != nil {
+					msg := fmt.Sprintf("error removing proofs from pending: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+			}
+
+			if paymentStatus.PaymentStatus == lightning.Succeeded {
+				err = m.settleProofs(Ys, proofs)
+				if err != nil {
+					return storage.MeltQuote{}, err
+				}
+				meltQuote.State = nut05.Paid
+				meltQuote.Preimage = paymentStatus.Preimage
+				err = m.db.UpdateMeltQuote(meltQuote.Id, paymentStatus.Preimage, nut05.Paid)
+				if err != nil {
+					msg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				}
+			}
+		}
 	}
 
 	return meltQuote, nil
@@ -615,6 +783,23 @@ func (m *Mint) settleQuotesInternally(
 	}
 
 	return meltQuote, nil
+}
+
+// settleProofs will remove the proofs from the pending table
+// and mark them as spent by adding them to the used proofs table
+func (m *Mint) settleProofs(Ys []string, proofs cashu.Proofs) error {
+	err := m.db.RemovePendingProofs(Ys)
+	if err != nil {
+		msg := fmt.Sprintf("error removing pending proofs: %v", err)
+		return cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+	err = m.db.SaveProofs(proofs)
+	if err != nil {
+		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+		return cashu.BuildCashuError(msg, cashu.DBErrCode)
+	}
+
+	return nil
 }
 
 func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
@@ -668,7 +853,18 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 		return cashu.NoProofsProvided
 	}
 
-	// check if proofs were alredy used
+	// check if proofs are either pending or already spent
+	pendingProofs, err := m.db.GetPendingProofs(Ys)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			msg := fmt.Sprintf("could not get pending proofs from db: %v", err)
+			return cashu.BuildCashuError(msg, cashu.DBErrCode)
+		}
+	}
+	if len(pendingProofs) != 0 {
+		return cashu.ProofPendingErr
+	}
+
 	usedProofs, err := m.db.GetProofsUsed(Ys)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {

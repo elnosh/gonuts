@@ -14,6 +14,7 @@ import (
 
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
@@ -502,10 +503,13 @@ func TestWalletBalance(t *testing.T) {
 	}
 
 	balanceBeforeMelt := balanceTestWallet.GetBalance()
-	// doing self-payment so this should make melt request fail
-	_, err = balanceTestWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
-	if err == nil {
-		t.Fatal("expected error in melt request but got nil")
+	// doing self-payment so this should make melt return unpaid
+	meltresponse, err := balanceTestWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt: %v", err)
+	}
+	if meltresponse.State != nut05.Unpaid {
+		t.Fatalf("expected melt with unpaid state but got '%v'", meltresponse.State.String())
 	}
 
 	// check balance is same after failed melt
