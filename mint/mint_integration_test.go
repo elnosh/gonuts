@@ -567,6 +567,38 @@ func TestMelt(t *testing.T) {
 		t.Fatal("got unexpected unpaid melt quote")
 	}
 
+	// test failed lightning payment
+	lnd3, err := btcdocker.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		lnd3.Terminate(ctx)
+	}()
+	// create invoice from node for which there is no route so payment fails
+	noRoute := lnrpc.Invoice{Value: 2000}
+	noRouteInvoice, err := lnd3.Client.AddInvoice(ctx, &noRoute)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	meltQuote, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, noRouteInvoice.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	validProofs, err = testutils.GetValidProofsForAmount(6500, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	meltResponse, err := testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
+	if meltResponse.State != nut05.Unpaid {
+		// expecting unpaid since payment should have failed
+		t.Fatalf("expected melt quote with state of '%v' but got '%v' instead",
+			nut05.Unpaid.String(), meltResponse.State.String())
+	}
+
 	// test internal quotes (mint and melt quotes with same invoice)
 	var mintAmount uint64 = 42000
 	mintQuoteResponse, err := testMint.RequestMintQuote(testutils.BOLT11_METHOD, mintAmount, testutils.SAT_UNIT)
