@@ -137,8 +137,15 @@ func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errRes
 		log = errLogMsg[0]
 	}
 
-	ms.mint.logger.Error(log, slog.Group("request", slog.String("method", req.Method),
-		slog.String("url", req.URL.String()), slog.Int("code", code)))
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:])
+	r := slog.NewRecord(time.Now(), slog.LevelError, log, pcs[0])
+	r.Add(slog.Group("request",
+		slog.String("method", req.Method),
+		slog.String("url", req.URL.String())),
+		slog.Int("code", code),
+	)
+	_ = ms.mint.logger.Handler().Handle(context.Background(), r)
 
 	rw.WriteHeader(code)
 	errRes, _ := json.Marshal(errResponse)
@@ -199,8 +206,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ms.logRequest(req, 0, "mint request for %v sats", mintReq.Amount)
-
+	ms.logRequest(req, 0, "mint request for %v %v", mintReq.Amount, mintReq.Unit)
 	mintQuote, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
@@ -363,7 +369,6 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 			ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
 			return
 		}
-
 		ms.writeErr(rw, req, err)
 		return
 	}
@@ -399,6 +404,15 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 
 	meltQuote, err := ms.mint.GetMeltQuoteState(ctx, method, quoteId)
 	if err != nil {
+		cashuErr, ok := err.(*cashu.Error)
+		// note: if there was internal error from lightning backend
+		// or error from db, log that error but return generic response
+		if ok {
+			if cashuErr.Code == cashu.LightningBackendErrCode || cashuErr.Code == cashu.DBErrCode {
+				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+				return
+			}
+		}
 		ms.writeErr(rw, req, err)
 		return
 	}

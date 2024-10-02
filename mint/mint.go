@@ -208,14 +208,20 @@ func setupLogger(mintPath string, logLevel LogLevel) (*slog.Logger, error) {
 		return nil, fmt.Errorf("error opening log file: %v", err)
 	}
 
-	var logWriter io.Writer
-	if logLevel == Disable {
+	logWriter := io.MultiWriter(os.Stdout, logFile)
+	level := slog.LevelInfo
+	switch logLevel {
+	case Debug:
+		level = slog.LevelDebug
+	case Disable:
 		logWriter = io.Discard
-	} else {
-		logWriter = io.MultiWriter(os.Stdout, logFile)
 	}
 
-	return slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replacer})), nil
+	return slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{
+		AddSource:   true,
+		Level:       level,
+		ReplaceAttr: replacer,
+	})), nil
 }
 
 // logInfof formats the strings with args and preserves the source position
@@ -225,6 +231,24 @@ func (m *Mint) logInfof(format string, args ...any) {
 	var pcs [1]uintptr
 	runtime.Callers(2, pcs[:])
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, fmt.Sprintf(format, args...), pcs[0])
+	_ = m.logger.Handler().Handle(context.Background(), r)
+}
+
+func (m *Mint) logErrorf(format string, args ...any) {
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:])
+	r := slog.NewRecord(time.Now(), slog.LevelError, fmt.Sprintf(format, args...), pcs[0])
+	_ = m.logger.Handler().Handle(context.Background(), r)
+}
+
+func (m *Mint) logDebugf(format string, args ...any) {
+	if !m.logger.Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
+
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:])
+	r := slog.NewRecord(time.Now(), slog.LevelDebug, fmt.Sprintf(format, args...), pcs[0])
 	_ = m.logger.Handler().Handle(context.Background(), r)
 }
 
@@ -239,7 +263,8 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	}
 	// only support sat unit
 	if unit != SAT_UNIT {
-		return storage.MintQuote{}, cashu.UnitNotSupportedErr
+		errmsg := fmt.Sprintf("unit '%v' not supported", unit)
+		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
 
 	// check limits
@@ -251,7 +276,8 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	if m.limits.MaxBalance > 0 {
 		balance, err := m.db.GetBalance()
 		if err != nil {
-			return storage.MintQuote{}, err
+			errmsg := fmt.Sprintf("could not get mint balance from db: %v", err)
+			return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 		if balance+amount > m.limits.MaxBalance {
 			return storage.MintQuote{}, cashu.MintingDisabled
@@ -259,16 +285,17 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	}
 
 	// get an invoice from the lightning backend
-	m.logger.Info(fmt.Sprintf("requesting invoice from lightning backend for %v sats", amount))
+	m.logInfof("requesting invoice from lightning backend for %v sats", amount)
 	invoice, err := m.requestInvoice(amount)
 	if err != nil {
-		msg := fmt.Sprintf("could not generate invoice: %v", err)
-		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
+		errmsg := fmt.Sprintf("could not generate invoice: %v", err)
+		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.LightningBackendErrCode)
 	}
 
 	quoteId, err := cashu.GenerateRandomQuoteId()
 	if err != nil {
-		return storage.MintQuote{}, err
+		m.logErrorf("error generating random quote id: %v", err)
+		return storage.MintQuote{}, cashu.StandardErr
 	}
 	mintQuote := storage.MintQuote{
 		Id:             quoteId,
@@ -281,8 +308,8 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 
 	err = m.db.SaveMintQuote(mintQuote)
 	if err != nil {
-		msg := fmt.Sprintf("error saving mint quote to db: %v", err)
-		return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error saving mint quote to db: %v", err)
+		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	return mintQuote, nil
@@ -302,19 +329,20 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 
 	// if previously unpaid, check if invoice has been paid
 	if mintQuote.State == nut04.Unpaid {
-		m.logger.Info(fmt.Sprintf("checking status of invoice with hash '%v'", mintQuote.PaymentHash))
+		m.logDebugf("checking status of invoice with hash '%v'", mintQuote.PaymentHash)
 		status, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 		if err != nil {
-			msg := fmt.Sprintf("error getting invoice status: %v", err)
-			return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
+			errmsg := fmt.Sprintf("error getting invoice status: %v", err)
+			return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.LightningBackendErrCode)
 		}
 
 		if status.Settled {
+			m.logInfof("mint quote '%v' with invoice payment hash '%v' was paid", mintQuote.Id, mintQuote.PaymentHash)
 			mintQuote.State = nut04.Paid
 			err := m.db.UpdateMintQuoteState(mintQuote.Id, mintQuote.State)
 			if err != nil {
-				msg := fmt.Sprintf("error getting quote state: %v", err)
-				return storage.MintQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				errmsg := fmt.Sprintf("error updating mint quote in db: %v", err)
+				return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
 		}
 	}
@@ -337,13 +365,14 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 	invoicePaid := false
 	if mintQuote.State == nut04.Unpaid {
-		m.logger.Info(fmt.Sprintf("checking status of invoice with hash '%v'", mintQuote.PaymentHash))
+		m.logDebugf("checking status of invoice with hash '%v'", mintQuote.PaymentHash)
 		invoiceStatus, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 		if err != nil {
-			msg := fmt.Sprintf("error getting invoice status: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
+			errmsg := fmt.Sprintf("error getting invoice status: %v", err)
+			return nil, cashu.BuildCashuError(errmsg, cashu.LightningBackendErrCode)
 		}
 		if invoiceStatus.Settled {
+			m.logInfof("mint quote '%v' with invoice payment hash '%v' was paid", mintQuote.Id, mintQuote.PaymentHash)
 			invoicePaid = true
 		}
 	} else {
@@ -378,8 +407,8 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 
 		sigs, err := m.db.GetBlindSignatures(B_s)
 		if err != nil {
-			msg := fmt.Sprintf("could not get signatures from db: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("error getting blind signatures from db: %v", err)
+			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 		if len(sigs) > 0 {
 			return nil, cashu.BlindedMessageAlreadySigned
@@ -393,8 +422,8 @@ func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessag
 		// mark quote as issued after signing the blinded messages
 		err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued)
 		if err != nil {
-			msg := fmt.Sprintf("error getting quote state: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("error mint quote state: %v", err)
+			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 	} else {
 		return nil, cashu.MintQuoteRequestNotPaid
@@ -449,8 +478,8 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 
 	sigs, err := m.db.GetBlindSignatures(B_s)
 	if err != nil {
-		msg := fmt.Sprintf("could not get signatures from db: %v", err)
-		return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error getting blind signatures from db: %v", err)
+		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 	if len(sigs) > 0 {
 		return nil, cashu.BlindedMessageAlreadySigned
@@ -458,6 +487,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 
 	// if sig all, verify signatures in blinded messages
 	if nut11.ProofsSigAll(proofs) {
+		m.logDebugf("P2PK locked proofs have SIG_ALL flag. Verifying blinded messages")
 		if err := verifyP2PKBlindedMessages(proofs, blindedMessages); err != nil {
 			return nil, err
 		}
@@ -472,8 +502,8 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	// invalidate proofs after signing blinded messages
 	err = m.db.SaveProofs(proofs)
 	if err != nil {
-		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-		return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	return blindedSignatures, nil
@@ -486,17 +516,18 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
 	}
 	if unit != SAT_UNIT {
-		return storage.MeltQuote{}, cashu.UnitNotSupportedErr
+		errmsg := fmt.Sprintf("unit '%v' not supported", unit)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
 
 	// check invoice passed is valid
 	bolt11, err := decodepay.Decodepay(request)
 	if err != nil {
-		msg := fmt.Sprintf("invalid invoice: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.StandardErrCode)
+		errmsg := fmt.Sprintf("invalid invoice: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.MeltQuoteErrCode)
 	}
 	if bolt11.MSatoshi == 0 {
-		return storage.MeltQuote{}, cashu.BuildCashuError("invoice has no amount", cashu.StandardErrCode)
+		return storage.MeltQuote{}, cashu.BuildCashuError("invoice has no amount", cashu.MeltQuoteErrCode)
 	}
 	satAmount := uint64(bolt11.MSatoshi) / 1000
 
@@ -509,10 +540,12 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 
 	quoteId, err := cashu.GenerateRandomQuoteId()
 	if err != nil {
+		m.logErrorf("error generating random quote id: %v", err)
 		return storage.MeltQuote{}, cashu.StandardErr
 	}
 	// Fee reserve that is required by the mint
 	fee := m.lightningClient.FeeReserve(satAmount)
+	m.logInfof("got melt quote request for invoice of amount '%v'. Setting fee reserve to %v", satAmount, fee)
 
 	meltQuote := storage.MeltQuote{
 		Id:             quoteId,
@@ -529,14 +562,17 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 	// settled internally so set the fee to 0
 	mintQuote, err := m.db.GetMintQuoteByPaymentHash(bolt11.PaymentHash)
 	if err == nil {
+		m.logDebugf(`in melt quote request found mint quote with same invoice. 
+		Setting fee reserve to 0 because quotes can be settled internally.`)
+
 		meltQuote.InvoiceRequest = mintQuote.PaymentRequest
 		meltQuote.PaymentHash = mintQuote.PaymentHash
 		meltQuote.FeeReserve = 0
 	}
 
 	if err := m.db.SaveMeltQuote(meltQuote); err != nil {
-		msg := fmt.Sprintf("error saving melt quote to db: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error saving melt quote to db: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	return meltQuote, nil
@@ -556,25 +592,32 @@ func (m *Mint) GetMeltQuoteState(ctx context.Context, method, quoteId string) (s
 
 	// if quote is pending, check with backend if status of payment has changed
 	if meltQuote.State == nut05.Pending {
+		m.logDebugf("checking status of payment with hash '%v' for melt quote '%v'",
+			meltQuote.PaymentHash, meltQuote.Id)
+
 		paymentStatus, err := m.lightningClient.OutgoingPaymentStatus(ctx, meltQuote.PaymentHash)
 		if paymentStatus.PaymentStatus == lightning.Pending {
+			m.logInfof("payment '%v' melt for quote '%v' is pending", meltQuote.PaymentHash, meltQuote.Id)
 			return meltQuote, nil
 		}
 		if err != nil {
 			// if it gets to here, payment failed.
 			// mark quote as unpaid and remove pending proofs
 			if paymentStatus.PaymentStatus == lightning.Failed && strings.Contains(err.Error(), "payment failed") {
+				m.logInfof("payment %v failed. setting melt quote '%v' to '%s' and removing proofs from pending",
+					meltQuote.PaymentHash, meltQuote.Id, nut05.Unpaid)
+
 				meltQuote.State = nut05.Unpaid
 				err = m.db.UpdateMeltQuote(meltQuote.Id, "", meltQuote.State)
 				if err != nil {
-					msg := fmt.Sprintf("error updating melt quote state: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 
 				_, err = m.removePendingProofsForQuote(meltQuote.Id)
 				if err != nil {
-					msg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 			}
 		}
@@ -582,23 +625,26 @@ func (m *Mint) GetMeltQuoteState(ctx context.Context, method, quoteId string) (s
 		// settle proofs (remove pending, and add to used)
 		// mark quote as paid and set preimage
 		if paymentStatus.PaymentStatus == lightning.Succeeded {
+			m.logInfof("payment %v succeded. setting melt quote '%v' to '%v' and invalidating proofs",
+				meltQuote.PaymentHash, meltQuote.Id, nut05.Paid)
+
 			proofs, err := m.removePendingProofsForQuote(meltQuote.Id)
 			if err != nil {
-				msg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
-				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				errmsg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
 			err = m.db.SaveProofs(proofs)
 			if err != nil {
-				msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
 
 			meltQuote.State = nut05.Paid
 			meltQuote.Preimage = paymentStatus.Preimage
 			err = m.db.UpdateMeltQuote(meltQuote.Id, paymentStatus.Preimage, nut05.Paid)
 			if err != nil {
-				msg := fmt.Sprintf("error updating melt quote state: %v", err)
-				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
 		}
 	}
@@ -680,66 +726,73 @@ func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs ca
 		return storage.MeltQuote{}, nut11.SigAllOnlySwap
 	}
 
+	m.logInfof("verified proofs in melt tokens request. Setting proofs as pending before attempting payment.")
 	// set proofs as pending before trying to make payment
 	err = m.db.AddPendingProofs(proofs, meltQuote.Id)
 	if err != nil {
-		msg := fmt.Sprintf("error setting proofs as pending in db: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error setting proofs as pending in db: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 	meltQuote.State = nut05.Pending
 	err = m.db.UpdateMeltQuote(meltQuote.Id, "", nut05.Pending)
 	if err != nil {
-		msg := fmt.Sprintf("error updating melt quote state: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	// before asking backend to send payment, check if quotes can be settled
 	// internally (i.e mint and melt quotes exist with the same invoice)
 	mintQuote, err := m.db.GetMintQuoteByPaymentHash(meltQuote.PaymentHash)
 	if err == nil {
+		m.logDebugf("quotes '%v' and '%v' have same invoice so settling them internally", meltQuote.Id, mintQuote.Id)
 		meltQuote, err = m.settleQuotesInternally(mintQuote, meltQuote)
 		if err != nil {
 			return storage.MeltQuote{}, err
 		}
 		err := m.db.RemovePendingProofs(Ys)
 		if err != nil {
-			msg := fmt.Sprintf("error removing pending proofs: %v", err)
-			return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("error removing pending proofs: %v", err)
+			return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 		err = m.db.SaveProofs(proofs)
 		if err != nil {
-			msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-			return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+			return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
-
 	} else {
+		m.logInfof("attempting to pay invoice: %v", meltQuote.InvoiceRequest)
 		// if quote can't be settled internally, ask backend to make payment
 		sendPaymentResponse, err := m.lightningClient.SendPayment(ctx, meltQuote.InvoiceRequest, meltQuote.Amount)
 		if err != nil {
 			// if the payment error field was present in the response from SendPayment
 			// the payment most likely failed so we can already return unpaid state here
 			if strings.Contains(err.Error(), "payment error") {
+				m.logInfof("payment failed with error: %v. Removing pending proofs and marking quote '%v' as '%v'",
+					err, meltQuote.Id, nut05.Unpaid)
+
 				meltQuote.State = nut05.Unpaid
 				err = m.db.UpdateMeltQuote(meltQuote.Id, "", meltQuote.State)
 				if err != nil {
-					msg := fmt.Sprintf("error updating melt quote state: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 				err = m.db.RemovePendingProofs(Ys)
 				if err != nil {
-					msg := fmt.Sprintf("error removing proofs from pending: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error removing proofs from pending: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 				return meltQuote, nil
 			}
 
-			// if SendPayment failed for something other that payment error
+			// if SendPayment failed for something other than payment error
 			// do not return yet, an extra check will be done
 			sendPaymentResponse.PaymentStatus = lightning.Failed
+			m.logDebugf("SendPayment failed with error: %v. Will do extra check", err)
 		}
 
 		switch sendPaymentResponse.PaymentStatus {
 		case lightning.Succeeded:
+			m.logInfof("succesfully paid invoice with hash '%v' for melt quote '%v'", meltQuote.PaymentHash, meltQuote.Id)
 			// if payment succeeded:
 			// - unset pending proofs and mark them as spent by adding them to the db
 			// - mark melt quote as paid
@@ -751,12 +804,13 @@ func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs ca
 			}
 			err = m.db.UpdateMeltQuote(meltQuote.Id, sendPaymentResponse.Preimage, nut05.Paid)
 			if err != nil {
-				msg := fmt.Sprintf("error updating melt quote state: %v", err)
-				return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+				errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+				return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
 
 		case lightning.Pending:
 			// if payment is pending, leave quote and proofs as pending and return
+			m.logInfof("outgoing payment for quote '%v' is pending.", meltQuote.Id)
 			return meltQuote, nil
 
 		case lightning.Failed:
@@ -767,22 +821,25 @@ func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs ca
 				return meltQuote, nil
 			}
 			if err != nil {
+				m.logInfof("payment failed with error: %v. Removing pending proofs and marking quote '%v' as '%v'",
+					err, meltQuote.Id, nut05.Unpaid)
 				// if it gets to here, most likely the payment failed
 				// so mark quote as unpaid and remove proofs from pending
 				meltQuote.State = nut05.Unpaid
 				err = m.db.UpdateMeltQuote(meltQuote.Id, "", meltQuote.State)
 				if err != nil {
-					msg := fmt.Sprintf("error updating melt quote state: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 				err = m.db.RemovePendingProofs(Ys)
 				if err != nil {
-					msg := fmt.Sprintf("error removing proofs from pending: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error removing proofs from pending: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 			}
 
 			if paymentStatus.PaymentStatus == lightning.Succeeded {
+				m.logInfof("succesfully paid invoice with hash '%v' for melt quote '%v'", meltQuote.PaymentHash, meltQuote.Id)
 				err = m.settleProofs(Ys, proofs)
 				if err != nil {
 					return storage.MeltQuote{}, err
@@ -791,8 +848,8 @@ func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs ca
 				meltQuote.Preimage = paymentStatus.Preimage
 				err = m.db.UpdateMeltQuote(meltQuote.Id, paymentStatus.Preimage, nut05.Paid)
 				if err != nil {
-					msg := fmt.Sprintf("error updating melt quote state: %v", err)
-					return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+					errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+					return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 				}
 			}
 		}
@@ -810,24 +867,24 @@ func (m *Mint) settleQuotesInternally(
 	// need to get the invoice from the backend first to get the preimage
 	invoice, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
 	if err != nil {
-		msg := fmt.Sprintf("error getting invoice status from lightning backend: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.LightningBackendErrCode)
+		errmsg := fmt.Sprintf("error getting invoice status from lightning backend: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.LightningBackendErrCode)
 	}
 
 	meltQuote.State = nut05.Paid
 	meltQuote.Preimage = invoice.Preimage
 	err = m.db.UpdateMeltQuote(meltQuote.Id, meltQuote.Preimage, meltQuote.State)
 	if err != nil {
-		msg := fmt.Sprintf("error updating melt quote state: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	// mark mint quote request as paid
 	mintQuote.State = nut04.Paid
 	err = m.db.UpdateMintQuoteState(mintQuote.Id, mintQuote.State)
 	if err != nil {
-		msg := fmt.Sprintf("error updating mint quote state: %v", err)
-		return storage.MeltQuote{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error updating mint quote state: %v", err)
+		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	return meltQuote, nil
@@ -838,13 +895,13 @@ func (m *Mint) settleQuotesInternally(
 func (m *Mint) settleProofs(Ys []string, proofs cashu.Proofs) error {
 	err := m.db.RemovePendingProofs(Ys)
 	if err != nil {
-		msg := fmt.Sprintf("error removing pending proofs: %v", err)
-		return cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error removing pending proofs: %v", err)
+		return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 	err = m.db.SaveProofs(proofs)
 	if err != nil {
-		msg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
-		return cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
+		return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	return nil
@@ -854,8 +911,8 @@ func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
 	usedProofs, err := m.db.GetProofsUsed(Ys)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			msg := fmt.Sprintf("could not get used proofs from db: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("could not get used proofs from db: %v", err)
+			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 	}
 
@@ -885,8 +942,8 @@ func (m *Mint) RestoreSignatures(blindedMessages cashu.BlindedMessages) (cashu.B
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		} else if err != nil {
-			msg := fmt.Sprintf("could not get signature from db: %v", err)
-			return nil, nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("could not get signature from db: %v", err)
+			return nil, nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 
 		outputs = append(outputs, bm)
@@ -905,8 +962,8 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 	pendingProofs, err := m.db.GetPendingProofs(Ys)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			msg := fmt.Sprintf("could not get pending proofs from db: %v", err)
-			return cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("could not get pending proofs from db: %v", err)
+			return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 	}
 	if len(pendingProofs) != 0 {
@@ -916,8 +973,8 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 	usedProofs, err := m.db.GetProofsUsed(Ys)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			msg := fmt.Sprintf("could not get used proofs from db: %v", err)
-			return cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("could not get used proofs from db: %v", err)
+			return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 	}
 	if len(usedProofs) != 0 {
@@ -945,6 +1002,7 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 
 		// if P2PK locked proof, verify valid witness
 		if nut11.IsSecretP2PK(proof) {
+			m.logDebugf("verifying P2PK locked proof")
 			if err := verifyP2PKLockedProof(proof); err != nil {
 				return err
 			}
@@ -952,7 +1010,8 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 
 		Cbytes, err := hex.DecodeString(proof.C)
 		if err != nil {
-			return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
+			errmsg := fmt.Sprintf("invalid C: %v", err)
+			return cashu.BuildCashuError(errmsg, cashu.StandardErrCode)
 		}
 
 		C, err := secp256k1.ParsePubKey(Cbytes)
@@ -1126,7 +1185,8 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 
 		B_bytes, err := hex.DecodeString(msg.B_)
 		if err != nil {
-			return nil, cashu.StandardErr
+			errmsg := fmt.Sprintf("invalid B_: %v", err)
+			return nil, cashu.BuildCashuError(errmsg, cashu.StandardErrCode)
 		}
 		B_, err := btcec.ParsePubKey(B_bytes)
 		if err != nil {
@@ -1152,8 +1212,8 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 		blindedSignatures[i] = blindedSignature
 
 		if err := m.db.SaveBlindSignature(msg.B_, blindedSignature); err != nil {
-			msg := fmt.Sprintf("error saving signatures: %v", err)
-			return nil, cashu.BuildCashuError(msg, cashu.DBErrCode)
+			errmsg := fmt.Sprintf("error saving blind signatures: %v", err)
+			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
 	}
 
@@ -1250,8 +1310,8 @@ func (m *Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
 	mintingDisabled := false
 	mintBalance, err := m.db.GetBalance()
 	if err != nil {
-		msg := fmt.Sprintf("error getting mint balance: %v", err)
-		return nut06.MintInfo{}, cashu.BuildCashuError(msg, cashu.DBErrCode)
+		errmsg := fmt.Sprintf("error getting mint balance: %v", err)
+		return nut06.MintInfo{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	if m.limits.MaxBalance > 0 {

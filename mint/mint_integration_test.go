@@ -117,8 +117,12 @@ func TestRequestMintQuote(t *testing.T) {
 
 	// test invalid unit
 	_, err = testMint.RequestMintQuote(testutils.BOLT11_METHOD, mintAmount, "eth")
-	if !errors.Is(err, cashu.UnitNotSupportedErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.UnitNotSupportedErr, err)
+	cashuErr, ok := err.(*cashu.Error)
+	if !ok {
+		t.Fatalf("got unexpected non-Cashu error: %v", err)
+	}
+	if cashuErr.Code != cashu.UnitErrCode {
+		t.Fatalf("expected cashu error code '%v' but got '%v' instead", cashu.UnitErrCode, cashuErr.Code)
 	}
 }
 
@@ -368,8 +372,12 @@ func TestRequestMeltQuote(t *testing.T) {
 
 	// test invalid unit
 	_, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, "eth")
-	if !errors.Is(err, cashu.UnitNotSupportedErr) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.UnitNotSupportedErr, err)
+	cashuErr, ok := err.(*cashu.Error)
+	if !ok {
+		t.Fatalf("got unexpected non-Cashu error: %v", err)
+	}
+	if cashuErr.Code != cashu.UnitErrCode {
+		t.Fatalf("expected cashu error code '%v' but got '%v' instead", cashu.UnitErrCode, cashuErr.Code)
 	}
 
 	// test invalid invoice

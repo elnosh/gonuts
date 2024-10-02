@@ -405,12 +405,11 @@ const (
 
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
-
-	QuoteErrCode CashuErrCode = 20008
+	MeltQuoteErrCode            CashuErrCode = 20008
 )
 
 var (
-	StandardErr                  = Error{Detail: "unable to process request", Code: StandardErrCode}
+	StandardErr                  = Error{Detail: "mint is currently unable to process request", Code: StandardErrCode}
 	EmptyBodyErr                 = Error{Detail: "request body cannot be emtpy", Code: StandardErrCode}
 	UnknownKeysetErr             = Error{Detail: "unknown keyset", Code: UnknownKeysetErrCode}
 	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
@@ -427,7 +426,7 @@ var (
 	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
 	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
-	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: QuoteErrCode}
+	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: MeltQuoteErrCode}
 	MeltQuotePending             = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
 	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: AmountLimitExceeded}
