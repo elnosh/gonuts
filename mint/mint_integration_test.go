@@ -149,7 +149,7 @@ func TestMintQuoteState(t *testing.T) {
 		t.Fatalf("unexpected error getting quote state: %v", err)
 	}
 	if quoteStateResponse.State != nut04.Unpaid {
-		t.Fatalf("expected quote state '%v' but got '%v' instead", nut04.Unpaid.String(), quoteStateResponse.State.String())
+		t.Fatalf("expected quote state '%s' but got '%s' instead", nut04.Unpaid, quoteStateResponse.State)
 	}
 
 	//pay invoice
@@ -167,7 +167,7 @@ func TestMintQuoteState(t *testing.T) {
 		t.Fatalf("unexpected error getting quote state: %v", err)
 	}
 	if quoteStateResponse.State != nut04.Paid {
-		t.Fatalf("expected quote state '%v' but got '%v' instead", nut04.Paid.String(), quoteStateResponse.State.String())
+		t.Fatalf("expected quote state '%s' but got '%s' instead", nut04.Paid, quoteStateResponse.State)
 	}
 
 	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
@@ -184,7 +184,7 @@ func TestMintQuoteState(t *testing.T) {
 		t.Fatalf("unexpected error getting quote state: %v", err)
 	}
 	if quoteStateResponse.State != nut04.Issued {
-		t.Fatalf("expected quote state '%v' but got '%v' instead", nut04.Issued.String(), quoteStateResponse.State.String())
+		t.Fatalf("expected quote state '%s' but got '%s' instead", nut04.Issued, quoteStateResponse.State)
 	}
 
 }
@@ -419,7 +419,7 @@ func TestMeltQuoteState(t *testing.T) {
 		t.Fatalf("unexpected error getting melt quote state: %v", err)
 	}
 	if meltQuote.State != nut05.Unpaid {
-		t.Fatalf("expected quote state '%v' but got '%v' instead", nut05.Unpaid.String(), meltQuote.State.String())
+		t.Fatalf("expected quote state '%s' but got '%s' instead", nut05.Unpaid, meltQuote.State)
 	}
 
 	// test state after melting
@@ -438,7 +438,7 @@ func TestMeltQuoteState(t *testing.T) {
 		t.Fatalf("unexpected error getting melt quote state: %v", err)
 	}
 	if meltQuote.State != nut05.Paid {
-		t.Fatalf("expected quote state '%v' but got '%v' instead", nut05.Paid.String(), meltQuote.State.String())
+		t.Fatalf("expected quote state '%s' but got '%s' instead", nut05.Paid, meltQuote.State)
 	}
 	preimageString := hex.EncodeToString(lookupInvoice.RPreimage)
 	if meltQuote.Preimage != preimageString {
@@ -595,8 +595,7 @@ func TestMelt(t *testing.T) {
 	meltResponse, err := testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
 	if meltResponse.State != nut05.Unpaid {
 		// expecting unpaid since payment should have failed
-		t.Fatalf("expected melt quote with state of '%v' but got '%v' instead",
-			nut05.Unpaid.String(), meltResponse.State.String())
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Unpaid, meltResponse.State)
 	}
 
 	// test internal quotes (mint and melt quotes with same invoice)
@@ -634,8 +633,10 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in mint: %v", err)
 	}
+}
 
-	// tests for pending state
+func TestPendingProofs(t *testing.T) {
+	// use hodl invoice to cause payment to stuck and put quote and proofs in state of pending
 	preimage, _ := testutils.GenerateRandomBytes()
 	hash := sha256.Sum256(preimage)
 	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
@@ -644,27 +645,36 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("error creating hodl invoice: %v", err)
 	}
 
-	meltQuote, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addHodlInvoiceRes.PaymentRequest, testutils.SAT_UNIT)
+	meltQuote, err := testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addHodlInvoiceRes.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
 
-	validProofs, err = testutils.GetValidProofsForAmount(2200, testMint, lnd2)
+	validProofs, err := testutils.GetValidProofsForAmount(2200, testMint, lnd2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	// custom context just for this melt call to timeout afte 5s and return pending
+	// custom context just for this melt call to timeout after 5s and return pending
 	// for the stuck hodl invoice
 	meltContext, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	melt, err = testMint.MeltTokens(meltContext, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
+	melt, err := testMint.MeltTokens(meltContext, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt: %v", err)
 	}
 	if melt.State != nut05.Pending {
-		t.Fatalf("expected melt quote with state of '%v' but got '%v' instead", nut05.Pending.String(), melt.State.String())
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Pending, melt.State)
+	}
+
+	meltQuote, err = testMint.GetMeltQuoteState(meltContext, testutils.BOLT11_METHOD, meltQuote.Id)
+	if err != nil {
+		t.Fatalf("unexpected error getting melt quote state: %v", err)
+	}
+
+	if meltQuote.State != nut05.Pending {
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Pending, melt.State)
 	}
 
 	_, err = testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
@@ -674,7 +684,7 @@ func TestMelt(t *testing.T) {
 
 	// try to use currently pending proofs in another op.
 	// swap should return err saying proofs are pending
-	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(validProofs.Amount(), testMint.GetActiveKeyset())
+	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(validProofs.Amount(), testMint.GetActiveKeyset())
 	_, err = testMint.Swap(validProofs, blindedMessages)
 	if !errors.Is(err, cashu.ProofPendingErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofPendingErr, err)
@@ -691,7 +701,7 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("unexpected error getting melt quote state: %v", err)
 	}
 	if meltQuote.State != nut05.Paid {
-		t.Fatalf("expected melt quote with state of '%v' but got '%v' instead", nut05.Paid.String(), meltQuote.State.String())
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Paid, meltQuote.State)
 	}
 
 	expectedPreimage := hex.EncodeToString(preimage)
@@ -721,7 +731,7 @@ func TestProofsStateCheck(t *testing.T) {
 	// proofs should be unspent here
 	for _, proofState := range proofStates {
 		if proofState.State != nut07.Unspent {
-			t.Fatalf("expected proof state '%v' but got '%v'", nut07.Unspent.String(), proofState.State.String())
+			t.Fatalf("expected proof state '%s' but got '%s'", nut07.Unspent, proofState.State)
 		}
 	}
 
@@ -749,7 +759,7 @@ func TestProofsStateCheck(t *testing.T) {
 
 	for _, proofState := range proofStates {
 		if proofState.State != nut07.Spent {
-			t.Fatalf("expected proof state '%v' but got '%v'", nut07.Spent.String(), proofState.State.String())
+			t.Fatalf("expected proof state '%s' but got '%s'", nut07.Spent, proofState.State)
 		}
 	}
 }

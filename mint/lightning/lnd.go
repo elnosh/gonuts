@@ -132,12 +132,18 @@ func (lnd *LndClient) OutgoingPaymentStatus(ctx context.Context, hash string) (P
 
 	trackPaymentStream, err := lnd.routerClient.TrackPaymentV2(ctx, &trackPaymentRequest)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return PaymentStatus{PaymentStatus: Pending}, nil
+		}
 		return PaymentStatus{PaymentStatus: Failed}, err
 	}
 
 	// this should block until final payment update
 	payment, err := trackPaymentStream.Recv()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return PaymentStatus{PaymentStatus: Pending}, nil
+		}
 		return PaymentStatus{PaymentStatus: Failed}, fmt.Errorf("payment failed: %w", err)
 	}
 	if payment.Status == lnrpc.Payment_UNKNOWN || payment.Status == lnrpc.Payment_FAILED {
