@@ -908,12 +908,48 @@ func (m *Mint) settleProofs(Ys []string, proofs cashu.Proofs) error {
 }
 
 func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
+	// status of proofs that are pending due to an in-flight lightning payment
+	// could have changed so need to check with the lightning backend the status
+	// of the payment
+	pendingProofs, err := m.db.GetPendingProofs(Ys)
+	if err != nil {
+		errmsg := fmt.Sprintf("could not get pending proofs from db: %v", err)
+		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+	}
+
+	pendingQuotes := make(map[string]bool)
+	for _, pendingProof := range pendingProofs {
+		if !pendingQuotes[pendingProof.MeltQuoteId] {
+			pendingQuotes[pendingProof.MeltQuoteId] = true
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	m.logDebugf("checking if status of pending proofs has changed")
+	for quoteId, _ := range pendingQuotes {
+		// GetMeltQuoteState will check the status of the quote
+		// and update the db tables (pending proofs, used proofs) appropriately
+		// if the status has changed
+		_, err := m.GetMeltQuoteState(ctx, BOLT11_METHOD, quoteId)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// get pending proofs from db since they could have changed
+	// from checking the quote state
+	pendingProofs, err = m.db.GetPendingProofs(Ys)
+	if err != nil {
+		errmsg := fmt.Sprintf("could not get pending proofs from db: %v", err)
+		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+	}
+
 	usedProofs, err := m.db.GetProofsUsed(Ys)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			errmsg := fmt.Sprintf("could not get used proofs from db: %v", err)
-			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
-		}
+		errmsg := fmt.Sprintf("could not get used proofs from db: %v", err)
+		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
 
 	proofStates := make([]nut07.ProofState, len(Ys))
@@ -923,8 +959,13 @@ func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
 		YSpent := slices.ContainsFunc(usedProofs, func(proof storage.DBProof) bool {
 			return proof.Y == y
 		})
+		YPending := slices.ContainsFunc(pendingProofs, func(proof storage.DBProof) bool {
+			return proof.Y == y
+		})
 		if YSpent {
 			state = nut07.Spent
+		} else if YPending {
+			state = nut07.Pending
 		}
 
 		proofStates[i] = nut07.ProofState{Y: y, State: state}

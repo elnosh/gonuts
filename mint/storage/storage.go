@@ -54,6 +54,8 @@ type DBProof struct {
 	Secret string
 	Y      string
 	C      string
+	// for proofs in pending table
+	MeltQuoteId string
 }
 
 type MintQuote struct {
