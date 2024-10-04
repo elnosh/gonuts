@@ -399,7 +399,7 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 	method := vars["method"]
 	quoteId := vars["quote_id"]
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	meltQuote, err := ms.mint.GetMeltQuoteState(ctx, method, quoteId)

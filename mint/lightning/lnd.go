@@ -146,14 +146,12 @@ func (lnd *LndClient) OutgoingPaymentStatus(ctx context.Context, hash string) (P
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) ||
 			strings.Contains(err.Error(), "context deadline exceeded") {
-
 			return PaymentStatus{PaymentStatus: Pending}, nil
 		}
-		return PaymentStatus{PaymentStatus: Failed}, fmt.Errorf("payment failed: %w", err)
+		return PaymentStatus{PaymentStatus: Failed}, err
 	}
 	if payment.Status == lnrpc.Payment_UNKNOWN || payment.Status == lnrpc.Payment_FAILED {
-		return PaymentStatus{PaymentStatus: Failed},
-			fmt.Errorf("payment failed: %s", payment.FailureReason.String())
+		return PaymentStatus{PaymentStatus: Failed, PaymentFailureReason: payment.FailureReason.String()}, nil
 	}
 	if payment.Status == lnrpc.Payment_IN_FLIGHT {
 		return PaymentStatus{PaymentStatus: Pending}, nil
