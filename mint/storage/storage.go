@@ -30,6 +30,8 @@ type MintDB interface {
 
 	SaveMeltQuote(MeltQuote) error
 	GetMeltQuote(string) (MeltQuote, error)
+	// used to check if a melt quote already exists for the passed invoice
+	GetMeltQuoteByPaymentRequest(string) (*MeltQuote, error)
 	UpdateMeltQuote(quoteId string, preimage string, state nut05.State) error
 
 	SaveBlindSignature(B_ string, blindSignature cashu.BlindedSignature) error

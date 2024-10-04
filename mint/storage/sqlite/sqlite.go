@@ -444,6 +444,30 @@ func (sqlite *SQLiteDB) GetMeltQuote(quoteId string) (storage.MeltQuote, error) 
 	return meltQuote, nil
 }
 
+func (sqlite *SQLiteDB) GetMeltQuoteByPaymentRequest(invoice string) (*storage.MeltQuote, error) {
+	row := sqlite.db.QueryRow("SELECT * FROM melt_quotes WHERE request = ?", invoice)
+
+	var meltQuote storage.MeltQuote
+	var state string
+
+	err := row.Scan(
+		&meltQuote.Id,
+		&meltQuote.InvoiceRequest,
+		&meltQuote.PaymentHash,
+		&meltQuote.Amount,
+		&meltQuote.FeeReserve,
+		&state,
+		&meltQuote.Expiry,
+		&meltQuote.Preimage,
+	)
+	if err != nil {
+		return nil, err
+	}
+	meltQuote.State = nut05.StringToState(state)
+
+	return &meltQuote, nil
+}
+
 func (sqlite *SQLiteDB) UpdateMeltQuote(quoteId, preimage string, state nut05.State) error {
 	updatedState := state.String()
 	result, err := sqlite.db.Exec(

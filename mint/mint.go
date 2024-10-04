@@ -538,6 +538,12 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 		}
 	}
 
+	// check if a melt quote for the invoice already exists
+	quote, _ := m.db.GetMeltQuoteByPaymentRequest(request)
+	if quote != nil {
+		return storage.MeltQuote{}, cashu.MeltQuoteForRequestExists
+	}
+
 	quoteId, err := cashu.GenerateRandomQuoteId()
 	if err != nil {
 		m.logErrorf("error generating random quote id: %v", err)
