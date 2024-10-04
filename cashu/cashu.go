@@ -430,6 +430,7 @@ var (
 	MeltQuotePending             = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
 	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: AmountLimitExceeded}
+	MeltQuoteForRequestExists    = Error{Detail: "melt quote for payment request already exists", Code: MeltQuoteErrCode}
 	InsufficientProofsAmount     = Error{
 		Detail: "amount of input proofs is below amount needed for transaction",
 		Code:   InsufficientProofAmountErrCode,

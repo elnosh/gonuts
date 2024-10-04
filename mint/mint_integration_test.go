@@ -390,6 +390,13 @@ func TestRequestMeltQuote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
+
+	// trying to create another melt quote with same invoice should throw error
+	_, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if !errors.Is(err, cashu.MeltQuoteForRequestExists) {
+		//if !errors.Is(err, cashu.PaymentMethodNotSupportedErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltQuoteForRequestExists, err)
+	}
 }
 
 func TestMeltQuoteState(t *testing.T) {
@@ -518,6 +525,11 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltQuoteAlreadyPaid, err)
 	}
 
+	invoice = lnrpc.Invoice{Value: 6000}
+	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
 	// test already used proofs
 	newQuote, err := testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
 	if err != nil {
