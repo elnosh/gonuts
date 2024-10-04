@@ -238,7 +238,7 @@ func (sqlite *SQLiteDB) AddPendingProofs(proofs cashu.Proofs, quoteId string) er
 
 func (sqlite *SQLiteDB) GetPendingProofs(Ys []string) ([]storage.DBProof, error) {
 	proofs := []storage.DBProof{}
-	query := `SELECT y, amount, keyset_id, secret, c FROM pending_proofs WHERE y in (?` + strings.Repeat(",?", len(Ys)-1) + `)`
+	query := `SELECT * FROM pending_proofs WHERE y in (?` + strings.Repeat(",?", len(Ys)-1) + `)`
 
 	args := make([]any, len(Ys))
 	for i, y := range Ys {
@@ -259,6 +259,7 @@ func (sqlite *SQLiteDB) GetPendingProofs(Ys []string) ([]storage.DBProof, error)
 			&proof.Id,
 			&proof.Secret,
 			&proof.C,
+			&proof.MeltQuoteId,
 		)
 		if err != nil {
 			return nil, err

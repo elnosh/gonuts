@@ -504,7 +504,16 @@ func (ms *MintServer) tokenStateCheck(rw http.ResponseWriter, req *http.Request)
 
 	proofStates, err := ms.mint.ProofsStateCheck(stateRequest.Ys)
 	if err != nil {
-		ms.writeErr(rw, req, cashu.StandardErr, err.Error())
+		cashuErr, ok := err.(*cashu.Error)
+		// note: if there was internal error from lightning backend
+		// or error from db, log that error but return generic response
+		if ok {
+			if cashuErr.Code == cashu.LightningBackendErrCode || cashuErr.Code == cashu.DBErrCode {
+				ms.writeErr(rw, req, cashu.StandardErr, cashuErr.Error())
+				return
+			}
+		}
+		ms.writeErr(rw, req, err)
 		return
 	}
 

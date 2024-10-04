@@ -680,9 +680,25 @@ func TestPendingProofs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error getting melt quote state: %v", err)
 	}
-
 	if meltQuote.State != nut05.Pending {
 		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Pending, melt.State)
+	}
+
+	Ys := make([]string, len(validProofs))
+	for i, proof := range validProofs {
+		Y, _ := crypto.HashToCurve([]byte(proof.Secret))
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+		Ys[i] = Yhex
+	}
+
+	states, err := testMint.ProofsStateCheck(Ys)
+	if err != nil {
+		t.Fatalf("unexpected error checking states of proofs: %v", err)
+	}
+	for _, proofState := range states {
+		if proofState.State != nut07.Pending {
+			t.Fatalf("expected pending proof but got '%s' instead", proofState.State)
+		}
 	}
 
 	_, err = testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
@@ -715,6 +731,17 @@ func TestPendingProofs(t *testing.T) {
 	expectedPreimage := hex.EncodeToString(preimage)
 	if meltQuote.Preimage != expectedPreimage {
 		t.Fatalf("expected melt quote with preimage of '%v' but got '%v' instead", preimage, meltQuote.Preimage)
+	}
+
+	states, err = testMint.ProofsStateCheck(Ys)
+	if err != nil {
+		t.Fatalf("unexpected error checking states of proofs: %v", err)
+	}
+
+	for _, proofState := range states {
+		if proofState.State != nut07.Spent {
+			t.Fatalf("expected spent proof but got '%s' instead", proofState.State)
+		}
 	}
 }
 
