@@ -29,6 +29,7 @@ const (
 )
 
 type PaymentStatus struct {
-	Preimage      string
-	PaymentStatus State
+	Preimage             string
+	PaymentStatus        State
+	PaymentFailureReason string
 }
