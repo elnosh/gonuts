@@ -73,6 +73,14 @@ type BlindedSignature struct {
 
 type BlindedSignatures []BlindedSignature
 
+func (bs BlindedSignatures) Amount() uint64 {
+	var totalAmount uint64 = 0
+	for _, sig := range bs {
+		totalAmount += sig.Amount
+	}
+	return totalAmount
+}
+
 // Cashu Proof. See https://github.com/cashubtc/nuts/blob/main/00.md#proof
 type Proof struct {
 	Amount  uint64 `json:"amount"`

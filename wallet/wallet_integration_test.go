@@ -27,6 +27,7 @@ var (
 	lnd1            *btcdocker.Lnd
 	lnd2            *btcdocker.Lnd
 	dbMigrationPath = "../mint/storage/sqlite/migrations"
+	nutshellMint    *testutils.NutshellMintContainer
 )
 
 func TestMain(m *testing.M) {
@@ -104,6 +105,12 @@ func testMain(m *testing.M) int {
 	go func() {
 		log.Fatal(mintWithFees.Start())
 	}()
+
+	nutshellMint, err = testutils.CreateNutshellMintContainer(ctx, 0)
+	if err != nil {
+		log.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint.Terminate(ctx)
 
 	return m.Run()
 }
@@ -934,12 +941,76 @@ func TestNutshell(t *testing.T) {
 	}
 }
 
-func TestSendToPubkeyNutshell(t *testing.T) {
-	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
+func TestOverpaidFeesChange(t *testing.T) {
+	nutshellURL := nutshellMint.Host
+
+	testWalletPath := filepath.Join(".", "/nutshellfeeschange")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
 	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
+		t.Fatal(err)
 	}
-	defer nutshellMint.Terminate(ctx)
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	mintRes, err := testWallet.RequestMint(10000)
+	if err != nil {
+		t.Fatalf("unexpected error requesting mint: %v", err)
+	}
+
+	_, err = testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error minting tokens: %v", err)
+	}
+
+	var invoiceAmount int64 = 2000
+	invoice := lnrpc.Invoice{Value: invoiceAmount}
+	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	balanceBeforeMelt := testWallet.GetBalance()
+	meltResponse, err := testWallet.Melt(addInvoiceResponse.PaymentRequest, nutshellURL)
+	if err != nil {
+		t.Fatalf("got unexpected melt error: %v", err)
+	}
+	change := len(meltResponse.Change)
+	if change < 1 {
+		t.Fatalf("expected change")
+	}
+
+	// actual lightning fee paid
+	lightningFee := meltResponse.FeeReserve - meltResponse.Change.Amount()
+	expectedBalance := balanceBeforeMelt - uint64(invoiceAmount) - lightningFee
+	if testWallet.GetBalance() != expectedBalance {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, testWallet.GetBalance())
+	}
+
+	// do extra ops after melting to check counter for blinded messages
+	// was incremented correctly
+	mintRes, err = testWallet.RequestMint(5000)
+	if err != nil {
+		t.Fatalf("unexpected error requesting mint: %v", err)
+	}
+	_, err = testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error minting tokens: %v", err)
+	}
+
+	var sendAmount uint64 = testWallet.GetBalance()
+	proofsToSend, err := testWallet.Send(sendAmount, nutshellURL, true)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
+	}
+	token, _ := cashu.NewTokenV4(proofsToSend, nutshellURL, testutils.SAT_UNIT, false)
+	_, err = testWallet.Receive(token, false)
+	if err != nil {
+		t.Fatalf("unexpected error receiving: %v", err)
+	}
+}
+
+func TestSendToPubkeyNutshell(t *testing.T) {
 	nutshellURL := nutshellMint.Host
 
 	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 0)
@@ -970,11 +1041,6 @@ func TestSendToPubkeyNutshell(t *testing.T) {
 }
 
 func TestDLEQProofsNutshell(t *testing.T) {
-	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
-	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
-	}
-	defer nutshellMint.Terminate(ctx)
 	nutshellURL := nutshellMint.Host
 
 	testWalletPath := filepath.Join(".", "/testwalletdleqnutshell")
@@ -990,11 +1056,6 @@ func TestDLEQProofsNutshell(t *testing.T) {
 }
 
 func TestWalletRestoreNutshell(t *testing.T) {
-	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 0)
-	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
-	}
-	defer nutshellMint.Terminate(ctx)
 	mintURL := nutshellMint.Host
 
 	testWalletPath := filepath.Join(".", "/testrestorewalletnutshell")
