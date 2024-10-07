@@ -49,28 +49,31 @@ type PostMeltQuoteBolt11Request struct {
 }
 
 type PostMeltQuoteBolt11Response struct {
-	Quote      string `json:"quote"`
-	Amount     uint64 `json:"amount"`
-	FeeReserve uint64 `json:"fee_reserve"`
-	State      State  `json:"state"`
-	Paid       bool   `json:"paid"` // DEPRECATED: use state instead
-	Expiry     uint64 `json:"expiry"`
-	Preimage   string `json:"payment_preimage,omitempty"`
+	Quote      string                  `json:"quote"`
+	Amount     uint64                  `json:"amount"`
+	FeeReserve uint64                  `json:"fee_reserve"`
+	State      State                   `json:"state"`
+	Paid       bool                    `json:"paid"` // DEPRECATED: use state instead
+	Expiry     uint64                  `json:"expiry"`
+	Preimage   string                  `json:"payment_preimage,omitempty"`
+	Change     cashu.BlindedSignatures `json:"change,omitempty"`
 }
 
 type PostMeltBolt11Request struct {
-	Quote  string       `json:"quote"`
-	Inputs cashu.Proofs `json:"inputs"`
+	Quote   string                `json:"quote"`
+	Inputs  cashu.Proofs          `json:"inputs"`
+	Outputs cashu.BlindedMessages `json:"outputs,omitempty"`
 }
 
 type TempQuote struct {
-	Quote      string `json:"quote"`
-	Amount     uint64 `json:"amount"`
-	FeeReserve uint64 `json:"fee_reserve"`
-	State      string `json:"state"`
-	Paid       bool   `json:"paid"` // DEPRECATED: use state instead
-	Expiry     uint64 `json:"expiry"`
-	Preimage   string `json:"payment_preimage,omitempty"`
+	Quote      string                  `json:"quote"`
+	Amount     uint64                  `json:"amount"`
+	FeeReserve uint64                  `json:"fee_reserve"`
+	State      string                  `json:"state"`
+	Paid       bool                    `json:"paid"` // DEPRECATED: use state instead
+	Expiry     uint64                  `json:"expiry"`
+	Preimage   string                  `json:"payment_preimage,omitempty"`
+	Change     cashu.BlindedSignatures `json:"change,omitempty"`
 }
 
 func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) {
@@ -82,6 +85,7 @@ func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) 
 		Paid:       quoteResponse.Paid,
 		Expiry:     quoteResponse.Expiry,
 		Preimage:   quoteResponse.Preimage,
+		Change:     quoteResponse.Change,
 	}
 	return json.Marshal(tempQuote)
 }
@@ -101,6 +105,7 @@ func (quoteResponse *PostMeltQuoteBolt11Response) UnmarshalJSON(data []byte) err
 	quoteResponse.Paid = tempQuote.Paid
 	quoteResponse.Expiry = tempQuote.Expiry
 	quoteResponse.Preimage = tempQuote.Preimage
+	quoteResponse.Change = tempQuote.Change
 
 	return nil
 }

@@ -362,11 +362,11 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 		return nil, err
 	}
 	// TODO: remove usage of 'Paid' field after mints have upgraded
-	if !mintQuote.Paid || mintQuote.State == nut04.Unpaid {
-		return nil, errors.New("invoice not paid")
-	}
 	if mintQuote.State == nut04.Issued {
 		return nil, errors.New("quote has already been issued")
+	}
+	if !mintQuote.Paid || mintQuote.State == nut04.Unpaid {
+		return nil, errors.New("invoice not paid")
 	}
 
 	invoice, err := w.GetInvoiceByPaymentRequest(mintQuote.Request)
@@ -410,7 +410,7 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	}
 
 	// only increase counter if mint was successful
-	err = w.incrementKeysetCounter(activeKeyset.Id, uint32(len(blindedMessages)))
+	err = w.db.IncrementKeysetCounter(activeKeyset.Id, uint32(len(blindedMessages)))
 	if err != nil {
 		return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
 	}
@@ -600,7 +600,7 @@ func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, 
 
 	// only increment the counter if mint was from trusted list
 	if trustedMint {
-		err = w.incrementKeysetCounter(activeSatKeyset.Id, uint32(len(outputs)))
+		err = w.db.IncrementKeysetCounter(activeSatKeyset.Id, uint32(len(outputs)))
 		if err != nil {
 			return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
 		}
@@ -722,7 +722,22 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 		return nil, err
 	}
 
-	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
+	activeKeyset, err := w.getActiveSatKeyset(w.currentMint.mintURL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting active sat keyset: %v", err)
+	}
+	counter := w.counterForKeyset(activeKeyset.Id)
+
+	// NUT-08 include blank outputs in request for overpaid lightning fees
+	numBlankOutputs := calculateBlankOutputs(meltQuoteResponse.FeeReserve)
+	split := make([]uint64, numBlankOutputs)
+	outputs, outputsSecrets, outputsRs, err := w.createBlindedMessages(split, activeKeyset.Id, &counter)
+
+	meltBolt11Request := nut05.PostMeltBolt11Request{
+		Quote:   meltQuoteResponse.Quote,
+		Inputs:  proofs,
+		Outputs: outputs,
+	}
 	meltBolt11Response, err := PostMeltBolt11(mintURL, meltBolt11Request)
 	if err != nil {
 		w.saveProofs(proofs)
@@ -742,10 +757,34 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 			meltBolt11Response.State = nut05.Unpaid
 		}
 	}
+
 	if !paid {
 		// save proofs if invoice was not paid
 		w.saveProofs(proofs)
 	} else {
+		change := len(meltBolt11Response.Change)
+		// if mint provided blind signtures for any overpaid lightning fees:
+		// - unblind them and save the proofs in the db
+		// - increment keyset counter in db (by the number of blind sigs provided by mint)
+		if change > 0 {
+			changeProofs, err := constructProofs(
+				meltBolt11Response.Change,
+				outputs[:change],
+				outputsSecrets[:change],
+				outputsRs[:change],
+				activeKeyset,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error unblinding signature from change: %v", err)
+			}
+			w.saveProofs(changeProofs)
+
+			err = w.db.IncrementKeysetCounter(activeKeyset.Id, uint32(change))
+			if err != nil {
+				return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+			}
+		}
+
 		bolt11, err := decodepay.Decodepay(invoice)
 		if err != nil {
 			return nil, fmt.Errorf("error decoding bolt11 invoice: %v", err)
@@ -985,7 +1024,7 @@ func (w *Wallet) swapToSend(
 	// remaining proofs are change proofs to save to db
 	w.saveProofs(proofsFromSwap)
 
-	err = w.incrementKeysetCounter(activeSatKeyset.Id, incrementCounterBy)
+	err = w.db.IncrementKeysetCounter(activeSatKeyset.Id, incrementCounterBy)
 	if err != nil {
 		return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
 	}
@@ -1093,6 +1132,13 @@ func (w *Wallet) splitWalletTarget(amountToSplit uint64, mint string) []uint64 {
 	}
 
 	return amounts
+}
+
+func calculateBlankOutputs(feeReserve uint64) int {
+	if feeReserve == 0 {
+		return 0
+	}
+	return int(math.Max(math.Ceil(math.Log2(float64(feeReserve))), 1))
 }
 
 func (w *Wallet) fees(proofs cashu.Proofs, mint *walletMint) uint {
@@ -1245,7 +1291,8 @@ func constructProofs(
 	keyset *crypto.WalletKeyset,
 ) (cashu.Proofs, error) {
 
-	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
+	sigsLenght := len(blindedSignatures)
+	if sigsLenght != len(secrets) || sigsLenght != len(rs) {
 		return nil, errors.New("lengths do not match")
 	}
 
@@ -1309,14 +1356,6 @@ func unblindSignature(C_str string, r *secp256k1.PrivateKey, key *secp256k1.Publ
 	C := crypto.UnblindSignature(C_, r, key)
 	Cstr := hex.EncodeToString(C.SerializeCompressed())
 	return Cstr, nil
-}
-
-func (w *Wallet) incrementKeysetCounter(keysetId string, num uint32) error {
-	err := w.db.IncrementKeysetCounter(keysetId, num)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // keyset passed should exist in wallet
