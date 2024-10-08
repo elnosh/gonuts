@@ -161,6 +161,10 @@ func LoadMint(config Config) (*Mint, error) {
 	if config.LightningClient == nil {
 		return nil, errors.New("invalid lightning client")
 	}
+
+	if err := config.LightningClient.ConnectionStatus(); err != nil {
+		return nil, fmt.Errorf("can't connect to lightning backend: %v", err)
+	}
 	mint.lightningClient = config.LightningClient
 	mint.SetMintInfo(config.MintInfo)
 

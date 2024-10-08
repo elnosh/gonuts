@@ -4,6 +4,7 @@ import "context"
 
 // Client interface to interact with a Lightning backend
 type Client interface {
+	ConnectionStatus() error
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceStatus(hash string) (Invoice, error)
 	SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error)

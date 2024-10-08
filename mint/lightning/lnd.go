@@ -48,6 +48,16 @@ func SetupLndClient(config LndConfig) (*LndClient, error) {
 	return &LndClient{grpcClient: grpcClient, routerClient: routerClient}, nil
 }
 
+func (lnd *LndClient) ConnectionStatus() error {
+	// call to check connection is good
+	request := lnrpc.WalletBalanceRequest{}
+	_, err := lnd.grpcClient.WalletBalance(context.Background(), &request)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 	invoiceRequest := lnrpc.Invoice{
 		Value:  int64(amount),
