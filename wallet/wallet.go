@@ -40,7 +40,7 @@ var (
 )
 
 type Wallet struct {
-	db        storage.DB
+	db        storage.WalletDB
 	masterKey *hdkeychain.ExtendedKey
 
 	// key to receive locked ecash
@@ -60,7 +60,7 @@ type walletMint struct {
 	inactiveKeysets map[string]crypto.WalletKeyset
 }
 
-func InitStorage(path string) (storage.DB, error) {
+func InitStorage(path string) (storage.WalletDB, error) {
 	// bolt db atm
 	return storage.InitBolt(path)
 }
@@ -404,14 +404,12 @@ func (w *Wallet) MintTokens(quoteId string) (cashu.Proofs, error) {
 	}
 
 	// store proofs in db
-	err = w.saveProofs(proofs)
-	if err != nil {
+	if err := w.db.SaveProofs(proofs); err != nil {
 		return nil, fmt.Errorf("error storing proofs: %v", err)
 	}
 
 	// only increase counter if mint was successful
-	err = w.db.IncrementKeysetCounter(activeKeyset.Id, uint32(len(blindedMessages)))
-	if err != nil {
+	if err := w.db.IncrementKeysetCounter(activeKeyset.Id, uint32(len(blindedMessages))); err != nil {
 		return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
 	}
 
@@ -519,7 +517,10 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		if err != nil {
 			return 0, err
 		}
-		w.saveProofs(proofs)
+
+		if err := w.db.SaveProofs(proofs); err != nil {
+			return 0, fmt.Errorf("error storing proofs: %v", err)
+		}
 
 		return proofs.Amount(), nil
 	}
@@ -740,7 +741,9 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 	}
 	meltBolt11Response, err := PostMeltBolt11(mintURL, meltBolt11Request)
 	if err != nil {
-		w.saveProofs(proofs)
+		if err := w.db.SaveProofs(proofs); err != nil {
+			return nil, fmt.Errorf("error storing proofs: %v", err)
+		}
 		return nil, err
 	}
 
@@ -760,7 +763,9 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 
 	if !paid {
 		// save proofs if invoice was not paid
-		w.saveProofs(proofs)
+		if err := w.db.SaveProofs(proofs); err != nil {
+			return nil, fmt.Errorf("error storing proofs: %v", err)
+		}
 	} else {
 		change := len(meltBolt11Response.Change)
 		// if mint provided blind signtures for any overpaid lightning fees:
@@ -777,7 +782,9 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 			if err != nil {
 				return nil, fmt.Errorf("error unblinding signature from change: %v", err)
 			}
-			w.saveProofs(changeProofs)
+			if err := w.db.SaveProofs(changeProofs); err != nil {
+				return nil, fmt.Errorf("error storing change proofs: %v", err)
+			}
 
 			err = w.db.IncrementKeysetCounter(activeKeyset.Id, uint32(change))
 			if err != nil {
@@ -1022,7 +1029,9 @@ func (w *Wallet) swapToSend(
 	}
 
 	// remaining proofs are change proofs to save to db
-	w.saveProofs(proofsFromSwap)
+	if err := w.db.SaveProofs(proofsFromSwap); err != nil {
+		return nil, fmt.Errorf("error storing proofs: %v", err)
+	}
 
 	err = w.db.IncrementKeysetCounter(activeSatKeyset.Id, incrementCounterBy)
 	if err != nil {
@@ -1688,9 +1697,11 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 					// save unspent proofs
 					if proofState.State == nut07.Unspent {
 						proof := proofs[proofState.Y]
-						db.SaveProof(proof)
 						proofsRestored = append(proofsRestored, proof)
 					}
+				}
+				if err := db.SaveProofs(proofsRestored); err != nil {
+					return nil, fmt.Errorf("error saving restored proofs: %v", err)
 				}
 
 				// save wallet keyset with latest counter moving forward for wallet
@@ -1703,16 +1714,6 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 	}
 
 	return proofsRestored, nil
-}
-
-func (w *Wallet) saveProofs(proofs cashu.Proofs) error {
-	for _, proof := range proofs {
-		err := w.db.SaveProof(proof)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*storage.Invoice, error) {
