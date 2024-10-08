@@ -23,12 +23,12 @@ func (quote QuoteType) String() string {
 	}
 }
 
-type DB interface {
+type WalletDB interface {
 	SaveMnemonicSeed(string, []byte)
 	GetSeed() []byte
 	GetMnemonic() string
 
-	SaveProof(cashu.Proof) error
+	SaveProofs(cashu.Proofs) error
 	GetProofsByKeysetId(string) cashu.Proofs
 	GetProofs() cashu.Proofs
 	DeleteProof(string) error
