@@ -139,16 +139,20 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
 	return proofs
 }
 
-func (db *BoltDB) SaveProof(proof cashu.Proof) error {
-	jsonProof, err := json.Marshal(proof)
-	if err != nil {
-		return fmt.Errorf("invalid proof format: %v", err)
-	}
-
+func (db *BoltDB) SaveProofs(proofs cashu.Proofs) error {
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
-		key := []byte(proof.Secret)
-		return proofsb.Put(key, jsonProof)
+		for _, proof := range proofs {
+			key := []byte(proof.Secret)
+			jsonProof, err := json.Marshal(proof)
+			if err != nil {
+				return fmt.Errorf("invalid proof: %v", err)
+			}
+			if err := proofsb.Put(key, jsonProof); err != nil {
+				return err
+			}
+		}
+		return nil
 	}); err != nil {
 		return fmt.Errorf("error saving proof: %v", err)
 	}
