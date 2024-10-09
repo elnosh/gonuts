@@ -29,9 +29,14 @@ type WalletDB interface {
 	GetMnemonic() string
 
 	SaveProofs(cashu.Proofs) error
-	GetProofsByKeysetId(string) cashu.Proofs
 	GetProofs() cashu.Proofs
+	GetProofsByKeysetId(string) cashu.Proofs
 	DeleteProof(string) error
+
+	AddPendingProofsByQuoteId(cashu.Proofs, string) error
+	GetPendingProofs() []DBProof
+	GetPendingProofsByQuoteId(string) []DBProof
+	DeletePendingProofsByQuoteId(string) error
 
 	SaveKeyset(*crypto.WalletKeyset) error
 	GetKeysets() crypto.KeysetsMap
@@ -44,17 +49,28 @@ type WalletDB interface {
 	GetInvoices() []Invoice
 }
 
+type DBProof struct {
+	Y      string           `json:"y"`
+	Amount uint64           `json:"amount"`
+	Id     string           `json:"id"`
+	Secret string           `json:"secret"`
+	C      string           `json:"C"`
+	DLEQ   *cashu.DLEQProof `json:"dleq,omitempty"`
+	// set if proofs are tied to a melt quote
+	MeltQuoteId string `json:"quote_id"`
+}
+
 type Invoice struct {
 	TransactionType QuoteType
 	// mint or melt quote id
 	Id             string
 	QuoteAmount    uint64
+	InvoiceAmount  uint64
 	PaymentRequest string
 	PaymentHash    string
 	Preimage       string
 	CreatedAt      int64
 	Paid           bool
 	SettledAt      int64
-	InvoiceAmount  uint64
 	QuoteExpiry    uint64
 }
