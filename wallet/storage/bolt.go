@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +13,16 @@ import (
 )
 
 const (
-	keysetsBucket  = "keysets"
-	proofsBucket   = "proofs"
-	invoicesBucket = "invoices"
-	seedBucket     = "seed"
-	mnemonicKey    = "mnemonic"
+	keysetsBucket       = "keysets"
+	proofsBucket        = "proofs"
+	pendingProofsBucket = "pending_proofs"
+	invoicesBucket      = "invoices"
+	seedBucket          = "seed"
+	mnemonicKey         = "mnemonic"
+)
+
+var (
+	ProofNotFound = errors.New("proof not found")
 )
 
 type BoltDB struct {
@@ -46,6 +52,11 @@ func (db *BoltDB) initWalletBuckets() error {
 		}
 
 		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(pendingProofsBucket))
 		if err != nil {
 			return err
 		}
@@ -93,6 +104,23 @@ func (db *BoltDB) GetSeed() []byte {
 	return seed
 }
 
+func (db *BoltDB) SaveProofs(proofs cashu.Proofs) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(proofsBucket))
+		for _, proof := range proofs {
+			key := []byte(proof.Secret)
+			jsonProof, err := json.Marshal(proof)
+			if err != nil {
+				return fmt.Errorf("invalid proof: %v", err)
+			}
+			if err := proofsb.Put(key, jsonProof); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // return all proofs from db
 func (db *BoltDB) GetProofs() cashu.Proofs {
 	proofs := cashu.Proofs{}
@@ -124,7 +152,7 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var proof cashu.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
-				return fmt.Errorf("error getting proofs: %v", err)
+				return err
 			}
 
 			if proof.Id == id {
@@ -139,35 +167,135 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
 	return proofs
 }
 
-func (db *BoltDB) SaveProofs(proofs cashu.Proofs) error {
-	if err := db.bolt.Update(func(tx *bolt.Tx) error {
-		proofsb := tx.Bucket([]byte(proofsBucket))
-		for _, proof := range proofs {
-			key := []byte(proof.Secret)
-			jsonProof, err := json.Marshal(proof)
-			if err != nil {
-				return fmt.Errorf("invalid proof: %v", err)
-			}
-			if err := proofsb.Put(key, jsonProof); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("error saving proof: %v", err)
-	}
-	return nil
-}
-
 func (db *BoltDB) DeleteProof(secret string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
 		proofsb := tx.Bucket([]byte(proofsBucket))
 		val := proofsb.Get([]byte(secret))
 		if val == nil {
-			return errors.New("proof does not exist")
+			return ProofNotFound
+		}
+		return proofsb.Delete([]byte(secret))
+	})
+}
+
+func (db *BoltDB) AddPendingProofsByQuoteId(proofs cashu.Proofs, quoteId string) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+		for _, proof := range proofs {
+			Y, err := crypto.HashToCurve([]byte(proof.Secret))
+			if err != nil {
+				return err
+			}
+			Yhex := hex.EncodeToString(Y.SerializeCompressed())
+
+			dbProof := DBProof{
+				Y:           Yhex,
+				Amount:      proof.Amount,
+				Id:          proof.Id,
+				Secret:      proof.Secret,
+				C:           proof.C,
+				DLEQ:        proof.DLEQ,
+				MeltQuoteId: quoteId,
+			}
+
+			jsonProof, err := json.Marshal(dbProof)
+			if err != nil {
+				return fmt.Errorf("invalid proof: %v", err)
+			}
+			if err := pendingProofsb.Put(Y.SerializeCompressed(), jsonProof); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (db *BoltDB) GetPendingProofs() []DBProof {
+	proofs := []DBProof{}
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		proofsb := tx.Bucket([]byte(pendingProofsBucket))
+		c := proofsb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var proof DBProof
+			if err := json.Unmarshal(v, &proof); err != nil {
+				proofs = []DBProof{}
+				return nil
+			}
+			proofs = append(proofs, proof)
+		}
+		return nil
+	})
+	return proofs
+}
+
+func (db *BoltDB) GetPendingProofsByQuoteId(quoteId string) []DBProof {
+	proofs := []DBProof{}
+
+	if err := db.bolt.View(func(tx *bolt.Tx) error {
+		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+
+		c := pendingProofsb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var proof DBProof
+			if err := json.Unmarshal(v, &proof); err != nil {
+				return err
+			}
+
+			if proof.MeltQuoteId == quoteId {
+				proofs = append(proofs, proof)
+			}
+		}
+		return nil
+	}); err != nil {
+		return []DBProof{}
+	}
+
+	return proofs
+}
+
+func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+
+		c := pendingProofsb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var proof DBProof
+			if err := json.Unmarshal(v, &proof); err != nil {
+				return err
+			}
+
+			y, err := hex.DecodeString(proof.Y)
+			if err != nil {
+				return err
+			}
+			if proof.MeltQuoteId == quoteId {
+				if err := pendingProofsb.Delete(y); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (db *BoltDB) DeletePendingProofs(Ys []string) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+
+		for _, v := range Ys {
+			y, err := hex.DecodeString(v)
+			if err != nil {
+				return fmt.Errorf("invalid Y: %v", err)
+			}
+			val := pendingProofsb.Get(y)
+			if val == nil {
+				return ProofNotFound
+			}
+			return pendingProofsb.Delete(y)
 		}
 
-		return proofsb.Delete([]byte(secret))
+		return nil
 	})
 }
 
