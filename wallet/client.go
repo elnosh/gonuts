@@ -222,6 +222,26 @@ func PostMeltQuoteBolt11(mintURL string, meltQuoteRequest nut05.PostMeltQuoteBol
 	return &meltQuoteResponse, nil
 }
 
+func GetMeltQuoteState(mintURL, quoteId string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	resp, err := get(mintURL + "/v1/melt/quote/bolt11/" + quoteId)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var meltQuoteResponse nut05.PostMeltQuoteBolt11Response
+	if err := json.Unmarshal(body, &meltQuoteResponse); err != nil {
+		return nil, fmt.Errorf("error reading response from mint: %v", err)
+	}
+
+	return &meltQuoteResponse, nil
+}
+
 func PostMeltBolt11(mintURL string, meltRequest nut05.PostMeltBolt11Request) (
 	*nut05.PostMeltQuoteBolt11Response, error) {
 
