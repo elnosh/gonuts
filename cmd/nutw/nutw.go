@@ -404,10 +404,13 @@ func pay(ctx *cli.Context) error {
 		printErr(err)
 	}
 
-	if meltResponse.State == nut05.Paid {
+	switch meltResponse.State {
+	case nut05.Paid:
 		fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResponse.Preimage)
-	} else {
-		fmt.Println("unable to pay invoice")
+	case nut05.Pending:
+		fmt.Println("payment is pending")
+	case nut05.Unpaid:
+		fmt.Println("mint could not pay invoice")
 	}
 
 	return nil
