@@ -46,6 +46,7 @@ type WalletDB interface {
 
 	SaveInvoice(Invoice) error
 	GetInvoice(string) *Invoice
+	GetInvoiceByQuoteId(string) *Invoice
 	GetInvoices() []Invoice
 }
 
@@ -63,7 +64,9 @@ type DBProof struct {
 type Invoice struct {
 	TransactionType QuoteType
 	// mint or melt quote id
-	Id             string
+	Id string
+	// mint that issued quote
+	Mint           string
 	QuoteAmount    uint64
 	InvoiceAmount  uint64
 	PaymentRequest string

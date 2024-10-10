@@ -37,6 +37,7 @@ import (
 var (
 	ErrMintNotExist            = errors.New("mint does not exist")
 	ErrInsufficientMintBalance = errors.New("not enough funds in selected mint")
+	ErrQuoteNotFound           = errors.New("quote not found")
 )
 
 type Wallet struct {
@@ -704,6 +705,64 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 	}
 }
 
+func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	invoice := w.db.GetInvoiceByQuoteId(quoteId)
+	if invoice == nil {
+		return nil, ErrQuoteNotFound
+	}
+
+	quote, err := GetMeltQuoteState(invoice.Mint, quoteId)
+	if err != nil {
+		return nil, err
+	}
+
+	if !invoice.Paid {
+		// if paid status of invoice has changed, update in db
+		if quote.State == nut05.Paid || quote.Paid {
+			invoice.Paid = true
+			invoice.Preimage = quote.Preimage
+			invoice.SettledAt = time.Now().Unix()
+			if err := w.db.SaveInvoice(*invoice); err != nil {
+				return nil, err
+			}
+
+			if err := w.db.DeletePendingProofsByQuoteId(quoteId); err != nil {
+				return nil, fmt.Errorf("error removing pending proofs: %v", err)
+			}
+		}
+
+		if quote.State != nut05.Unknown || quote.State == nut05.Unpaid {
+			pendingProofs := w.db.GetPendingProofsByQuoteId(quoteId)
+			// if there were any pending proofs tied to this quote, remove them from pending
+			// and add them to available proofs for wallet to use
+			pendingProofsLen := len(pendingProofs)
+			if pendingProofsLen > 0 {
+				proofsToSave := make(cashu.Proofs, pendingProofsLen)
+				for i, pendingProof := range pendingProofs {
+					proof := cashu.Proof{
+						Amount: pendingProof.Amount,
+						Id:     pendingProof.Id,
+						Secret: pendingProof.Secret,
+						C:      pendingProof.C,
+						DLEQ:   pendingProof.DLEQ,
+					}
+					proofsToSave[i] = proof
+				}
+
+				if err := w.db.DeletePendingProofsByQuoteId(quoteId); err != nil {
+					return nil, fmt.Errorf("error removing pending proofs: %v", err)
+				}
+				if err := w.db.SaveProofs(proofsToSave); err != nil {
+					return nil, fmt.Errorf("error storing proofs: %v", err)
+				}
+			}
+
+		}
+	}
+
+	return quote, nil
+}
+
 // Melt will request the mint to pay the given invoice
 func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
 	selectedMint, ok := w.mints[mint]
@@ -750,6 +809,7 @@ func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response,
 	quoteInvoice := storage.Invoice{
 		TransactionType: storage.Melt,
 		Id:              meltQuoteResponse.Quote,
+		Mint:            mint,
 		QuoteAmount:     amountNeeded,
 		InvoiceAmount:   uint64(bolt11.MSatoshi / 1000),
 		PaymentRequest:  invoice,

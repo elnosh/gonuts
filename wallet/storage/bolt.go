@@ -477,6 +477,32 @@ func (db *BoltDB) GetInvoice(paymentHash string) *Invoice {
 	return invoice
 }
 
+func (db *BoltDB) GetInvoiceByQuoteId(quoteId string) *Invoice {
+	var quoteInvoice *Invoice
+
+	if err := db.bolt.View(func(tx *bolt.Tx) error {
+		invoicesb := tx.Bucket([]byte(invoicesBucket))
+
+		c := invoicesb.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var invoice Invoice
+			if err := json.Unmarshal(v, &invoice); err != nil {
+				return err
+			}
+
+			if invoice.Id == quoteId {
+				quoteInvoice = &invoice
+				break
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil
+	}
+
+	return quoteInvoice
+}
+
 func (db *BoltDB) GetInvoices() []Invoice {
 	var invoices []Invoice
 
