@@ -722,7 +722,7 @@ func (w *Wallet) Melt(invoice string, mintURL string) (*nut05.PostMeltQuoteBolt1
 		return nil, err
 	}
 
-	activeKeyset, err := w.getActiveSatKeyset(w.currentMint.mintURL)
+	activeKeyset, err := w.getActiveSatKeyset(selectedMint.mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting active sat keyset: %v", err)
 	}
