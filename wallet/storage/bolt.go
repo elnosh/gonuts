@@ -265,11 +265,11 @@ func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
 				return err
 			}
 
-			y, err := hex.DecodeString(proof.Y)
-			if err != nil {
-				return err
-			}
 			if proof.MeltQuoteId == quoteId {
+				y, err := hex.DecodeString(proof.Y)
+				if err != nil {
+					return err
+				}
 				if err := pendingProofsb.Delete(y); err != nil {
 					return err
 				}
@@ -292,7 +292,9 @@ func (db *BoltDB) DeletePendingProofs(Ys []string) error {
 			if val == nil {
 				return ProofNotFound
 			}
-			return pendingProofsb.Delete(y)
+			if err := pendingProofsb.Delete(y); err != nil {
+				return err
+			}
 		}
 
 		return nil

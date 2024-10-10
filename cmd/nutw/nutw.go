@@ -109,6 +109,7 @@ func main() {
 			sendCmd,
 			receiveCmd,
 			payCmd,
+			quotesCmd,
 			p2pkLockCmd,
 			mnemonicCmd,
 			restoreCmd,
@@ -144,6 +145,11 @@ func getBalance(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("\nTotal balance: %v sats\n", totalBalance)
+
+	pendingBalance := nutw.PendingBalance()
+	if pendingBalance > 0 {
+		fmt.Printf("Pending balance: %v sats\n", pendingBalance)
+	}
 	return nil
 }
 
@@ -411,6 +417,58 @@ func pay(ctx *cli.Context) error {
 		fmt.Println("payment is pending")
 	case nut05.Unpaid:
 		fmt.Println("mint could not pay invoice")
+	}
+
+	return nil
+}
+
+const (
+	checkFlag = "check"
+)
+
+var quotesCmd = &cli.Command{
+	Name:   "quotes",
+	Usage:  "list and check status of pending melt quotes",
+	Before: setupWallet,
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  checkFlag,
+			Usage: "check state of quote",
+		},
+	},
+	Action: quotes,
+}
+
+func quotes(ctx *cli.Context) error {
+	pendingQuotes := nutw.GetPendingMeltQuotes()
+
+	if ctx.IsSet(checkFlag) {
+		quote := ctx.String(checkFlag)
+
+		quoteResponse, err := nutw.CheckMeltQuoteState(quote)
+		if err != nil {
+			printErr(err)
+		}
+
+		switch quoteResponse.State {
+		case nut05.Paid:
+			fmt.Printf("Invoice for quote '%v' was paid. Preimage: %v\n", quote, quoteResponse.Preimage)
+		case nut05.Pending:
+			fmt.Println("payment is still pending")
+		case nut05.Unpaid:
+			fmt.Println("quote was not paid")
+		}
+
+		return nil
+	}
+
+	if len(pendingQuotes) > 0 {
+		fmt.Println("Pending quotes: ")
+		for _, quote := range pendingQuotes {
+			fmt.Printf("ID: %v\n", quote)
+		}
+	} else {
+		fmt.Println("no pending quotes")
 	}
 
 	return nil
