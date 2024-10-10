@@ -314,6 +314,18 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 	return mintsBalances
 }
 
+func (w *Wallet) PendingBalance() uint64 {
+	return Amount(w.db.GetPendingProofs())
+}
+
+func Amount(proofs []storage.DBProof) uint64 {
+	var totalAmount uint64 = 0
+	for _, proof := range proofs {
+		totalAmount += proof.Amount
+	}
+	return totalAmount
+}
+
 // RequestMint requests a mint quote to the wallet's current mint
 // for the specified amount
 func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
@@ -756,7 +768,6 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 					return nil, fmt.Errorf("error storing proofs: %v", err)
 				}
 			}
-
 		}
 	}
 
@@ -1803,6 +1814,27 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 	}
 
 	return proofsRestored, nil
+}
+
+func (w *Wallet) GetPendingProofs() []storage.DBProof {
+	return w.db.GetPendingProofs()
+}
+
+// GetPendingMeltQuotes return a list of pending quote ids
+func (w *Wallet) GetPendingMeltQuotes() []string {
+	pendingProofs := w.db.GetPendingProofs()
+	pendingProofsMap := make(map[string][]storage.DBProof)
+	for _, proof := range pendingProofs {
+		pendingProofsMap[proof.MeltQuoteId] = append(pendingProofsMap[proof.MeltQuoteId], proof)
+	}
+
+	pendingQuotes := make([]string, len(pendingProofsMap))
+	i := 0
+	for quote, _ := range pendingProofsMap {
+		pendingQuotes[i] = quote
+		i++
+	}
+	return pendingQuotes
 }
 
 func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*storage.Invoice, error) {

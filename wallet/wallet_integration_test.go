@@ -4,6 +4,7 @@ package wallet_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 )
 
 var (
@@ -597,6 +599,162 @@ func TestWalletBalanceFees(t *testing.T) {
 		if balanceTestWallet2.GetBalance() != expectedBalance {
 			t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, balanceTestWallet2.GetBalance())
 		}
+	}
+}
+
+func TestPendingProofs(t *testing.T) {
+	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testpendingwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	var fundingBalance uint64 = 15000
+	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, fundingBalance); err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	// use hodl invoice to cause melt to get stuck in pending
+	preimage, _ := testutils.GenerateRandomBytes()
+	hash := sha256.Sum256(preimage)
+	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
+	addHodlInvoiceRes, err := lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
+	if err != nil {
+		t.Fatalf("error creating hodl invoice: %v", err)
+	}
+
+	meltQuote, err := testWallet.Melt(addHodlInvoiceRes.PaymentRequest, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error in melt: %v", err)
+	}
+	if meltQuote.State != nut05.Pending {
+		t.Fatalf("expected quote state of '%s' but got '%s' instead", nut05.Pending, meltQuote.State)
+	}
+
+	// check amount of pending proofs is same as quote amount
+	pendingProofsAmount := wallet.Amount(testWallet.GetPendingProofs())
+	expectedAmount := meltQuote.Amount + meltQuote.FeeReserve
+	if pendingProofsAmount != expectedAmount {
+		t.Fatalf("expected amount of pending proofs of '%v' but got '%v' instead",
+			expectedAmount, pendingProofsAmount)
+	}
+	pendingBalance := testWallet.PendingBalance()
+	expectedPendingBalance := meltQuote.Amount + meltQuote.FeeReserve
+	if pendingBalance != expectedPendingBalance {
+		t.Fatalf("expected pending balance of '%v' but got '%v' instead",
+			expectedPendingBalance, pendingBalance)
+	}
+
+	// there should be 1 pending quote
+	pendingMeltQuotes := testWallet.GetPendingMeltQuotes()
+	if len(pendingMeltQuotes) != 1 {
+		t.Fatalf("expected '%v' pending quote but got '%v' instead", 1, len(pendingMeltQuotes))
+	}
+	if pendingMeltQuotes[0] != meltQuote.Quote {
+		t.Fatalf("expected pending quote with id '%v' but got '%v' instead",
+			meltQuote.Quote, pendingMeltQuotes[0])
+	}
+
+	// settle hodl invoice and test that there are no pending proofs now
+	settleHodlInvoice := invoicesrpc.SettleInvoiceMsg{Preimage: preimage}
+	_, err = lnd2.InvoicesClient.SettleInvoice(ctx, &settleHodlInvoice)
+	if err != nil {
+		t.Fatalf("error settling hodl invoice: %v", err)
+	}
+
+	meltQuoteStateResponse, err := testWallet.CheckMeltQuoteState(meltQuote.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error checking melt quote state: %v", err)
+	}
+	if meltQuoteStateResponse.State != nut05.Paid {
+		t.Fatalf("expected quote state of '%s' but got '%s' instead",
+			nut05.Paid, meltQuoteStateResponse.State)
+	}
+
+	// check no pending proofs or pending balance after settling and checking melt quote state
+	pendingProofsAmount = wallet.Amount(testWallet.GetPendingProofs())
+	if pendingProofsAmount != 0 {
+		t.Fatalf("expected no pending proofs amount but got '%v' instead", pendingProofsAmount)
+	}
+	pendingBalance = testWallet.PendingBalance()
+	if pendingBalance != 0 {
+		t.Fatalf("expected no pending balance but got '%v' instead", pendingBalance)
+	}
+
+	// check no pending melt quotes
+	pendingMeltQuotes = testWallet.GetPendingMeltQuotes()
+	if len(pendingMeltQuotes) != 0 {
+		t.Fatalf("expected no pending quotes but got '%v' instead", len(pendingMeltQuotes))
+	}
+
+	// test hodl invoice to cause melt to get stuck in pending and then cancel it
+	preimage, _ = testutils.GenerateRandomBytes()
+	hash = sha256.Sum256(preimage)
+	hodlInvoice = invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
+	addHodlInvoiceRes, err = lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
+	if err != nil {
+		t.Fatalf("error creating hodl invoice: %v", err)
+	}
+
+	meltQuote, err = testWallet.Melt(addHodlInvoiceRes.PaymentRequest, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error in melt: %v", err)
+	}
+	if meltQuote.State != nut05.Pending {
+		t.Fatalf("expected quote state of '%s' but got '%s' instead", nut05.Pending, meltQuote.State)
+	}
+	pendingProofsAmount = wallet.Amount(testWallet.GetPendingProofs())
+	expectedAmount = meltQuote.Amount + meltQuote.FeeReserve
+	if pendingProofsAmount != expectedAmount {
+		t.Fatalf("expected amount of pending proofs of '%v' but got '%v' instead",
+			expectedAmount, pendingProofsAmount)
+	}
+	pendingMeltQuotes = testWallet.GetPendingMeltQuotes()
+	if len(pendingMeltQuotes) != 1 {
+		t.Fatalf("expected '%v' pending quote but got '%v' instead", 1, len(pendingMeltQuotes))
+	}
+
+	cancelInvoice := invoicesrpc.CancelInvoiceMsg{PaymentHash: hash[:]}
+	_, err = lnd2.InvoicesClient.CancelInvoice(ctx, &cancelInvoice)
+	if err != nil {
+		t.Fatalf("error canceling hodl invoice: %v", err)
+	}
+
+	meltQuoteStateResponse, err = testWallet.CheckMeltQuoteState(meltQuote.Quote)
+	if err != nil {
+		t.Fatalf("unexpected error checking melt quote state: %v", err)
+	}
+	if meltQuoteStateResponse.State != nut05.Unpaid {
+		t.Fatalf("expected quote state of '%s' but got '%s' instead",
+			nut05.Unpaid, meltQuoteStateResponse.State)
+	}
+
+	// check no pending proofs or pending balance after canceling and checking melt quote state
+	pendingProofsAmount = wallet.Amount(testWallet.GetPendingProofs())
+	if pendingProofsAmount != 0 {
+		t.Fatalf("expected no pending proofs amount but got '%v' instead", pendingProofsAmount)
+	}
+	pendingBalance = testWallet.PendingBalance()
+	if pendingBalance != 0 {
+		t.Fatalf("expected no pending balance but got '%v' instead", pendingBalance)
+	}
+	// check no pending melt quotes
+	pendingMeltQuotes = testWallet.GetPendingMeltQuotes()
+	if len(pendingMeltQuotes) != 0 {
+		t.Fatalf("expected no pending quotes but got '%v' instead", len(pendingMeltQuotes))
+	}
+
+	// check proofs that were pending were added back to wallet balance
+	// so wallet balance at this point should be fundingWalletAmount - firstSuccessfulMeltAmount
+	walletBalance := testWallet.GetBalance()
+	expectedWalletBalance := fundingBalance - meltQuote.Amount - meltQuote.FeeReserve
+	if walletBalance != expectedWalletBalance {
+		t.Fatalf("expected wallet balance of '%v' but got '%v' instead",
+			expectedWalletBalance, walletBalance)
 	}
 }
 
