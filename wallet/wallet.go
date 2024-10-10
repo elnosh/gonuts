@@ -314,6 +314,18 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 	return mintsBalances
 }
 
+func (w *Wallet) PendingBalance() uint64 {
+	return Amount(w.db.GetPendingProofs())
+}
+
+func Amount(proofs []storage.DBProof) uint64 {
+	var totalAmount uint64 = 0
+	for _, proof := range proofs {
+		totalAmount += proof.Amount
+	}
+	return totalAmount
+}
+
 // RequestMint requests a mint quote to the wallet's current mint
 // for the specified amount
 func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
@@ -340,9 +352,8 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 		QuoteExpiry:     mintResponse.Expiry,
 	}
 
-	err = w.db.SaveInvoice(invoice)
-	if err != nil {
-		return nil, err
+	if err = w.db.SaveInvoice(invoice); err != nil {
+		return nil, fmt.Errorf("error saving invoice: %v", err)
 	}
 
 	return mintResponse, nil
@@ -731,7 +742,7 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 			}
 		}
 
-		if quote.State != nut05.Unknown || quote.State == nut05.Unpaid {
+		if (quote.State == nut05.Unknown && !quote.Paid) || quote.State == nut05.Unpaid {
 			pendingProofs := w.db.GetPendingProofsByQuoteId(quoteId)
 			// if there were any pending proofs tied to this quote, remove them from pending
 			// and add them to available proofs for wallet to use
@@ -756,7 +767,6 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 					return nil, fmt.Errorf("error storing proofs: %v", err)
 				}
 			}
-
 		}
 	}
 
@@ -764,8 +774,8 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 }
 
 // Melt will request the mint to pay the given invoice
-func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
-	selectedMint, ok := w.mints[mint]
+func (w *Wallet) Melt(invoice, mintURL string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	selectedMint, ok := w.mints[mintURL]
 	if !ok {
 		return nil, ErrMintNotExist
 	}
@@ -776,7 +786,7 @@ func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response,
 	}
 
 	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
-	meltQuoteResponse, err := PostMeltQuoteBolt11(mint, meltRequest)
+	meltQuoteResponse, err := PostMeltQuoteBolt11(mintURL, meltRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -809,7 +819,7 @@ func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response,
 	quoteInvoice := storage.Invoice{
 		TransactionType: storage.Melt,
 		Id:              meltQuoteResponse.Quote,
-		Mint:            mint,
+		Mint:            mintURL,
 		QuoteAmount:     amountNeeded,
 		InvoiceAmount:   uint64(bolt11.MSatoshi / 1000),
 		PaymentRequest:  invoice,
@@ -826,22 +836,15 @@ func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response,
 		Inputs:  proofs,
 		Outputs: outputs,
 	}
-	meltBolt11Response, err := PostMeltBolt11(mint, meltBolt11Request)
+	meltBolt11Response, err := PostMeltBolt11(mintURL, meltBolt11Request)
 	if err != nil {
-		cashuErr, ok := err.(cashu.Error)
-		if ok {
-			// if the error was a failed lightning payment
-			// remove proofs from pending and add them back to available proofs to wallet
-			if cashuErr.Code == cashu.LightningPaymentErrCode {
-				if err := w.db.SaveProofs(proofs); err != nil {
-					return nil, fmt.Errorf("error storing proofs: %v", err)
-				}
-				if err := w.db.DeletePendingProofsByQuoteId(meltQuoteResponse.Quote); err != nil {
-					return nil, fmt.Errorf("error removing pending proofs: %v", err)
-				}
-			}
+		// if there was error with melt, remove proofs from pending and save them for use
+		if err := w.db.SaveProofs(proofs); err != nil {
+			return nil, fmt.Errorf("error storing proofs: %v", err)
 		}
-		// if some other error, leave proofs as pending
+		if err := w.db.DeletePendingProofsByQuoteId(meltQuoteResponse.Quote); err != nil {
+			return nil, fmt.Errorf("error removing pending proofs: %v", err)
+		}
 		return nil, err
 	}
 
@@ -1716,6 +1719,9 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 				// create batch of 100 blinded messages
 				for i := 0; i < 100; i++ {
 					secret, r, err := generateDeterministicSecret(keysetDerivationPath, counter)
+					if err != nil {
+						return nil, err
+					}
 					B_, r, err := crypto.BlindMessage(secret, r)
 					if err != nil {
 						return nil, err
@@ -1803,6 +1809,25 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 	}
 
 	return proofsRestored, nil
+}
+
+func (w *Wallet) GetPendingProofs() []storage.DBProof {
+	return w.db.GetPendingProofs()
+}
+
+// GetPendingMeltQuotes return a list of pending quote ids
+func (w *Wallet) GetPendingMeltQuotes() []string {
+	pendingProofs := w.db.GetPendingProofs()
+	pendingProofsMap := make(map[string][]storage.DBProof)
+	var pendingQuotes []string
+	for _, proof := range pendingProofs {
+		if _, ok := pendingProofsMap[proof.MeltQuoteId]; !ok {
+			pendingQuotes = append(pendingQuotes, proof.MeltQuoteId)
+		}
+		pendingProofsMap[proof.MeltQuoteId] = append(pendingProofsMap[proof.MeltQuoteId], proof)
+	}
+
+	return pendingQuotes
 }
 
 func (w *Wallet) GetInvoiceByPaymentRequest(pr string) (*storage.Invoice, error) {

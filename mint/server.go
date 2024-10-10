@@ -27,6 +27,8 @@ import (
 type MintServer struct {
 	httpServer *http.Server
 	mint       *Mint
+	// NOTE: using this value for testing
+	meltTimeout *time.Duration
 }
 
 func (ms *MintServer) Start() error {
@@ -46,7 +48,7 @@ func SetupMintServer(config Config) (*MintServer, error) {
 		return nil, err
 	}
 
-	mintServer := &MintServer{mint: mint}
+	mintServer := &MintServer{mint: mint, meltTimeout: config.MeltTimeout}
 	err = mintServer.setupHttpServer(config.Port)
 	if err != nil {
 		return nil, err
@@ -449,7 +451,11 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+	timeout := time.Minute * 1
+	if ms.meltTimeout != nil {
+		timeout = *ms.meltTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	meltQuote, err := ms.mint.MeltTokens(ctx, method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
