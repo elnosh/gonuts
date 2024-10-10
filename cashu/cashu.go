@@ -413,7 +413,8 @@ const (
 
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
-	MeltQuoteErrCode            CashuErrCode = 20008
+	LightningPaymentErrCode     CashuErrCode = 20008
+	MeltQuoteErrCode            CashuErrCode = 20009
 )
 
 var (
