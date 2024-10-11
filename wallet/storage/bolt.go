@@ -490,7 +490,7 @@ func (db *BoltDB) GetInvoiceByQuoteId(quoteId string) *Invoice {
 				return err
 			}
 
-			if invoice.Id == quoteId {
+			if invoice.QuoteId == quoteId {
 				quoteInvoice = &invoice
 				break
 			}

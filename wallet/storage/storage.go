@@ -64,7 +64,7 @@ type DBProof struct {
 type Invoice struct {
 	TransactionType QuoteType
 	// mint or melt quote id
-	Id string
+	QuoteId string
 	// mint that issued quote
 	Mint           string
 	QuoteAmount    uint64

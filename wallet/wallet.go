@@ -343,7 +343,8 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 	invoice := storage.Invoice{
 		TransactionType: storage.Mint,
 		QuoteAmount:     amount,
-		Id:              mintResponse.Quote,
+		QuoteId:         mintResponse.Quote,
+		Mint:            w.currentMint.mintURL,
 		PaymentRequest:  mintResponse.Request,
 		PaymentHash:     bolt11.PaymentHash,
 		CreatedAt:       int64(bolt11.CreatedAt),
@@ -539,6 +540,10 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 	}
 }
 
+func (w *Wallet) Swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, error) {
+	return w.swap(proofsToSwap, mintURL)
+}
+
 // swap to be used when receiving
 func (w *Wallet) swap(proofsToSwap cashu.Proofs, mintURL string) (cashu.Proofs, error) {
 	var nut10secret nut10.WellKnownSecret
@@ -717,6 +722,42 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 	}
 }
 
+func (w *Wallet) RequestMeltQuote(request, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	if _, ok := w.mints[mint]; !ok {
+		return nil, ErrMintNotExist
+	}
+
+	bolt11, err := decodepay.Decodepay(request)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding invoice: %v", err)
+	}
+
+	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: request, Unit: "sat"}
+	meltQuoteResponse, err := PostMeltQuoteBolt11(mint, meltRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	invoice := storage.Invoice{
+		TransactionType: storage.Melt,
+		QuoteId:         meltQuoteResponse.Quote,
+		Mint:            mint,
+		QuoteAmount:     meltQuoteResponse.Amount + meltQuoteResponse.FeeReserve,
+		InvoiceAmount:   uint64(bolt11.MSatoshi / 1000),
+		PaymentRequest:  request,
+		PaymentHash:     bolt11.PaymentHash,
+		CreatedAt:       int64(bolt11.CreatedAt),
+		Paid:            false,
+		QuoteExpiry:     meltQuoteResponse.Expiry,
+	}
+
+	if err := w.db.SaveInvoice(invoice); err != nil {
+		return nil, err
+	}
+
+	return meltQuoteResponse, nil
+}
+
 func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error) {
 	invoice := w.db.GetInvoiceByQuoteId(quoteId)
 	if invoice == nil {
@@ -774,8 +815,133 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 	return quote, nil
 }
 
-// Melt will request the mint to pay the given invoice
-func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
+func (w *Wallet) MeltTokens(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	invoice := w.db.GetInvoiceByQuoteId(quoteId)
+	if invoice == nil {
+		return nil, ErrQuoteNotFound
+	}
+
+	selectedMint, ok := w.mints[invoice.Mint]
+	if !ok {
+		return nil, ErrMintNotExist
+	}
+
+	proofs, err := w.getProofsForAmount(invoice.QuoteAmount, &selectedMint, nil, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// set proofs to pending
+	if err := w.db.AddPendingProofsByQuoteId(proofs, invoice.QuoteId); err != nil {
+		return nil, fmt.Errorf("error saving pending proofs: %v", err)
+	}
+
+	activeKeyset, err := w.getActiveSatKeyset(w.currentMint.mintURL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting active sat keyset: %v", err)
+	}
+	counter := w.counterForKeyset(activeKeyset.Id)
+
+	// NUT-08 include blank outputs in request for overpaid lightning fees
+	// TODO: calculte fee reserve correctly
+	numBlankOutputs := calculateBlankOutputs(invoice.QuoteAmount - invoice.InvoiceAmount)
+	split := make([]uint64, numBlankOutputs)
+	outputs, outputsSecrets, outputsRs, err := w.createBlindedMessages(split, activeKeyset.Id, &counter)
+	if err != nil {
+		return nil, fmt.Errorf("error generating blinded messages for change: %v", err)
+	}
+
+	meltBolt11Request := nut05.PostMeltBolt11Request{
+		Quote:   invoice.QuoteId,
+		Inputs:  proofs,
+		Outputs: outputs,
+	}
+	meltBolt11Response, err := PostMeltBolt11(selectedMint.mintURL, meltBolt11Request)
+	if err != nil {
+		cashuErr, ok := err.(cashu.Error)
+		if ok {
+			// if the error was a failed lightning payment
+			// remove proofs from pending and add them back to available proofs to wallet
+			if cashuErr.Code == cashu.LightningPaymentErrCode {
+				if err := w.db.SaveProofs(proofs); err != nil {
+					return nil, fmt.Errorf("error storing proofs: %v", err)
+				}
+				if err := w.db.DeletePendingProofsByQuoteId(invoice.QuoteId); err != nil {
+					return nil, fmt.Errorf("error removing pending proofs: %v", err)
+				}
+			}
+		}
+		// if some other error, leave proofs as pending
+		return nil, err
+	}
+
+	// TODO: deprecate paid field and only use State
+	meltState := nut05.Unpaid
+	// if state field is present, use that instead of paid
+	if meltBolt11Response.State != nut05.Unknown {
+		meltState = meltBolt11Response.State
+	} else {
+		if meltBolt11Response.Paid {
+			meltState = nut05.Paid
+			meltBolt11Response.State = nut05.Paid
+		} else {
+			meltState = nut05.Unpaid
+			meltBolt11Response.State = nut05.Unpaid
+		}
+	}
+
+	switch meltState {
+	case nut05.Unpaid:
+		// if quote is unpaid, remove proofs from pending and add them
+		// to proofs available
+		if err := w.db.SaveProofs(proofs); err != nil {
+			return nil, fmt.Errorf("error storing proofs: %v", err)
+		}
+		if err := w.db.DeletePendingProofsByQuoteId(invoice.QuoteId); err != nil {
+			return nil, fmt.Errorf("error removing pending proofs: %v", err)
+		}
+	case nut05.Paid:
+		// payment succeeded so remove proofs from pending
+		if err := w.db.DeletePendingProofsByQuoteId(invoice.QuoteId); err != nil {
+			return nil, fmt.Errorf("error removing pending proofs: %v", err)
+		}
+
+		invoice.Preimage = meltBolt11Response.Preimage
+		invoice.Paid = true
+		invoice.SettledAt = time.Now().Unix()
+		if err := w.db.SaveInvoice(*invoice); err != nil {
+			return nil, err
+		}
+
+		change := len(meltBolt11Response.Change)
+		// if mint provided blind signtures for any overpaid lightning fees:
+		// - unblind them and save the proofs in the db
+		// - increment keyset counter in db (by the number of blind sigs provided by mint)
+		if change > 0 {
+			changeProofs, err := constructProofs(
+				meltBolt11Response.Change,
+				outputs[:change],
+				outputsSecrets[:change],
+				outputsRs[:change],
+				activeKeyset,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error unblinding signature from change: %v", err)
+			}
+			if err := w.db.SaveProofs(changeProofs); err != nil {
+				return nil, fmt.Errorf("error storing change proofs: %v", err)
+			}
+			if err := w.db.IncrementKeysetCounter(activeKeyset.Id, uint32(change)); err != nil {
+				return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+			}
+		}
+	}
+	return meltBolt11Response, err
+
+}
+
+// PayInvoice will make a melt request to the mint to pay the given invoice
+func (w *Wallet) PayInvoice(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response, error) {
 	selectedMint, ok := w.mints[mint]
 	if !ok {
 		return nil, ErrMintNotExist
@@ -819,7 +985,7 @@ func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response,
 
 	quoteInvoice := storage.Invoice{
 		TransactionType: storage.Melt,
-		Id:              meltQuoteResponse.Quote,
+		QuoteId:         meltQuoteResponse.Quote,
 		Mint:            mint,
 		QuoteAmount:     amountNeeded,
 		InvoiceAmount:   uint64(bolt11.MSatoshi / 1000),
@@ -918,6 +1084,10 @@ func (w *Wallet) Melt(invoice, mint string) (*nut05.PostMeltQuoteBolt11Response,
 		}
 	}
 	return meltBolt11Response, err
+}
+
+func (w *Wallet) GetProofsFromMint(mintURL string) cashu.Proofs {
+	return w.getProofsFromMint(mintURL)
 }
 
 func (w *Wallet) getProofsFromMint(mintURL string) cashu.Proofs {

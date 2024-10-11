@@ -272,7 +272,7 @@ func mintTokens(paymentRequest string) error {
 		return errors.New("invoice not found")
 	}
 
-	proofs, err := nutw.MintTokens(invoice.Id)
+	proofs, err := nutw.MintTokens(invoice.QuoteId)
 	if err != nil {
 		return err
 	}
@@ -405,7 +405,7 @@ func pay(ctx *cli.Context) error {
 	}
 	selectedMint := promptMintSelection("pay invoice")
 
-	meltResponse, err := nutw.Melt(invoice, selectedMint)
+	meltResponse, err := nutw.PayInvoice(invoice, selectedMint)
 	if err != nil {
 		printErr(err)
 	}
