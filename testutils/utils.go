@@ -238,6 +238,7 @@ func mintConfig(
 		return nil, fmt.Errorf("error setting LND client: %v", err)
 	}
 
+	timeout := time.Second * 2
 	mintConfig := &mint.Config{
 		DerivationPathIdx: 0,
 		Port:              port,
@@ -247,6 +248,7 @@ func mintConfig(
 		Limits:            limits,
 		LightningClient:   lndClient,
 		LogLevel:          mint.Disable,
+		MeltTimeout:       &timeout,
 	}
 
 	return mintConfig, nil

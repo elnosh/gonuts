@@ -1,6 +1,8 @@
 package mint
 
 import (
+	"time"
+
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/mint/lightning"
 )
@@ -23,6 +25,8 @@ type Config struct {
 	Limits            MintLimits
 	LightningClient   lightning.Client
 	LogLevel          LogLevel
+	// NOTE: using this value for testing
+	MeltTimeout *time.Duration
 }
 
 type MintInfo struct {
