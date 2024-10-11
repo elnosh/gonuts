@@ -29,6 +29,7 @@ func InitSQLite(path, migrationPath string) (*SQLiteDB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 
 	m, err := migrate.New(fmt.Sprintf("file://%s", migrationPath), fmt.Sprintf("sqlite3://%s", dbpath))
 	if err != nil {
