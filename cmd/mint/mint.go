@@ -89,47 +89,56 @@ func configFromEnv() (*mint.Config, error) {
 	}
 	mintInfo.Contact = mintContactInfo
 
-	// read values for setting up LND
-	host := os.Getenv("LND_GRPC_HOST")
-	if host == "" {
-		return nil, errors.New("LND_GRPC_HOST cannot be empty")
-	}
-	certPath := os.Getenv("LND_CERT_PATH")
-	if certPath == "" {
-		return nil, errors.New("LND_CERT_PATH cannot be empty")
-	}
-	macaroonPath := os.Getenv("LND_MACAROON_PATH")
-	if macaroonPath == "" {
-		return nil, errors.New("LND_MACAROON_PATH cannot be empty")
-	}
+	var lightningClient lightning.Client
 
-	creds, err := credentials.NewClientTLSFromFile(certPath, "")
-	if err != nil {
-		return nil, err
-	}
+	switch os.Getenv("LIGHTNING_BACKEND") {
+	case "Lnd":
+		// read values for setting up LND
+		host := os.Getenv("LND_GRPC_HOST")
+		if host == "" {
+			return nil, errors.New("LND_GRPC_HOST cannot be empty")
+		}
+		certPath := os.Getenv("LND_CERT_PATH")
+		if certPath == "" {
+			return nil, errors.New("LND_CERT_PATH cannot be empty")
+		}
+		macaroonPath := os.Getenv("LND_MACAROON_PATH")
+		if macaroonPath == "" {
+			return nil, errors.New("LND_MACAROON_PATH cannot be empty")
+		}
 
-	macaroonBytes, err := os.ReadFile(macaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
-	}
+		creds, err := credentials.NewClientTLSFromFile(certPath, "")
+		if err != nil {
+			return nil, err
+		}
 
-	macaroon := &macaroon.Macaroon{}
-	if err = macaroon.UnmarshalBinary(macaroonBytes); err != nil {
-		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
-	}
-	macarooncreds, err := macaroons.NewMacaroonCredential(macaroon)
-	if err != nil {
-		return nil, fmt.Errorf("error setting macaroon creds: %v", err)
-	}
-	lndConfig := lightning.LndConfig{
-		GRPCHost: host,
-		Cert:     creds,
-		Macaroon: macarooncreds,
-	}
+		macaroonBytes, err := os.ReadFile(macaroonPath)
+		if err != nil {
+			return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
+		}
 
-	lndClient, err := lightning.SetupLndClient(lndConfig)
-	if err != nil {
-		return nil, fmt.Errorf("error setting LND client: %v", err)
+		macaroon := &macaroon.Macaroon{}
+		if err = macaroon.UnmarshalBinary(macaroonBytes); err != nil {
+			return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+		}
+		macarooncreds, err := macaroons.NewMacaroonCredential(macaroon)
+		if err != nil {
+			return nil, fmt.Errorf("error setting macaroon creds: %v", err)
+		}
+		lndConfig := lightning.LndConfig{
+			GRPCHost: host,
+			Cert:     creds,
+			Macaroon: macarooncreds,
+		}
+
+		lightningClient, err = lightning.SetupLndClient(lndConfig)
+		if err != nil {
+			return nil, fmt.Errorf("error setting LND client: %v", err)
+		}
+	case "FakeBackend":
+		lightningClient = &lightning.FakeBackend{}
+	default:
+		return nil, errors.New("invalid lightning backend")
 	}
 
 	logLevel := mint.Info
@@ -145,7 +154,7 @@ func configFromEnv() (*mint.Config, error) {
 		InputFeePpk:       inputFeePpk,
 		MintInfo:          mintInfo,
 		Limits:            mintLimits,
-		LightningClient:   lndClient,
+		LightningClient:   lightningClient,
 		LogLevel:          logLevel,
 	}, nil
 }
