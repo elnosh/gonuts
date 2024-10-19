@@ -13,6 +13,7 @@ type SecretKind int
 const (
 	AnyoneCanSpend SecretKind = iota
 	P2PK
+	HTLC
 )
 
 func SecretType(proof cashu.Proof) SecretKind {
@@ -34,6 +35,8 @@ func SecretType(proof cashu.Proof) SecretKind {
 
 	if kind == "P2PK" {
 		return P2PK
+	} else if kind == "HTLC" {
+		return HTLC
 	}
 
 	return AnyoneCanSpend
@@ -43,6 +46,8 @@ func (kind SecretKind) String() string {
 	switch kind {
 	case P2PK:
 		return "P2PK"
+	case HTLC:
+		return "HTLC"
 	default:
 		return "anyonecanspend"
 	}
