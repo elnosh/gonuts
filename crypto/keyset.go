@@ -112,7 +112,7 @@ func DeriveKeysetId(keyset map[uint64]*secp256k1.PublicKey) string {
 		return pubkeys[i].amount < pubkeys[j].amount
 	})
 
-	keys := make([]byte, 0)
+	keys := make([]byte, 0, len(pubkeys)*33)
 	for _, key := range pubkeys {
 		keys = append(keys, key.pk.SerializeCompressed()...)
 	}
