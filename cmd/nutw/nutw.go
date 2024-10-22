@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/url"
 	"os"
@@ -25,38 +26,55 @@ import (
 
 var nutw *wallet.Wallet
 
-func walletConfig() wallet.Config {
-	path := setWalletPath()
-	// default config
-	config := wallet.Config{WalletPath: path, CurrentMintURL: "http://127.0.0.1:3338"}
-	env := envPath(path)
-
+func walletConfig() (wallet.Config, error) {
+	env := envPath()
 	if len(env) > 0 {
 		err := godotenv.Load(env)
-		if err == nil {
-			config.CurrentMintURL = getMintURL()
+		if err != nil {
+			// if no .env file to load, use default
+			return wallet.Config{
+				WalletPath:     defaultWalletPath(),
+				CurrentMintURL: "http://127.0.0.1:3338",
+			}, nil
 		}
 	}
 
-	return config
+	walletPath := os.Getenv("WALLET_PATH")
+	if len(walletPath) > 0 {
+		if !fs.ValidPath(walletPath) {
+			return wallet.Config{}, fmt.Errorf("invalid WALLET_PATH")
+		}
+	} else {
+		walletPath = defaultWalletPath()
+	}
+	if err := os.MkdirAll(walletPath, 0700); err != nil {
+		return wallet.Config{}, fmt.Errorf("could not create wallet directory: %v", err)
+	}
+
+	mint := os.Getenv("MINT_URL")
+	if len(mint) == 0 {
+		mint = "http://127.0.0.1:3338"
+	}
+	config := wallet.Config{WalletPath: walletPath, CurrentMintURL: mint}
+
+	return config, nil
 }
 
-func setWalletPath() string {
+func defaultWalletPath() string {
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	path := filepath.Join(homedir, ".gonuts", "wallet")
-	err = os.MkdirAll(path, 0700)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return path
+	return filepath.Join(homedir, ".gonuts", "wallet")
 }
 
-func envPath(walletPath string) string {
-	envPath := filepath.Join(walletPath, ".env")
+func envPath() string {
+	defaultPath := defaultWalletPath()
+
+	// if .env file present at default wallet path then use that
+	// if not, look at current dir
+	envPath := filepath.Join(defaultPath, ".env")
 	if _, err := os.Stat(envPath); err != nil {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -68,30 +86,12 @@ func envPath(walletPath string) string {
 	return envPath
 }
 
-func getMintURL() string {
-	mintUrl := os.Getenv("MINT_URL")
-	if len(mintUrl) > 0 {
-		return mintUrl
-	} else {
-		mintHost := os.Getenv("MINT_HOST")
-		mintPort := os.Getenv("MINT_PORT")
-		if len(mintHost) == 0 || len(mintPort) == 0 {
-			return "http://127.0.0.1:3338"
-		}
-
-		url := &url.URL{
-			Scheme: "http",
-			Host:   mintHost + ":" + mintPort,
-		}
-		mintUrl = url.String()
-	}
-	return mintUrl
-}
-
 func setupWallet(ctx *cli.Context) error {
-	config := walletConfig()
+	config, err := walletConfig()
+	if err != nil {
+		printErr(err)
+	}
 
-	var err error
 	nutw, err = wallet.LoadWallet(config)
 	if err != nil {
 		printErr(err)
@@ -511,7 +511,10 @@ var restoreCmd = &cli.Command{
 }
 
 func restore(ctx *cli.Context) error {
-	config := walletConfig()
+	config, err := walletConfig()
+	if err != nil {
+		printErr(err)
+	}
 	fmt.Printf("enter mnemonic: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -545,7 +548,10 @@ var currentMintCmd = &cli.Command{
 }
 
 func currentMint(ctx *cli.Context) error {
-	config := walletConfig()
+	config, err := walletConfig()
+	if err != nil {
+		printErr(err)
+	}
 	fmt.Printf("current mint: %v\n", config.CurrentMintURL)
 	return nil
 }
@@ -561,9 +567,7 @@ func setCurrentMint(ctx *cli.Context) error {
 		printErr(fmt.Errorf("invalid mint url: %v", err))
 	}
 
-	path := setWalletPath()
-	envFilePath := envPath(path)
-
+	envFilePath := envPath()
 	envFileData, err := os.ReadFile(envFilePath)
 	if err != nil {
 		printErr(fmt.Errorf("could not read .env file: %v", err))
