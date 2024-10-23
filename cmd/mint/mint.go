@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
@@ -131,6 +132,11 @@ func configFromEnv() (*mint.Config, error) {
 		return nil, fmt.Errorf("error setting LND client: %v", err)
 	}
 
+	logLevel := mint.Info
+	if strings.ToLower(os.Getenv("LOG")) == "debug" {
+		logLevel = mint.Debug
+	}
+
 	return &mint.Config{
 		DerivationPathIdx: uint32(derivationPathIdx),
 		Port:              port,
@@ -140,6 +146,7 @@ func configFromEnv() (*mint.Config, error) {
 		MintInfo:          mintInfo,
 		Limits:            mintLimits,
 		LightningClient:   lndClient,
+		LogLevel:          logLevel,
 	}, nil
 }
 
