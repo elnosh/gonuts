@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/elnosh/gonuts/cashu"
 )
 
 type SecretKind int
@@ -17,33 +15,6 @@ const (
 	P2PK
 	HTLC
 )
-
-func SecretType(proof cashu.Proof) SecretKind {
-	var rawJsonSecret []json.RawMessage
-	// if not valid json, assume it is random secret
-	if err := json.Unmarshal([]byte(proof.Secret), &rawJsonSecret); err != nil {
-		return AnyoneCanSpend
-	}
-
-	// Well-known secret should have a length of at least 2
-	if len(rawJsonSecret) < 2 {
-		return AnyoneCanSpend
-	}
-
-	var kind string
-	if err := json.Unmarshal(rawJsonSecret[0], &kind); err != nil {
-		return AnyoneCanSpend
-	}
-
-	switch kind {
-	case "P2PK":
-		return P2PK
-	case "HTLC":
-		return HTLC
-	}
-
-	return AnyoneCanSpend
-}
 
 func (kind SecretKind) String() string {
 	switch kind {
@@ -57,28 +28,32 @@ func (kind SecretKind) String() string {
 }
 
 type WellKnownSecret struct {
+	Kind SecretKind
+	Data SecretData
+}
+
+type SecretData struct {
 	Nonce string     `json:"nonce"`
 	Data  string     `json:"data"`
 	Tags  [][]string `json:"tags"`
 }
 
 // SerializeSecret returns the json string to be put in the secret field of a proof
-func SerializeSecret(kind SecretKind, secretData WellKnownSecret) (string, error) {
-	jsonSecret, err := json.Marshal(secretData)
+func SerializeSecret(secret WellKnownSecret) (string, error) {
+	jsonSecret, err := json.Marshal(secret.Data)
 	if err != nil {
 		return "", err
 	}
 
-	secretKind := kind.String()
-	secret := fmt.Sprintf("[\"%s\", %v]", secretKind, string(jsonSecret))
-	return secret, nil
+	serializedSecret := fmt.Sprintf("[\"%s\", %v]", secret.Kind, string(jsonSecret))
+	return serializedSecret, nil
 }
 
 // DeserializeSecret returns Well-known secret struct.
 // It returns error if it's not valid according to NUT-10
-func DeserializeSecret(secret string) (WellKnownSecret, error) {
+func DeserializeSecret(serializedSecret string) (WellKnownSecret, error) {
 	var rawJsonSecret []json.RawMessage
-	if err := json.Unmarshal([]byte(secret), &rawJsonSecret); err != nil {
+	if err := json.Unmarshal([]byte(serializedSecret), &rawJsonSecret); err != nil {
 		return WellKnownSecret{}, err
 	}
 
@@ -88,16 +63,25 @@ func DeserializeSecret(secret string) (WellKnownSecret, error) {
 	}
 
 	var kind string
+	var secret WellKnownSecret
 	if err := json.Unmarshal(rawJsonSecret[0], &kind); err != nil {
 		return WellKnownSecret{}, errors.New("invalid kind for secret")
 	}
 
-	var secretData WellKnownSecret
-	if err := json.Unmarshal(rawJsonSecret[1], &secretData); err != nil {
+	switch kind {
+	case "P2PK":
+		secret.Kind = P2PK
+	case "HTLC":
+		secret.Kind = HTLC
+	default:
+		secret.Kind = AnyoneCanSpend
+	}
+
+	if err := json.Unmarshal(rawJsonSecret[1], &secret.Data); err != nil {
 		return WellKnownSecret{}, fmt.Errorf("invalid secret: %v", err)
 	}
 
-	return secretData, nil
+	return secret, nil
 }
 
 type SpendingCondition struct {
@@ -115,17 +99,20 @@ func NewSecretFromSpendingCondition(spendingCondition SpendingCondition) (string
 	}
 	nonce := hex.EncodeToString(nonceBytes)
 
-	secretData := WellKnownSecret{
-		Nonce: nonce,
-		Data:  spendingCondition.Data,
-		Tags:  spendingCondition.Tags,
-	}
-
 	if spendingCondition.Kind != P2PK && spendingCondition.Kind != HTLC {
 		return "", fmt.Errorf("invalid NUT-10 kind '%s' to create new secret", spendingCondition.Kind)
 	}
 
-	secret, err := SerializeSecret(spendingCondition.Kind, secretData)
+	secretData := WellKnownSecret{
+		Kind: spendingCondition.Kind,
+		Data: SecretData{
+			Nonce: nonce,
+			Data:  spendingCondition.Data,
+			Tags:  spendingCondition.Tags,
+		},
+	}
+
+	secret, err := SerializeSecret(secretData)
 	if err != nil {
 		return "", err
 	}
