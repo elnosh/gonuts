@@ -1051,8 +1051,9 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 		}
 
 		// if P2PK locked proof, verify valid witness
-		if nut11.IsSecretP2PK(proof) {
-			if err := verifyP2PKLockedProof(proof); err != nil {
+		nut10Secret, err := nut10.DeserializeSecret(proof.Secret)
+		if err == nil && nut10Secret.Kind == nut10.P2PK {
+			if err := verifyP2PKLockedProof(proof, nut10Secret); err != nil {
 				return err
 			}
 			m.logDebugf("verified P2PK locked proof")
@@ -1076,19 +1077,14 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 	return nil
 }
 
-func verifyP2PKLockedProof(proof cashu.Proof) error {
-	p2pkWellKnownSecret, err := nut10.DeserializeSecret(proof.Secret)
-	if err != nil {
-		return cashu.BuildCashuError(err.Error(), cashu.StandardErrCode)
-	}
-
+func verifyP2PKLockedProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
 	var p2pkWitness nut11.P2PKWitness
-	err = json.Unmarshal([]byte(proof.Witness), &p2pkWitness)
+	err := json.Unmarshal([]byte(proof.Witness), &p2pkWitness)
 	if err != nil {
 		p2pkWitness.Signatures = []string{}
 	}
 
-	p2pkTags, err := nut11.ParseP2PKTags(p2pkWellKnownSecret.Tags)
+	p2pkTags, err := nut11.ParseP2PKTags(proofSecret.Data.Tags)
 	if err != nil {
 		return err
 	}
@@ -1109,7 +1105,7 @@ func verifyP2PKLockedProof(proof cashu.Proof) error {
 			}
 		}
 	} else {
-		pubkey, err := nut11.ParsePublicKey(p2pkWellKnownSecret.Data)
+		pubkey, err := nut11.ParsePublicKey(proofSecret.Data.Data)
 		if err != nil {
 			return err
 		}
@@ -1146,7 +1142,7 @@ func verifyP2PKBlindedMessages(proofs cashu.Proofs, blindedMessages cashu.Blinde
 	}
 
 	signaturesRequired := 1
-	p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
+	p2pkTags, err := nut11.ParseP2PKTags(secret.Data.Tags)
 	if err != nil {
 		return err
 	}
@@ -1166,7 +1162,7 @@ func verifyP2PKBlindedMessages(proofs cashu.Proofs, blindedMessages cashu.Blinde
 		}
 
 		currentSignaturesRequired := 1
-		p2pkTags, err := nut11.ParseP2PKTags(secret.Tags)
+		p2pkTags, err := nut11.ParseP2PKTags(secret.Data.Tags)
 		if err != nil {
 			return err
 		}

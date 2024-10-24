@@ -15,22 +15,28 @@ func TestIsSigAll(t *testing.T) {
 	}{
 		{
 			p2pkSecretData: nut10.WellKnownSecret{
-				Tags: [][]string{},
+				Data: nut10.SecretData{
+					Tags: [][]string{},
+				},
 			},
 			expected: false,
 		},
 		{
 			p2pkSecretData: nut10.WellKnownSecret{
-				Tags: [][]string{{"sigflag", "SIG_INPUTS"}},
+				Data: nut10.SecretData{
+					Tags: [][]string{{"sigflag", "SIG_INPUTS"}},
+				},
 			},
 			expected: false,
 		},
 		{
 			p2pkSecretData: nut10.WellKnownSecret{
-				Tags: [][]string{
-					{"locktime", "882912379"},
-					{"refund", "refundkey"},
-					{"sigflag", "SIG_ALL"},
+				Data: nut10.SecretData{
+					Tags: [][]string{
+						{"locktime", "882912379"},
+						{"refund", "refundkey"},
+						{"sigflag", "SIG_ALL"},
+					},
 				},
 			},
 			expected: true,
@@ -55,21 +61,27 @@ func TestCanSign(t *testing.T) {
 	}{
 		{
 			p2pkSecretData: nut10.WellKnownSecret{
-				Data: publicKey,
+				Data: nut10.SecretData{
+					Data: publicKey,
+				},
 			},
 			expected: true,
 		},
 
 		{
 			p2pkSecretData: nut10.WellKnownSecret{
-				Data: "somerandomkey",
+				Data: nut10.SecretData{
+					Data: "somerandomkey",
+				},
 			},
 			expected: false,
 		},
 
 		{
 			p2pkSecretData: nut10.WellKnownSecret{
-				Data: "sdjflksjdflsdjfd",
+				Data: nut10.SecretData{
+					Data: "sdjflksjdflsdjfd",
+				},
 			},
 			expected: false,
 		},

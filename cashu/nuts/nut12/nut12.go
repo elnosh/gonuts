@@ -10,16 +10,11 @@ import (
 
 // VerifyProofsDLEQ will verify the DLEQ proofs if present. If the DLEQ proofs are not present
 // it will continue and return true
-func VerifyProofsDLEQ(proofs cashu.Proofs, keysets map[string]crypto.WalletKeyset) bool {
+func VerifyProofsDLEQ(proofs cashu.Proofs, keyset crypto.WalletKeyset) bool {
 	for _, proof := range proofs {
 		if proof.DLEQ == nil {
 			continue
 		} else {
-			keyset, ok := keysets[proof.Id]
-			if !ok {
-				return false
-			}
-
 			pubkey, ok := keyset.PublicKeys[proof.Amount]
 			if !ok {
 				return false
