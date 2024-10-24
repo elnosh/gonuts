@@ -226,21 +226,17 @@ func AddSignatureToOutputs(
 // PublicKeys returns a list of public keys that can sign
 // a P2PK locked proof
 func PublicKeys(secret nut10.WellKnownSecret) ([]*btcec.PublicKey, error) {
-	p2pkTags, err := ParseP2PKTags(secret.Tags)
+	p2pkTags, err := ParseP2PKTags(secret.Data.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	pubkey, err := ParsePublicKey(secret.Data)
+	pubkey, err := ParsePublicKey(secret.Data.Data)
 	if err != nil {
 		return nil, err
 	}
 	pubkeys := append([]*btcec.PublicKey{pubkey}, p2pkTags.Pubkeys...)
 	return pubkeys, nil
-}
-
-func IsSecretP2PK(proof cashu.Proof) bool {
-	return nut10.SecretType(proof) == nut10.P2PK
 }
 
 // ProofsSigAll returns true if at least one of the proofs
@@ -260,7 +256,7 @@ func ProofsSigAll(proofs cashu.Proofs) bool {
 }
 
 func IsSigAll(secret nut10.WellKnownSecret) bool {
-	for _, tag := range secret.Tags {
+	for _, tag := range secret.Data.Tags {
 		if len(tag) == 2 {
 			if tag[0] == SIGFLAG && tag[1] == SIGALL {
 				return true
@@ -272,7 +268,7 @@ func IsSigAll(secret nut10.WellKnownSecret) bool {
 }
 
 func CanSign(secret nut10.WellKnownSecret, key *btcec.PrivateKey) bool {
-	publicKey, err := ParsePublicKey(secret.Data)
+	publicKey, err := ParsePublicKey(secret.Data.Data)
 	if err != nil {
 		return false
 	}

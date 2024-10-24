@@ -8,16 +8,11 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/schnorr"
 	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 )
 
 type HTLCWitness struct {
 	Preimage   string   `json:"preimage"`
 	Signatures []string `json:"signatures"`
-}
-
-func IsSecretHTLC(proof cashu.Proof) bool {
-	return nut10.SecretType(proof) == nut10.HTLC
 }
 
 func AddWitnessHTLC(
