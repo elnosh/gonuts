@@ -1,6 +1,8 @@
 package nut10
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ type SecretKind int
 const (
 	AnyoneCanSpend SecretKind = iota
 	P2PK
+	HTLC
 )
 
 func SecretType(proof cashu.Proof) SecretKind {
@@ -32,8 +35,11 @@ func SecretType(proof cashu.Proof) SecretKind {
 		return AnyoneCanSpend
 	}
 
-	if kind == "P2PK" {
+	switch kind {
+	case "P2PK":
 		return P2PK
+	case "HTLC":
+		return HTLC
 	}
 
 	return AnyoneCanSpend
@@ -43,6 +49,8 @@ func (kind SecretKind) String() string {
 	switch kind {
 	case P2PK:
 		return "P2PK"
+	case HTLC:
+		return "HTLC"
 	default:
 		return "anyonecanspend"
 	}
@@ -90,4 +98,37 @@ func DeserializeSecret(secret string) (WellKnownSecret, error) {
 	}
 
 	return secretData, nil
+}
+
+type SpendingCondition struct {
+	Kind SecretKind
+	Data string
+	Tags [][]string
+}
+
+func NewSecretFromSpendingCondition(spendingCondition SpendingCondition) (string, error) {
+	// generate random nonce
+	nonceBytes := make([]byte, 32)
+	_, err := rand.Read(nonceBytes)
+	if err != nil {
+		return "", err
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+
+	secretData := WellKnownSecret{
+		Nonce: nonce,
+		Data:  spendingCondition.Data,
+		Tags:  spendingCondition.Tags,
+	}
+
+	if spendingCondition.Kind != P2PK && spendingCondition.Kind != HTLC {
+		return "", fmt.Errorf("invalid NUT-10 kind '%s' to create new secret", spendingCondition.Kind)
+	}
+
+	secret, err := SerializeSecret(spendingCondition.Kind, secretData)
+	if err != nil {
+		return "", err
+	}
+
+	return secret, nil
 }
