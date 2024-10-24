@@ -1,7 +1,6 @@
 package nut11
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -66,17 +65,7 @@ type P2PKTags struct {
 	Refund   []*btcec.PublicKey
 }
 
-// P2PKSecret returns a secret with a spending condition
-// that will lock ecash to a public key
-func P2PKSecret(pubkey string, p2pkTags P2PKTags) (string, error) {
-	// generate random nonce
-	nonceBytes := make([]byte, 32)
-	_, err := rand.Read(nonceBytes)
-	if err != nil {
-		return "", err
-	}
-	nonce := hex.EncodeToString(nonceBytes)
-
+func SerializeP2PKTags(p2pkTags P2PKTags) [][]string {
 	var tags [][]string
 	if len(p2pkTags.Sigflag) > 0 {
 		tags = append(tags, []string{SIGFLAG, p2pkTags.Sigflag})
@@ -94,7 +83,7 @@ func P2PKSecret(pubkey string, p2pkTags P2PKTags) (string, error) {
 		tags = append(tags, pubkeys)
 	}
 	if p2pkTags.Locktime > 0 {
-		locktime := strconv.Itoa(int(p2pkTags.Locktime))
+		locktime := strconv.FormatInt(p2pkTags.Locktime, 10)
 		tags = append(tags, []string{LOCKTIME, locktime})
 	}
 	if len(p2pkTags.Refund) > 0 {
@@ -105,19 +94,7 @@ func P2PKSecret(pubkey string, p2pkTags P2PKTags) (string, error) {
 		}
 		tags = append(tags, refundKeys)
 	}
-
-	secretData := nut10.WellKnownSecret{
-		Nonce: nonce,
-		Data:  pubkey,
-		Tags:  tags,
-	}
-
-	secret, err := nut10.SerializeSecret(nut10.P2PK, secretData)
-	if err != nil {
-		return "", err
-	}
-
-	return secret, nil
+	return tags
 }
 
 func ParseP2PKTags(tags [][]string) (*P2PKTags, error) {

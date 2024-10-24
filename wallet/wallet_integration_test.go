@@ -930,7 +930,7 @@ func testP2PK(
 	}
 
 	receiverPubkey := testWallet2.GetReceivePubkey()
-	lockedProofs, err := testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
+	lockedProofs, err := testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, nil, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
@@ -958,7 +958,7 @@ func testP2PK(
 		t.Fatalf("expected balance of '%v' but got '%v' instead", amountReceived, balance)
 	}
 
-	lockedProofs, err = testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, true)
+	lockedProofs, err = testWallet.SendToPubkey(500, testWallet.CurrentMint(), receiverPubkey, nil, true)
 	if err != nil {
 		t.Fatalf("unexpected error generating locked ecash: %v", err)
 	}
