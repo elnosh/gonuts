@@ -20,6 +20,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
@@ -353,6 +354,12 @@ func CreateP2PKLockedBlindedMessages(
 
 	pubkey := hex.EncodeToString(publicKey.SerializeCompressed())
 
+	p2pkSpendingCondition := nut10.SpendingCondition{
+		Kind: nut10.P2PK,
+		Data: pubkey,
+		Tags: nut11.SerializeP2PKTags(tags),
+	}
+
 	for i, amt := range splitAmounts {
 		// generate new private key r
 		r, err := secp256k1.GeneratePrivateKey()
@@ -360,7 +367,7 @@ func CreateP2PKLockedBlindedMessages(
 			return nil, nil, nil, err
 		}
 
-		secret, err := nut11.P2PKSecret(pubkey, tags)
+		secret, err := nut10.NewSecretFromSpendingCondition(p2pkSpendingCondition)
 		if err != nil {
 			return nil, nil, nil, err
 		}

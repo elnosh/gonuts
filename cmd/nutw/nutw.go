@@ -348,7 +348,7 @@ func send(ctx *cli.Context) error {
 			printErr(err)
 		}
 
-		proofsToSend, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, includeFees)
+		proofsToSend, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, nil, includeFees)
 		if err != nil {
 			printErr(err)
 		}
