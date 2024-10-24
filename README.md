@@ -34,7 +34,9 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 With [Go](https://go.dev/doc/install) installed, you can run the following command to install the wallet:
 
 ```
-go install github.com/elnosh/gonuts/cmd/nutw@latest
+git clone https://github.com/elnosh/gonuts
+cd gonuts
+go install ./cmd/nutw/
 ```
 
 To setup a mint for the wallet, create a `.env` file at ~/.gonuts/wallet/.env and setup your preferred mint.
