@@ -28,6 +28,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
+	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/storage"
 	"github.com/tyler-smith/go-bip39"
@@ -612,6 +613,70 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		}
 		return newProofs.Amount(), nil
 	}
+}
+
+// ReceiveHTLC will add the preimage and any signatures if needed in order to redeem the
+// locked ecash. If successful, it will make a swap and store the new proofs.
+// It will add the mint in the token to the list of trusted mints.
+func (w *Wallet) ReceiveHTLC(token cashu.Token, preimage string) (uint64, error) {
+	proofs := token.Proofs()
+	tokenMint := token.Mint()
+
+	keyset, err := w.getActiveSatKeyset(tokenMint)
+	if err != nil {
+		return 0, fmt.Errorf("could not get active keyset: %v", err)
+	}
+	// verify DLEQ in proofs if present
+	if !nut12.VerifyProofsDLEQ(proofs, *keyset) {
+		return 0, errors.New("invalid DLEQ proof")
+	}
+
+	nut10Secret, err := nut10.DeserializeSecret(proofs[0].Secret)
+	if err == nil && nut10Secret.Kind == nut10.HTLC {
+		proofs, err = nut14.AddWitnessHTLC(proofs, nut10Secret, preimage, w.privateKey)
+		if err != nil {
+			return 0, fmt.Errorf("could not add HTLC witness: %v", err)
+		}
+
+		// only add mint if not previously trusted
+		_, ok := w.mints[tokenMint]
+		if !ok {
+			_, err := w.addMint(tokenMint)
+			if err != nil {
+				return 0, err
+			}
+		}
+
+		req, err := w.createSwapRequest(proofs, tokenMint)
+		if err != nil {
+			return 0, fmt.Errorf("could not create swap request: %v", err)
+		}
+
+		//if `SIG_ALL` flag, sign outputs
+		if nut11.IsSigAll(nut10Secret) {
+			req.outputs, err = nut14.AddWitnessHTLCToOutputs(req.outputs, preimage, w.privateKey)
+			if err != nil {
+				return 0, fmt.Errorf("could not add HTLC witness to outputs: %v", err)
+			}
+		}
+
+		newProofs, err := w.swap(tokenMint, req)
+		if err != nil {
+			return 0, fmt.Errorf("could not swap proofs: %v", err)
+		}
+
+		err = w.db.IncrementKeysetCounter(req.keyset.Id, uint32(len(req.outputs)))
+		if err != nil {
+			return 0, fmt.Errorf("error incrementing keyset counter: %v", err)
+		}
+
+		if err := w.db.SaveProofs(newProofs); err != nil {
+			return 0, fmt.Errorf("error storing proofs: %v", err)
+		}
+		return newProofs.Amount(), nil
+	}
+
+	return 0, errors.New("ecash does not have an HTLC spending condition")
 }
 
 type swapRequestPayload struct {

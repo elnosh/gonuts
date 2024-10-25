@@ -15,9 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/joho/godotenv"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -153,12 +154,22 @@ func getBalance(ctx *cli.Context) error {
 	return nil
 }
 
+const (
+	preimageFlag = "preimage"
+)
+
 var receiveCmd = &cli.Command{
 	Name:      "receive",
 	Usage:     "Receive token",
 	ArgsUsage: "[TOKEN]",
 	Before:    setupWallet,
 	Action:    receive,
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  preimageFlag,
+			Usage: "preimage if receiving ecash HTLC",
+		},
+	},
 }
 
 func receive(ctx *cli.Context) error {
@@ -172,10 +183,20 @@ func receive(ctx *cli.Context) error {
 	if err != nil {
 		printErr(err)
 	}
+	mintURL := token.Mint()
+
+	if ctx.IsSet(preimageFlag) {
+		preimage := ctx.String(preimageFlag)
+		receivedAmount, err := nutw.ReceiveHTLC(token, preimage)
+		if err != nil {
+			printErr(err)
+		}
+		fmt.Printf("%v sats received from ecash HTLC\n", receivedAmount)
+		return nil
+	}
 
 	swap := true
 	trustedMints := nutw.TrustedMints()
-	mintURL := token.Mint()
 
 	isTrusted := slices.Contains(trustedMints, mintURL)
 	if !isTrusted {
@@ -282,10 +303,15 @@ func mintTokens(paymentRequest string) error {
 }
 
 const (
-	lockFlag        = "lock"
-	noFeesFlag      = "no-fees"
-	legacyFlag      = "legacy"
-	includeDLEQFlag = "include-dleq"
+	p2pklockFlag     = "lock-p2pk"
+	htlcLockFlag     = "lock-htlc"
+	requiredSigsFlag = "required-signatures"
+	pubkeysFlag      = "pubkeys"
+	locktimeFlag     = "locktime"
+	refundKeysFlag   = "refund-keys"
+	noFeesFlag       = "no-fees"
+	legacyFlag       = "legacy"
+	includeDLEQFlag  = "include-dleq"
 )
 
 var sendCmd = &cli.Command{
@@ -295,9 +321,37 @@ var sendCmd = &cli.Command{
 	Before:    setupWallet,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name:  lockFlag,
+			Name:  p2pklockFlag,
 			Usage: "generate ecash locked to a public key",
 		},
+		&cli.StringFlag{
+			Name:  htlcLockFlag,
+			Usage: "generate ecash locked to hash of preimage",
+		},
+
+		// --------------- Optional lock flags category ----------------------
+		&cli.IntFlag{
+			Name:     requiredSigsFlag,
+			Usage:    "number of required signatures",
+			Category: "Optional lock flags for P2PK or HTLC",
+		},
+		&cli.StringSliceFlag{
+			Name:     pubkeysFlag,
+			Usage:    "additional public keys that can provide signatures.",
+			Category: "Optional lock flags for P2PK or HTLC",
+		},
+		&cli.Int64Flag{
+			Name:     locktimeFlag,
+			Usage:    "Unix timestamp for P2PK or HTLC to expire",
+			Category: "Optional lock flags for P2PK or HTLC",
+		},
+		&cli.StringSliceFlag{
+			Name:     refundKeysFlag,
+			Usage:    "list of public keys that can sign after locktime",
+			Category: "Optional lock flags for P2PK or HTLC",
+		},
+		// --------------- Optional lock flags category ----------------------
+
 		&cli.BoolFlag{
 			Name:               noFeesFlag,
 			Usage:              "do not include fees for receiver in the token generated",
@@ -322,8 +376,8 @@ func send(ctx *cli.Context) error {
 	if args.Len() < 1 {
 		printErr(errors.New("specify an amount to send"))
 	}
-	amountStr := args.First()
-	sendAmount, err := strconv.ParseUint(amountStr, 10, 64)
+	amountArg := args.First()
+	sendAmount, err := strconv.ParseUint(amountArg, 10, 64)
 	if err != nil {
 		printErr(err)
 	}
@@ -336,21 +390,60 @@ func send(ctx *cli.Context) error {
 	}
 
 	var proofsToSend cashu.Proofs
-	// if lock flag is set, get ecash locked to the pubkey
-	if ctx.IsSet(lockFlag) {
-		lockpubkey := ctx.String(lockFlag)
-		lockbytes, err := hex.DecodeString(lockpubkey)
-		if err != nil {
-			printErr(err)
-		}
-		pubkey, err := btcec.ParsePubKey(lockbytes)
-		if err != nil {
-			printErr(err)
+
+	// if either P2PK or HTLC, read optional flags
+	if ctx.IsSet(p2pklockFlag) || ctx.IsSet(htlcLockFlag) {
+		tags := nut11.P2PKTags{
+			NSigs:    ctx.Int(requiredSigsFlag),
+			Locktime: ctx.Int64(locktimeFlag),
 		}
 
-		proofsToSend, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, nil, includeFees)
-		if err != nil {
-			printErr(err)
+		for _, pubkey := range ctx.StringSlice(pubkeysFlag) {
+			pubkeyBytes, err := hex.DecodeString(pubkey)
+			if err != nil {
+				printErr(err)
+			}
+
+			publicKey, err := secp256k1.ParsePubKey(pubkeyBytes)
+			if err != nil {
+				printErr(err)
+			}
+			tags.Pubkeys = append(tags.Pubkeys, publicKey)
+		}
+
+		for _, pubkey := range ctx.StringSlice(refundKeysFlag) {
+			pubkeyBytes, err := hex.DecodeString(pubkey)
+			if err != nil {
+				printErr(err)
+			}
+
+			publicKey, err := secp256k1.ParsePubKey(pubkeyBytes)
+			if err != nil {
+				printErr(err)
+			}
+			tags.Refund = append(tags.Refund, publicKey)
+		}
+
+		if ctx.IsSet(p2pklockFlag) {
+			lockpubkey := ctx.String(p2pklockFlag)
+			lockbytes, err := hex.DecodeString(lockpubkey)
+			if err != nil {
+				printErr(err)
+			}
+			pubkey, err := secp256k1.ParsePubKey(lockbytes)
+			if err != nil {
+				printErr(err)
+			}
+			proofsToSend, err = nutw.SendToPubkey(sendAmount, selectedMint, pubkey, &tags, includeFees)
+			if err != nil {
+				printErr(err)
+			}
+		} else {
+			preimage := ctx.String(htlcLockFlag)
+			proofsToSend, err = nutw.HTLCLockedProofs(sendAmount, selectedMint, preimage, &tags, includeFees)
+			if err != nil {
+				printErr(err)
+			}
 		}
 	} else {
 		proofsToSend, err = nutw.Send(sendAmount, selectedMint, includeFees)
