@@ -1053,19 +1053,18 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 
 		// if P2PK locked proof, verify valid witness
 		nut10Secret, err := nut10.DeserializeSecret(proof.Secret)
-		if err == nil && nut10Secret.Kind == nut10.P2PK {
-			if err := verifyP2PKLockedProof(proof, nut10Secret); err != nil {
-				return err
+		if err == nil {
+			if nut10Secret.Kind == nut10.P2PK {
+				if err := verifyP2PKLockedProof(proof, nut10Secret); err != nil {
+					return err
+				}
+				m.logDebugf("verified P2PK locked proof")
+			} else if nut10Secret.Kind == nut10.HTLC {
+				if err := verifyHTLCProof(proof, nut10Secret); err != nil {
+					return err
+				}
+				m.logDebugf("verified HTLC proof")
 			}
-			m.logDebugf("verified P2PK locked proof")
-		}
-
-		// verify if HTLC
-		if err == nil && nut10Secret.Kind == nut10.HTLC {
-			if err := verifyHTLCProof(proof, nut10Secret); err != nil {
-				return err
-			}
-			m.logDebugf("verified HTLC proof")
 		}
 
 		Cbytes, err := hex.DecodeString(proof.C)
@@ -1083,68 +1082,6 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 			return cashu.InvalidProofErr
 		}
 	}
-	return nil
-}
-
-func verifyHTLCProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
-	var htlcWitness nut14.HTLCWitness
-	json.Unmarshal([]byte(proof.Witness), &htlcWitness)
-
-	p2pkTags, err := nut11.ParseP2PKTags(proofSecret.Data.Tags)
-	if err != nil {
-		return err
-	}
-
-	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
-	// if refund pubkey present, check signature
-	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
-		if len(p2pkTags.Refund) == 0 {
-			return nil
-		} else {
-			hash := sha256.Sum256([]byte(proof.Secret))
-			if len(htlcWitness.Signatures) < 1 {
-				return nut11.InvalidWitness
-			}
-			if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, 1, p2pkTags.Refund) {
-				return nut11.NotEnoughSignaturesErr
-			}
-		}
-		return nil
-	}
-
-	// verify valid preimage
-	preimageBytes, err := hex.DecodeString(htlcWitness.Preimage)
-	if err != nil {
-		return nut14.InvalidPreimageErr
-	}
-	hashBytes := sha256.Sum256(preimageBytes)
-	hash := hex.EncodeToString(hashBytes[:])
-
-	if len(proofSecret.Data.Data) != 64 {
-		return nut14.InvalidHashErr
-	}
-	if hash != proofSecret.Data.Data {
-		return nut14.InvalidPreimageErr
-	}
-
-	// if n_sigs flag present, verify signatures
-	if p2pkTags.NSigs > 0 {
-		//signaturesRequired := p2pkTags.NSigs
-		if len(htlcWitness.Signatures) < 1 {
-			return nut11.NoSignaturesErr
-		}
-
-		hash := sha256.Sum256([]byte(proof.Secret))
-
-		if nut11.DuplicateSignatures(htlcWitness.Signatures) {
-			return nut11.DuplicateSignaturesErr
-		}
-
-		if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, p2pkTags.NSigs, p2pkTags.Pubkeys) {
-			return nut11.NotEnoughSignaturesErr
-		}
-	}
-
 	return nil
 }
 
@@ -1201,6 +1138,67 @@ func verifyP2PKLockedProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret)
 			return nut11.NotEnoughSignaturesErr
 		}
 	}
+	return nil
+}
+
+func verifyHTLCProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
+	var htlcWitness nut14.HTLCWitness
+	json.Unmarshal([]byte(proof.Witness), &htlcWitness)
+
+	p2pkTags, err := nut11.ParseP2PKTags(proofSecret.Data.Tags)
+	if err != nil {
+		return err
+	}
+
+	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
+	// if refund pubkey present, check signature
+	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
+		if len(p2pkTags.Refund) == 0 {
+			return nil
+		} else {
+			hash := sha256.Sum256([]byte(proof.Secret))
+			if len(htlcWitness.Signatures) < 1 {
+				return nut11.InvalidWitness
+			}
+			if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, 1, p2pkTags.Refund) {
+				return nut11.NotEnoughSignaturesErr
+			}
+		}
+		return nil
+	}
+
+	// verify valid preimage
+	preimageBytes, err := hex.DecodeString(htlcWitness.Preimage)
+	if err != nil {
+		return nut14.InvalidPreimageErr
+	}
+	hashBytes := sha256.Sum256(preimageBytes)
+	hash := hex.EncodeToString(hashBytes[:])
+
+	if len(proofSecret.Data.Data) != 64 {
+		return nut14.InvalidHashErr
+	}
+	if hash != proofSecret.Data.Data {
+		return nut14.InvalidPreimageErr
+	}
+
+	// if n_sigs flag present, verify signatures
+	if p2pkTags.NSigs > 0 {
+		if len(htlcWitness.Signatures) < 1 {
+			return nut11.NoSignaturesErr
+		}
+
+		hash := sha256.Sum256([]byte(proof.Secret))
+
+		if nut11.DuplicateSignatures(htlcWitness.Signatures) {
+			return nut11.DuplicateSignaturesErr
+		}
+
+		if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, p2pkTags.NSigs, p2pkTags.Pubkeys) {
+			return nut11.NotEnoughSignaturesErr
+		}
+	}
+
 	return nil
 }
 
@@ -1304,6 +1302,9 @@ func verifyBlindedMessages(proofs cashu.Proofs, blindedMessages cashu.BlindedMes
 			return nut11.InvalidKindErr
 		}
 
+		if nut11.DuplicateSignatures(signatures) {
+			return nut11.DuplicateSignaturesErr
+		}
 		if !nut11.HasValidSignatures(hash[:], signatures, signaturesRequired, pubkeys) {
 			return nut11.NotEnoughSignaturesErr
 		}

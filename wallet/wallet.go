@@ -475,6 +475,9 @@ func (w *Wallet) SendToPubkey(
 		return nil, errors.New("mint does not support Pay to Public Key")
 	}
 
+	if pubkey == nil {
+		return nil, errors.New("got nil pubkey")
+	}
 	hexPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 	serializedTags := [][]string{}
 	if tags != nil {

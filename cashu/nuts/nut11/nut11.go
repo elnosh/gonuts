@@ -227,7 +227,7 @@ func AddSignatureToOutputs(
 }
 
 // PublicKeys returns a list of public keys that can sign
-// a P2PK locked proof
+// a P2PK or HTLC proof
 func PublicKeys(secret nut10.WellKnownSecret) ([]*btcec.PublicKey, error) {
 	p2pkTags, err := ParseP2PKTags(secret.Data.Tags)
 	if err != nil {

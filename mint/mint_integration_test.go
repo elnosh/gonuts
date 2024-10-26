@@ -1220,7 +1220,7 @@ func TestHTLC(t *testing.T) {
 	keyset := testMint.GetActiveKeyset()
 	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
 
-	// test with proofs that do not have valid witness
+	// test with proofs that do not have a witness
 	_, err = testMint.Swap(lockedProofs, blindedMessages)
 	if !errors.Is(err, nut14.InvalidPreimageErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut14.InvalidPreimageErr, err)
@@ -1240,10 +1240,9 @@ func TestHTLC(t *testing.T) {
 		t.Fatalf("got unexpected error swapping HTLC proofs: %v", err)
 	}
 
-	// test 1-of-1
+	// test with signature required
 	signingKey, _ := btcec.NewPrivateKey()
 	tags := nut11.P2PKTags{
-		//Sigflag: nut11.SIGALL,
 		NSigs:   1,
 		Pubkeys: []*btcec.PublicKey{signingKey.PubKey()},
 	}

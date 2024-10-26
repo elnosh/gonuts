@@ -13,9 +13,11 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
@@ -851,7 +853,82 @@ func testWalletRestore(
 	if proofs.Amount() != expectedAmount {
 		t.Fatalf("restored proofs amount '%v' does not match to expected amount '%v'", proofs.Amount(), expectedAmount)
 	}
+}
 
+func TestHTLC(t *testing.T) {
+	htlcMintPath := filepath.Join(".", "htlcmint1")
+	htlcMint, err := testutils.CreateTestMintServer(lnd1, "8080", htlcMintPath, dbMigrationPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(htlcMintPath)
+	}()
+	go func() {
+		t.Fatal(htlcMint.Start())
+	}()
+	htlcMintURL := "http://127.0.0.1:8080"
+
+	testWalletPath := filepath.Join(".", "/testwallethtlc")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, htlcMintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	testWalletPath2 := filepath.Join(".", "/testwallethtlc2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, htlcMintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000); err != nil {
+		t.Fatalf("error funding wallet")
+	}
+
+	preimage := "aaaaaa"
+	htlcLockedProofs, err := testWallet.HTLCLockedProofs(1000, testWallet.CurrentMint(), preimage, nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error generating ecash HTLC: %v", err)
+	}
+	lockedEcash, _ := cashu.NewTokenV4(htlcLockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT, false)
+
+	amountReceived, err := testWallet2.ReceiveHTLC(lockedEcash, preimage)
+	if err != nil {
+		t.Fatalf("unexpected error receiving HTLC: %v", err)
+	}
+
+	balance := testWallet2.GetBalance()
+	if balance != amountReceived {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", amountReceived, balance)
+	}
+
+	// test HTLC that requires signature
+	tags := nut11.P2PKTags{
+		NSigs:   1,
+		Pubkeys: []*btcec.PublicKey{testWallet2.GetReceivePubkey()},
+	}
+	htlcLockedProofs, err = testWallet.HTLCLockedProofs(1000, testWallet.CurrentMint(), preimage, &tags, false)
+	if err != nil {
+		t.Fatalf("unexpected error generating ecash HTLC: %v", err)
+	}
+	lockedEcash, _ = cashu.NewTokenV4(htlcLockedProofs, testWallet.CurrentMint(), testutils.SAT_UNIT, false)
+
+	amountReceived, err = testWallet2.ReceiveHTLC(lockedEcash, preimage)
+	if err != nil {
+		t.Fatalf("unexpected error receiving HTLC: %v", err)
+	}
+
+	expectedBalance := balance + amountReceived
+	walletBalance := testWallet2.GetBalance()
+	if walletBalance != expectedBalance {
+		t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, walletBalance)
+	}
 }
 
 func TestSendToPubkey(t *testing.T) {
