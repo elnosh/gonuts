@@ -22,6 +22,7 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
+	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/mint/lightning"
@@ -339,53 +340,6 @@ func CreateBlindedMessages(amount uint64, keyset crypto.MintKeyset) (cashu.Blind
 	return blindedMessages, secrets, rs, nil
 }
 
-func CreateP2PKLockedBlindedMessages(
-	amount uint64,
-	keyset crypto.MintKeyset,
-	publicKey *btcec.PublicKey,
-	tags nut11.P2PKTags,
-) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
-	splitAmounts := cashu.AmountSplit(amount)
-	splitLen := len(splitAmounts)
-
-	blindedMessages := make(cashu.BlindedMessages, splitLen)
-	secrets := make([]string, splitLen)
-	rs := make([]*secp256k1.PrivateKey, splitLen)
-
-	pubkey := hex.EncodeToString(publicKey.SerializeCompressed())
-
-	p2pkSpendingCondition := nut10.SpendingCondition{
-		Kind: nut10.P2PK,
-		Data: pubkey,
-		Tags: nut11.SerializeP2PKTags(tags),
-	}
-
-	for i, amt := range splitAmounts {
-		// generate new private key r
-		r, err := secp256k1.GeneratePrivateKey()
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		secret, err := nut10.NewSecretFromSpendingCondition(p2pkSpendingCondition)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		B_, r, err := crypto.BlindMessage(secret, r)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		blindedMessage := newBlindedMessage(keyset.Id, amt, B_)
-		blindedMessages[i] = blindedMessage
-		secrets[i] = secret
-		rs[i] = r
-	}
-
-	return blindedMessages, secrets, rs, nil
-}
-
 func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.MintKeyset) (cashu.Proofs, error) {
 
@@ -482,10 +436,47 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Ln
 	return proofs, nil
 }
 
-func GetProofsWithLock(
+func BlindedMessagesFromSpendingCondition(
+	splitAmounts []uint64,
+	keysetId string,
+	spendingCondition nut10.SpendingCondition,
+) (
+	cashu.BlindedMessages,
+	[]string,
+	[]*secp256k1.PrivateKey,
+	error,
+) {
+	splitLen := len(splitAmounts)
+	blindedMessages := make(cashu.BlindedMessages, splitLen)
+	secrets := make([]string, splitLen)
+	rs := make([]*secp256k1.PrivateKey, splitLen)
+	for i, amt := range splitAmounts {
+		r, err := secp256k1.GeneratePrivateKey()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		secret, err := nut10.NewSecretFromSpendingCondition(spendingCondition)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		B_, r, err := crypto.BlindMessage(secret, r)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		blindedMessages[i] = cashu.NewBlindedMessage(keysetId, amt, B_)
+		secrets[i] = secret
+		rs[i] = r
+	}
+
+	return blindedMessages, secrets, rs, nil
+}
+
+func GetProofsWithSpendingCondition(
 	amount uint64,
-	publicKey *btcec.PublicKey,
-	tags nut11.P2PKTags,
+	spendingCondition nut10.SpendingCondition,
 	mint *mint.Mint,
 	payer *btcdocker.Lnd,
 ) (cashu.Proofs, error) {
@@ -496,7 +487,8 @@ func GetProofsWithLock(
 
 	keyset := mint.GetActiveKeyset()
 
-	blindedMessages, secrets, rs, err := CreateP2PKLockedBlindedMessages(amount, keyset, publicKey, tags)
+	split := cashu.AmountSplit(amount)
+	blindedMessages, secrets, rs, err := BlindedMessagesFromSpendingCondition(split, keyset.Id, spendingCondition)
 	if err != nil {
 		return nil, fmt.Errorf("error creating blinded message: %v", err)
 	}
@@ -524,7 +516,7 @@ func GetProofsWithLock(
 	return proofs, nil
 }
 
-func AddSignaturesToInputs(inputs cashu.Proofs, signingKeys []*btcec.PrivateKey) (cashu.Proofs, error) {
+func AddP2PKWitnessToInputs(inputs cashu.Proofs, signingKeys []*btcec.PrivateKey) (cashu.Proofs, error) {
 	for i, proof := range inputs {
 		hash := sha256.Sum256([]byte(proof.Secret))
 		signatures := make([]string, len(signingKeys))
@@ -551,7 +543,7 @@ func AddSignaturesToInputs(inputs cashu.Proofs, signingKeys []*btcec.PrivateKey)
 	return inputs, nil
 }
 
-func AddSignaturesToOutputs(
+func AddP2PKWitnessToOutputs(
 	outputs cashu.BlindedMessages,
 	signingKeys []*btcec.PrivateKey,
 ) (cashu.BlindedMessages, error) {
@@ -577,6 +569,64 @@ func AddSignaturesToOutputs(
 		if err != nil {
 			return nil, err
 		}
+		output.Witness = string(witness)
+		outputs[i] = output
+	}
+
+	return outputs, nil
+}
+
+// it will add signatures if signingKey is not nil
+func AddHTLCWitnessToInputs(inputs cashu.Proofs, preimage string, signingKey *btcec.PrivateKey) (cashu.Proofs, error) {
+	for i, proof := range inputs {
+		htlcWitness := nut14.HTLCWitness{Preimage: preimage}
+
+		if signingKey != nil {
+			hash := sha256.Sum256([]byte(proof.Secret))
+			signature, err := schnorr.Sign(signingKey, hash[:])
+			if err != nil {
+				return nil, err
+			}
+			sig := hex.EncodeToString(signature.Serialize())
+			htlcWitness.Signatures = []string{sig}
+		}
+
+		witness, err := json.Marshal(htlcWitness)
+		if err != nil {
+			return nil, err
+		}
+
+		proof.Witness = string(witness)
+		inputs[i] = proof
+	}
+
+	return inputs, nil
+}
+
+// it will add signatures if signingKey is not nil
+func AddHTLCWitnessToOutputs(outputs cashu.BlindedMessages, preimage string, signingKey *btcec.PrivateKey) (cashu.BlindedMessages, error) {
+	for i, output := range outputs {
+		htlcWitness := nut14.HTLCWitness{Preimage: preimage}
+
+		if signingKey != nil {
+			msgToSign, err := hex.DecodeString(output.B_)
+			if err != nil {
+				return nil, err
+			}
+			hash := sha256.Sum256(msgToSign)
+			signature, err := schnorr.Sign(signingKey, hash[:])
+			if err != nil {
+				return nil, err
+			}
+			sig := hex.EncodeToString(signature.Serialize())
+			htlcWitness.Signatures = []string{sig}
+		}
+
+		witness, err := json.Marshal(htlcWitness)
+		if err != nil {
+			return nil, err
+		}
+
 		output.Witness = string(witness)
 		outputs[i] = output
 	}

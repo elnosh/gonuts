@@ -14,6 +14,16 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 )
 
+const (
+	NUT14ErrCode cashu.CashuErrCode = 30004
+)
+
+// NUT-14 specific errors
+var (
+	InvalidPreimageErr = cashu.Error{Detail: "Invalid preimage for HTLC", Code: NUT14ErrCode}
+	InvalidHashErr     = cashu.Error{Detail: "Invalid hash in secret", Code: NUT14ErrCode}
+)
+
 type HTLCWitness struct {
 	Preimage   string   `json:"preimage"`
 	Signatures []string `json:"signatures"`
@@ -34,14 +44,13 @@ func AddWitnessHTLC(
 	}
 
 	signatureNeeded := false
-	publicKey := signingKey.PubKey().SerializeCompressed()
-
 	if tags.NSigs > 0 {
 		// return error if it requires more than 1 signature
 		if tags.NSigs > 1 {
 			return nil, errors.New("unable to provide enough signatures")
 		}
 
+		publicKey := signingKey.PubKey().SerializeCompressed()
 		canSign := false
 		// read pubkeys and check signingKey can sign
 		for _, pk := range tags.Pubkeys {
