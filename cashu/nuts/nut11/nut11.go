@@ -39,14 +39,17 @@ const (
 	Unknown
 )
 
-// errors
+// NUT-11 specific errors
 var (
 	InvalidTagErr            = cashu.Error{Detail: "invalid tag", Code: NUT11ErrCode}
 	TooManyTagsErr           = cashu.Error{Detail: "too many tags", Code: NUT11ErrCode}
 	NSigsMustBePositiveErr   = cashu.Error{Detail: "n_sigs must be a positive integer", Code: NUT11ErrCode}
 	EmptyPubkeysErr          = cashu.Error{Detail: "pubkeys tag cannot be empty if n_sigs tag is present", Code: NUT11ErrCode}
 	InvalidWitness           = cashu.Error{Detail: "invalid witness", Code: NUT11ErrCode}
+	InvalidKindErr           = cashu.Error{Detail: "invalid kind in secret", Code: NUT11ErrCode}
+	DuplicateSignaturesErr   = cashu.Error{Detail: "witness has duplicate signatures", Code: NUT11ErrCode}
 	NotEnoughSignaturesErr   = cashu.Error{Detail: "not enough valid signatures provided", Code: NUT11ErrCode}
+	NoSignaturesErr          = cashu.Error{Detail: "no signatures provided in witness", Code: NUT11ErrCode}
 	AllSigAllFlagsErr        = cashu.Error{Detail: "all flags must be SIG_ALL", Code: NUT11ErrCode}
 	SigAllKeysMustBeEqualErr = cashu.Error{Detail: "all public keys must be the same for SIG_ALL", Code: NUT11ErrCode}
 	SigAllOnlySwap           = cashu.Error{Detail: "SIG_ALL can only be used in /swap operation", Code: NUT11ErrCode}
@@ -231,11 +234,15 @@ func PublicKeys(secret nut10.WellKnownSecret) ([]*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	pubkey, err := ParsePublicKey(secret.Data.Data)
-	if err != nil {
-		return nil, err
+	pubkeys := p2pkTags.Pubkeys
+	// if P2PK proof, add key from data field
+	if secret.Kind == nut10.P2PK {
+		pubkey, err := ParsePublicKey(secret.Data.Data)
+		if err != nil {
+			return nil, err
+		}
+		pubkeys = append(pubkeys, pubkey)
 	}
-	pubkeys := append([]*btcec.PublicKey{pubkey}, p2pkTags.Pubkeys...)
 	return pubkeys, nil
 }
 
@@ -280,12 +287,24 @@ func CanSign(secret nut10.WellKnownSecret, key *btcec.PrivateKey) bool {
 	return false
 }
 
-func HasValidSignatures(hash []byte, witness P2PKWitness, Nsigs int, pubkeys []*btcec.PublicKey) bool {
+func DuplicateSignatures(signatures []string) bool {
+	sigs := make(map[string]bool)
+	for _, sig := range signatures {
+		if sigs[sig] {
+			return true
+		} else {
+			sigs[sig] = true
+		}
+	}
+	return false
+}
+
+func HasValidSignatures(hash []byte, signatures []string, Nsigs int, pubkeys []*btcec.PublicKey) bool {
 	pubkeysCopy := make([]*btcec.PublicKey, len(pubkeys))
 	copy(pubkeysCopy, pubkeys)
 
 	validSignatures := 0
-	for _, signature := range witness.Signatures {
+	for _, signature := range signatures {
 		sig, err := ParseSignature(signature)
 		if err != nil {
 			continue

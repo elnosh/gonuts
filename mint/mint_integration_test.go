@@ -21,8 +21,10 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut07"
+	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
+	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
@@ -974,7 +976,12 @@ func TestNUT11P2PK(t *testing.T) {
 	keyset := p2pkMint.GetActiveKeyset()
 
 	var mintAmount uint64 = 1500
-	lockedProofs, err := testutils.GetProofsWithLock(mintAmount, lock.PubKey(), nut11.P2PKTags{}, p2pkMint, lnd2)
+	hexPubkey := hex.EncodeToString(lock.PubKey().SerializeCompressed())
+	p2pkSpendingCondition := nut10.SpendingCondition{
+		Kind: nut10.P2PK,
+		Data: hexPubkey,
+	}
+	lockedProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1010,7 +1017,8 @@ func TestNUT11P2PK(t *testing.T) {
 		NSigs:   2,
 		Pubkeys: multisigKeys,
 	}
-	multisigProofs, err := testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
+	multisigProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1025,14 +1033,14 @@ func TestNUT11P2PK(t *testing.T) {
 
 	signingKeys := []*btcec.PrivateKey{key1, key2}
 	// enough signatures but blinded messages not signed
-	signedProofs, _ = testutils.AddSignaturesToInputs(multisigProofs, signingKeys)
+	signedProofs, _ = testutils.AddP2PKWitnessToInputs(multisigProofs, signingKeys)
 	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
 	if !errors.Is(err, nut11.InvalidWitness) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
 	}
 
 	// inputs and outputs with valid signatures
-	signedBlindedMessages, _ := testutils.AddSignaturesToOutputs(blindedMessages, signingKeys)
+	signedBlindedMessages, _ := testutils.AddP2PKWitnessToOutputs(blindedMessages, signingKeys)
 	_, err = p2pkMint.Swap(signedProofs, signedBlindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
@@ -1042,7 +1050,8 @@ func TestNUT11P2PK(t *testing.T) {
 	tags = nut11.P2PKTags{
 		Locktime: time.Now().Add(time.Minute * 1).Unix(),
 	}
-	locktimeProofs, err := testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
+	locktimeProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1062,7 +1071,8 @@ func TestNUT11P2PK(t *testing.T) {
 	tags = nut11.P2PKTags{
 		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
 	}
-	locktimeProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
+	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1079,7 +1089,8 @@ func TestNUT11P2PK(t *testing.T) {
 		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
 		Refund:   []*btcec.PublicKey{key1.PubKey()},
 	}
-	locktimeProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
+	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1090,7 +1101,7 @@ func TestNUT11P2PK(t *testing.T) {
 	}
 
 	// sign with refund pubkey
-	signedProofs, _ = testutils.AddSignaturesToInputs(locktimeProofs, []*btcec.PrivateKey{key1})
+	signedProofs, _ = testutils.AddP2PKWitnessToInputs(locktimeProofs, []*btcec.PrivateKey{key1})
 	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
 	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
 	if err != nil {
@@ -1098,7 +1109,8 @@ func TestNUT11P2PK(t *testing.T) {
 	}
 
 	// get locked proofs for melting
-	lockedProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), nut11.P2PKTags{}, p2pkMint, lnd2)
+	p2pkSpendingCondition.Tags = [][]string{}
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1118,8 +1130,8 @@ func TestNUT11P2PK(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
 	}
 
-	signedProofs, _ = testutils.AddSignaturesToInputs(lockedProofs, []*btcec.PrivateKey{lock})
-	_, err = p2pkMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	signedProofs, _ = testutils.AddP2PKWitnessToInputs(lockedProofs, []*btcec.PrivateKey{lock})
+	_, err = p2pkMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, signedProofs)
 	if err != nil {
 		t.Fatalf("unexpected error melting: %v", err)
 	}
@@ -1128,11 +1140,12 @@ func TestNUT11P2PK(t *testing.T) {
 	tags = nut11.P2PKTags{
 		Sigflag: nut11.SIGALL,
 	}
-	lockedProofs, err = testutils.GetProofsWithLock(mintAmount, lock.PubKey(), tags, p2pkMint, lnd2)
+	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
-	signedProofs, _ = testutils.AddSignaturesToInputs(lockedProofs, []*btcec.PrivateKey{lock})
+	signedProofs, _ = testutils.AddP2PKWitnessToInputs(lockedProofs, []*btcec.PrivateKey{lock})
 
 	invoice = lnrpc.Invoice{Value: 500}
 	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
@@ -1143,7 +1156,7 @@ func TestNUT11P2PK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
-	_, err = p2pkMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	_, err = p2pkMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, signedProofs)
 	if !errors.Is(err, nut11.SigAllOnlySwap) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.SigAllOnlySwap, err)
 	}
@@ -1187,5 +1200,249 @@ func TestDLEQProofs(t *testing.T) {
 		) {
 			t.Fatal("mint generated invalid DLEQ proof in swap")
 		}
+	}
+}
+
+func TestHTLC(t *testing.T) {
+	var mintAmount uint64 = 1500
+	preimage := "111111"
+	preimageBytes, _ := hex.DecodeString(preimage)
+	hashBytes := sha256.Sum256(preimageBytes)
+	hash := hex.EncodeToString(hashBytes[:])
+	htlcSpendingCondition := nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+	}
+	lockedProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	keyset := testMint.GetActiveKeyset()
+	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	// test with proofs that do not have valid witness
+	_, err = testMint.Swap(lockedProofs, blindedMessages)
+	if !errors.Is(err, nut14.InvalidPreimageErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut14.InvalidPreimageErr, err)
+	}
+
+	// test with invalid preimage to hash
+	proofs, _ := testutils.AddHTLCWitnessToInputs(lockedProofs, "000000", nil)
+	_, err = testMint.Swap(proofs, blindedMessages)
+	if !errors.Is(err, nut14.InvalidPreimageErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut14.InvalidPreimageErr, err)
+	}
+
+	// test with valid preimage
+	proofs, _ = testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, nil)
+	_, err = testMint.Swap(proofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("got unexpected error swapping HTLC proofs: %v", err)
+	}
+
+	// test 1-of-1
+	signingKey, _ := btcec.NewPrivateKey()
+	tags := nut11.P2PKTags{
+		//Sigflag: nut11.SIGALL,
+		NSigs:   1,
+		Pubkeys: []*btcec.PublicKey{signingKey.PubKey()},
+	}
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: nut11.SerializeP2PKTags(tags),
+	}
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	// test requiring signature but witness only has preimage
+	lockedProofs, _ = testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, nil)
+	_, err = testMint.Swap(lockedProofs, blindedMessages)
+	if !errors.Is(err, nut11.NoSignaturesErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NoSignaturesErr, err)
+	}
+
+	// test valid preimage but with invalid signature
+	anotherKey, _ := btcec.NewPrivateKey()
+	invalidProofs, _ := testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, anotherKey)
+	_, err = testMint.Swap(invalidProofs, blindedMessages)
+	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
+	}
+
+	// test with valid preimage and valid signatures
+	validProofs, _ := testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, signingKey)
+	_, err = testMint.Swap(validProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("got unexpected error swapping HTLC proofs: %v", err)
+	}
+
+	// test multisig
+	multisigKeys := []*btcec.PublicKey{signingKey.PubKey(), anotherKey.PubKey()}
+	tags = nut11.P2PKTags{
+		NSigs:   2,
+		Pubkeys: multisigKeys,
+	}
+	serializedTags := nut11.SerializeP2PKTags(tags)
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: serializedTags,
+	}
+	multisigHTLC, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	// test with valid preimage and 1 signature but require 2
+	notEnoughSigsProofs, _ := testutils.AddHTLCWitnessToInputs(multisigHTLC, preimage, signingKey)
+	_, err = testMint.Swap(notEnoughSigsProofs, blindedMessages)
+	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
+	}
+
+	// test SIG_ALL flag
+	tags = nut11.P2PKTags{
+		Sigflag: nut11.SIGALL,
+		NSigs:   1,
+		Pubkeys: []*btcec.PublicKey{signingKey.PubKey()},
+	}
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: nut11.SerializeP2PKTags(tags),
+	}
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	// test only inputs signed
+	proofs, _ = testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, signingKey)
+	blindedMessages, _ = testutils.AddHTLCWitnessToOutputs(blindedMessages, preimage, nil)
+	_, err = testMint.Swap(proofs, blindedMessages)
+	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
+	}
+
+	// add signatures to outputs for SIG_ALL
+	blindedMessages, err = testutils.AddHTLCWitnessToOutputs(blindedMessages, preimage, signingKey)
+	_, err = testMint.Swap(proofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("got unexpected error swapping HTLC proofs: %v", err)
+	}
+
+	// test with locktime
+	tags = nut11.P2PKTags{
+		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
+	}
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: nut11.SerializeP2PKTags(tags),
+	}
+	locktimeProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+	// locktime expired so spendable without signature
+	_, err = testMint.Swap(locktimeProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	// test locktime expired but with refund keys
+	tags = nut11.P2PKTags{
+		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
+		Refund:   []*btcec.PublicKey{signingKey.PubKey()},
+	}
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: nut11.SerializeP2PKTags(tags),
+	}
+	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	// unsigned proofs should fail because there were refund pubkeys in the tags
+	_, err = testMint.Swap(locktimeProofs, blindedMessages)
+	if err == nil {
+		t.Fatal("expected error but got 'nil' instead")
+	}
+
+	// sign with refund pubkey
+	signedProofs, _ := testutils.AddHTLCWitnessToInputs(locktimeProofs, "", signingKey)
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+	_, err = testMint.Swap(signedProofs, blindedMessages)
+	if err != nil {
+		t.Fatalf("unexpected error in swap: %v", err)
+	}
+
+	// get locked proofs for melting
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: [][]string{},
+	}
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+
+	invoice := lnrpc.Invoice{Value: 500}
+	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+	meltQuote, err := testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	_, err = testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	if !errors.Is(err, nut14.InvalidPreimageErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut14.InvalidPreimageErr, err)
+	}
+
+	validProofs, _ = testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, nil)
+	_, err = testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, validProofs)
+	if err != nil {
+		t.Fatalf("unexpected error melting: %v", err)
+	}
+
+	// test melt with SIG_ALL fails
+	tags = nut11.P2PKTags{
+		Sigflag: nut11.SIGALL,
+	}
+	htlcSpendingCondition = nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hash,
+		Tags: nut11.SerializeP2PKTags(tags),
+	}
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	lockedProofs, _ = testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, signingKey)
+
+	invoice = lnrpc.Invoice{Value: 500}
+	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+	meltQuote, err = testMint.RequestMeltQuote(testutils.BOLT11_METHOD, addInvoiceResponse.PaymentRequest, testutils.SAT_UNIT)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	_, err = testMint.MeltTokens(ctx, testutils.BOLT11_METHOD, meltQuote.Id, lockedProofs)
+	if !errors.Is(err, nut11.SigAllOnlySwap) {
+		t.Fatalf("expected error '%v' but got '%v' instead", nut11.SigAllOnlySwap, err)
 	}
 }
