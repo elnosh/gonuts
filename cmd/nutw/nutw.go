@@ -293,12 +293,12 @@ func mintTokens(paymentRequest string) error {
 		return errors.New("invoice not found")
 	}
 
-	proofs, err := nutw.MintTokens(invoice.Id)
+	mintedAmount, err := nutw.MintTokens(invoice.Id)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("%v sats successfully minted\n", proofs.Amount())
+	fmt.Printf("%v sats successfully minted\n", mintedAmount)
 	return nil
 }
 

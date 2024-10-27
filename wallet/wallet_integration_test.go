@@ -150,13 +150,13 @@ func TestMintTokens(t *testing.T) {
 		t.Fatal("got unexpected nil invoice")
 	}
 
-	proofs, err := testWallet.MintTokens(mintInvoice.Id)
+	mintedAmount, err := testWallet.MintTokens(mintInvoice.Id)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
 
-	if proofs.Amount() != mintAmount {
-		t.Fatalf("expected proofs amount of '%v' but got '%v' instead", mintAmount, proofs.Amount())
+	if mintedAmount != mintAmount {
+		t.Fatalf("expected proofs amount of '%v' but got '%v' instead", mintAmount, mintedAmount)
 	}
 
 	// non-existent quote
@@ -1090,20 +1090,9 @@ func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
 		}
 
 	}
-	proofs, err := testWallet.MintTokens(mintRes.Quote)
+	_, err = testWallet.MintTokens(mintRes.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error minting tokens: %v", err)
-	}
-
-	for _, proof := range proofs {
-		if proof.DLEQ == nil {
-			t.Fatal("got nil DLEQ proof from MintTokens")
-		}
-
-		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
-		if !nut12.VerifyProofDLEQ(proof, pubkey) {
-			t.Fatal("invalid DLEQ proof returned from MintTokens")
-		}
 	}
 
 	proofsToSend, err := testWallet.Send(2100, mintURL, false)
