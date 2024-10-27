@@ -572,6 +572,11 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		}
 	}
 
+	// if mint in token is already the default mint, do not swap to trusted
+	if _, ok := w.mints[tokenMint]; ok && tokenMint == w.currentMint.mintURL {
+		swapToTrusted = false
+	}
+
 	if swapToTrusted {
 		amountSwapped, err := w.swapToTrusted(proofsToSwap, tokenMint)
 		if err != nil {
