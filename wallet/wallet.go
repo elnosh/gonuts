@@ -1353,6 +1353,7 @@ func (w *Wallet) splitWalletTarget(amountToSplit uint64, mint string) []uint64 {
 	if remainingAmount > 0 {
 		amounts = append(amounts, cashu.AmountSplit(remainingAmount)...)
 	}
+	slices.Sort(amounts)
 
 	return amounts
 }
