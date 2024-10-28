@@ -321,10 +321,10 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 }
 
 func (w *Wallet) PendingBalance() uint64 {
-	return Amount(w.db.GetPendingProofs())
+	return amount(w.db.GetPendingProofs())
 }
 
-func Amount(proofs []storage.DBProof) uint64 {
+func amount(proofs []storage.DBProof) uint64 {
 	var totalAmount uint64 = 0
 	for _, proof := range proofs {
 		totalAmount += proof.Amount
@@ -1937,10 +1937,6 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 	}
 
 	return proofsRestored, nil
-}
-
-func (w *Wallet) GetPendingProofs() []storage.DBProof {
-	return w.db.GetPendingProofs()
 }
 
 // GetPendingMeltQuotes return a list of pending quote ids

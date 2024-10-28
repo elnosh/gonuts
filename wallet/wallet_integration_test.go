@@ -637,13 +637,7 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected quote state of '%s' but got '%s' instead", nut05.Pending, meltQuote.State)
 	}
 
-	// check amount of pending proofs is same as quote amount
-	pendingProofsAmount := wallet.Amount(testWallet.GetPendingProofs())
-	expectedAmount := meltQuote.Amount + meltQuote.FeeReserve
-	if pendingProofsAmount != expectedAmount {
-		t.Fatalf("expected amount of pending proofs of '%v' but got '%v' instead",
-			expectedAmount, pendingProofsAmount)
-	}
+	// check pending balance is same as quote amount
 	pendingBalance := testWallet.PendingBalance()
 	expectedPendingBalance := meltQuote.Amount + meltQuote.FeeReserve
 	if pendingBalance != expectedPendingBalance {
@@ -677,13 +671,8 @@ func TestPendingProofs(t *testing.T) {
 			nut05.Paid, meltQuoteStateResponse.State)
 	}
 
-	// check no pending proofs or pending balance after settling and checking melt quote state
-	pendingProofsAmount = wallet.Amount(testWallet.GetPendingProofs())
-	if pendingProofsAmount != 0 {
-		t.Fatalf("expected no pending proofs amount but got '%v' instead", pendingProofsAmount)
-	}
-	pendingBalance = testWallet.PendingBalance()
-	if pendingBalance != 0 {
+	// check no pending balance after settling and checking melt quote state
+	if testWallet.PendingBalance() != 0 {
 		t.Fatalf("expected no pending balance but got '%v' instead", pendingBalance)
 	}
 
@@ -709,11 +698,12 @@ func TestPendingProofs(t *testing.T) {
 	if meltQuote.State != nut05.Pending {
 		t.Fatalf("expected quote state of '%s' but got '%s' instead", nut05.Pending, meltQuote.State)
 	}
-	pendingProofsAmount = wallet.Amount(testWallet.GetPendingProofs())
-	expectedAmount = meltQuote.Amount + meltQuote.FeeReserve
-	if pendingProofsAmount != expectedAmount {
-		t.Fatalf("expected amount of pending proofs of '%v' but got '%v' instead",
-			expectedAmount, pendingProofsAmount)
+
+	pendingBalance = testWallet.PendingBalance()
+	expectedPendingBalance = meltQuote.Amount + meltQuote.FeeReserve
+	if testWallet.PendingBalance() != expectedPendingBalance {
+		t.Fatalf("expected pending balance of '%v' but got '%v' instead",
+			expectedPendingBalance, pendingBalance)
 	}
 	pendingMeltQuotes = testWallet.GetPendingMeltQuotes()
 	if len(pendingMeltQuotes) != 1 {
@@ -735,11 +725,7 @@ func TestPendingProofs(t *testing.T) {
 			nut05.Unpaid, meltQuoteStateResponse.State)
 	}
 
-	// check no pending proofs or pending balance after canceling and checking melt quote state
-	pendingProofsAmount = wallet.Amount(testWallet.GetPendingProofs())
-	if pendingProofsAmount != 0 {
-		t.Fatalf("expected no pending proofs amount but got '%v' instead", pendingProofsAmount)
-	}
+	// check no pending balance after canceling and checking melt quote state
 	pendingBalance = testWallet.PendingBalance()
 	if pendingBalance != 0 {
 		t.Fatalf("expected no pending balance but got '%v' instead", pendingBalance)
