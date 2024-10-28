@@ -31,14 +31,6 @@ const (
 	NUT11ErrCode cashu.CashuErrCode = 30001
 )
 
-type SigFlag int
-
-const (
-	SigInputs SigFlag = iota
-	SigAll
-	Unknown
-)
-
 // NUT-11 specific errors
 var (
 	InvalidTagErr            = cashu.Error{Detail: "invalid tag", Code: NUT11ErrCode}
@@ -70,8 +62,9 @@ type P2PKTags struct {
 
 func SerializeP2PKTags(p2pkTags P2PKTags) [][]string {
 	var tags [][]string
-	if len(p2pkTags.Sigflag) > 0 {
-		tags = append(tags, []string{SIGFLAG, p2pkTags.Sigflag})
+	// if anything other than 'SIG_ALL', leave empty to be treated as SIG_INPUTS
+	if p2pkTags.Sigflag == SIGALL {
+		tags = append(tags, []string{SIGFLAG, SIGALL})
 	}
 	if p2pkTags.NSigs > 0 {
 		numStr := strconv.Itoa(p2pkTags.NSigs)
