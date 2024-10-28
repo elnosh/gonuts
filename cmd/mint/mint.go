@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -38,6 +39,16 @@ func configFromEnv() (*mint.Config, error) {
 	port := os.Getenv("MINT_PORT")
 	if len(port) == 0 {
 		port = "3338"
+	}
+
+	mintPath := os.Getenv("MINT_DB_PATH")
+	// if MINT_DB_PATH is empty, use $HOME/.gonuts/mint
+	if len(mintPath) == 0 {
+		homedir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		mintPath = filepath.Join(homedir, ".gonuts", "mint")
 	}
 
 	mintLimits := mint.MintLimits{}

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -62,8 +61,8 @@ type Mint struct {
 
 func LoadMint(config Config) (*Mint, error) {
 	path := config.MintPath
-	if len(path) == 0 {
-		path = mintPath()
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return nil, err
 	}
 
 	logger, err := setupLogger(path, config.LogLevel)
@@ -179,22 +178,6 @@ func LoadMint(config Config) (*Mint, error) {
 	}
 
 	return mint, nil
-}
-
-// mintPath returns the mint's path
-// at $HOME/.gonuts/mint
-func mintPath() string {
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	path := filepath.Join(homedir, ".gonuts", "mint")
-	err = os.MkdirAll(path, 0700)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return path
 }
 
 func setupLogger(mintPath string, logLevel LogLevel) (*slog.Logger, error) {

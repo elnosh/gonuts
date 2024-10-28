@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/url"
 	"os"
@@ -41,15 +40,8 @@ func walletConfig() (wallet.Config, error) {
 	}
 
 	walletPath := os.Getenv("WALLET_PATH")
-	if len(walletPath) > 0 {
-		if !fs.ValidPath(walletPath) {
-			return wallet.Config{}, fmt.Errorf("invalid WALLET_PATH")
-		}
-	} else {
+	if len(walletPath) == 0 {
 		walletPath = defaultWalletPath()
-	}
-	if err := os.MkdirAll(walletPath, 0700); err != nil {
-		return wallet.Config{}, fmt.Errorf("could not create wallet directory: %v", err)
 	}
 
 	mint := os.Getenv("MINT_URL")

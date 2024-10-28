@@ -69,7 +69,12 @@ func InitStorage(path string) (storage.WalletDB, error) {
 }
 
 func LoadWallet(config Config) (*Wallet, error) {
-	db, err := InitStorage(config.WalletPath)
+	path := config.WalletPath
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return nil, err
+	}
+
+	db, err := InitStorage(path)
 	if err != nil {
 		return nil, fmt.Errorf("InitStorage: %v", err)
 	}
