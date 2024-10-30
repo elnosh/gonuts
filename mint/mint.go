@@ -245,20 +245,17 @@ func (m *Mint) logDebugf(format string, args ...any) {
 // and returns a mint quote or an error.
 // The request to mint a token is explained in
 // NUT-04 here: https://github.com/cashubtc/nuts/blob/main/04.md.
-func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (storage.MintQuote, error) {
-	// only support bolt11
-	if method != BOLT11_METHOD {
-		return storage.MintQuote{}, cashu.PaymentMethodNotSupportedErr
-	}
+func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Request) (storage.MintQuote, error) {
 	// only support sat unit
-	if unit != SAT_UNIT {
-		errmsg := fmt.Sprintf("unit '%v' not supported", unit)
+	if mintQuoteRequest.Unit != SAT_UNIT {
+		errmsg := fmt.Sprintf("unit '%v' not supported", mintQuoteRequest.Unit)
 		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
 
 	// check limits
+	requestAmount := mintQuoteRequest.Amount
 	if m.limits.MintingSettings.MaxAmount > 0 {
-		if amount > m.limits.MintingSettings.MaxAmount {
+		if requestAmount > m.limits.MintingSettings.MaxAmount {
 			return storage.MintQuote{}, cashu.MintAmountExceededErr
 		}
 	}
@@ -268,14 +265,14 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 			errmsg := fmt.Sprintf("could not get mint balance from db: %v", err)
 			return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
-		if balance+amount > m.limits.MaxBalance {
+		if balance+requestAmount > m.limits.MaxBalance {
 			return storage.MintQuote{}, cashu.MintingDisabled
 		}
 	}
 
 	// get an invoice from the lightning backend
-	m.logInfof("requesting invoice from lightning backend for %v sats", amount)
-	invoice, err := m.requestInvoice(amount)
+	m.logInfof("requesting invoice from lightning backend for %v sats", requestAmount)
+	invoice, err := m.requestInvoice(requestAmount)
 	if err != nil {
 		errmsg := fmt.Sprintf("could not generate invoice: %v", err)
 		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.LightningBackendErrCode)
@@ -288,7 +285,7 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 	}
 	mintQuote := storage.MintQuote{
 		Id:             quoteId,
-		Amount:         amount,
+		Amount:         requestAmount,
 		PaymentRequest: invoice.PaymentRequest,
 		PaymentHash:    invoice.PaymentHash,
 		State:          nut04.Unpaid,
@@ -306,11 +303,7 @@ func (m *Mint) RequestMintQuote(method string, amount uint64, unit string) (stor
 
 // GetMintQuoteState returns the state of a mint quote.
 // Used to check whether a mint quote has been paid.
-func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, error) {
-	if method != BOLT11_METHOD {
-		return storage.MintQuote{}, cashu.PaymentMethodNotSupportedErr
-	}
-
+func (m *Mint) GetMintQuoteState(quoteId string) (storage.MintQuote, error) {
 	mintQuote, err := m.db.GetMintQuote(quoteId)
 	if err != nil {
 		return storage.MintQuote{}, cashu.QuoteNotExistErr
@@ -341,15 +334,13 @@ func (m *Mint) GetMintQuoteState(method, quoteId string) (storage.MintQuote, err
 
 // MintTokens verifies whether the mint quote with id has been paid and proceeds to
 // sign the blindedMessages and return the BlindedSignatures if it was paid.
-func (m *Mint) MintTokens(method, id string, blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
-	if method != BOLT11_METHOD {
-		return nil, cashu.PaymentMethodNotSupportedErr
-	}
-
-	mintQuote, err := m.db.GetMintQuote(id)
+func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.BlindedSignatures, error) {
+	mintQuote, err := m.db.GetMintQuote(mintTokensRequest.Quote)
 	if err != nil {
 		return nil, cashu.QuoteNotExistErr
 	}
+
+	blindedMessages := mintTokensRequest.Outputs
 	var blindedSignatures cashu.BlindedSignatures
 
 	invoicePaid := false
@@ -500,16 +491,14 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 
 // RequestMeltQuote will process a request to melt tokens and return a MeltQuote.
 // A melt is requested by a wallet to request the mint to pay an invoice.
-func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote, error) {
-	if method != BOLT11_METHOD {
-		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
-	}
-	if unit != SAT_UNIT {
-		errmsg := fmt.Sprintf("unit '%v' not supported", unit)
+func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Request) (storage.MeltQuote, error) {
+	if meltQuoteRequest.Unit != SAT_UNIT {
+		errmsg := fmt.Sprintf("unit '%v' not supported", meltQuoteRequest.Unit)
 		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
 
 	// check invoice passed is valid
+	request := meltQuoteRequest.Request
 	bolt11, err := decodepay.Decodepay(request)
 	if err != nil {
 		errmsg := fmt.Sprintf("invalid invoice: %v", err)
@@ -575,11 +564,7 @@ func (m *Mint) RequestMeltQuote(method, request, unit string) (storage.MeltQuote
 
 // GetMeltQuoteState returns the state of a melt quote.
 // Used to check whether a melt quote has been paid.
-func (m *Mint) GetMeltQuoteState(ctx context.Context, method, quoteId string) (storage.MeltQuote, error) {
-	if method != BOLT11_METHOD {
-		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
-	}
-
+func (m *Mint) GetMeltQuoteState(ctx context.Context, quoteId string) (storage.MeltQuote, error) {
 	meltQuote, err := m.db.GetMeltQuote(quoteId)
 	if err != nil {
 		return storage.MeltQuote{}, cashu.QuoteNotExistErr
@@ -675,7 +660,9 @@ func (m *Mint) removePendingProofsForQuote(quoteId string) (cashu.Proofs, error)
 
 // MeltTokens verifies whether proofs provided are valid
 // and proceeds to attempt payment.
-func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs cashu.Proofs) (storage.MeltQuote, error) {
+func (m *Mint) MeltTokens(ctx context.Context, meltTokensRequest nut05.PostMeltBolt11Request) (storage.MeltQuote, error) {
+	proofs := meltTokensRequest.Inputs
+
 	var proofsAmount uint64
 	Ys := make([]string, len(proofs))
 	for i, proof := range proofs {
@@ -689,11 +676,7 @@ func (m *Mint) MeltTokens(ctx context.Context, method, quoteId string, proofs ca
 		Ys[i] = Yhex
 	}
 
-	if method != BOLT11_METHOD {
-		return storage.MeltQuote{}, cashu.PaymentMethodNotSupportedErr
-	}
-
-	meltQuote, err := m.db.GetMeltQuote(quoteId)
+	meltQuote, err := m.db.GetMeltQuote(meltTokensRequest.Quote)
 	if err != nil {
 		return storage.MeltQuote{}, cashu.QuoteNotExistErr
 	}
@@ -921,11 +904,11 @@ func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
 	defer cancel()
 
 	m.logDebugf("checking if status of pending proofs has changed")
-	for quoteId, _ := range pendingQuotes {
+	for quoteId := range pendingQuotes {
 		// GetMeltQuoteState will check the status of the quote
 		// and update the db tables (pending proofs, used proofs) appropriately
 		// if the status has changed
-		_, err := m.GetMeltQuoteState(ctx, BOLT11_METHOD, quoteId)
+		_, err := m.GetMeltQuoteState(ctx, quoteId)
 		if err != nil {
 			return nil, err
 		}

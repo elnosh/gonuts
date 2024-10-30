@@ -200,6 +200,10 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
+	if method != BOLT11_METHOD {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
 
 	var mintReq nut04.PostMintQuoteBolt11Request
 	err := decodeJsonReqBody(req, &mintReq)
@@ -209,7 +213,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	ms.logRequest(req, 0, "mint request for %v %v", mintReq.Amount, mintReq.Unit)
-	mintQuote, err := ms.mint.RequestMintQuote(method, mintReq.Amount, mintReq.Unit)
+	mintQuote, err := ms.mint.RequestMintQuote(mintReq)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from lightning backend generating invoice
@@ -244,9 +248,13 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	quoteId := vars["quote_id"]
+	if method != BOLT11_METHOD {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
 
-	mintQuote, err := ms.mint.GetMintQuoteState(method, quoteId)
+	quoteId := vars["quote_id"]
+	mintQuote, err := ms.mint.GetMintQuoteState(quoteId)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from lightning backend
@@ -283,6 +291,10 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
+	if method != BOLT11_METHOD {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
 
 	var mintReq nut04.PostMintBolt11Request
 	err := decodeJsonReqBody(req, &mintReq)
@@ -291,7 +303,7 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	blindedSignatures, err := ms.mint.MintTokens(method, mintReq.Quote, mintReq.Outputs)
+	blindedSignatures, err := ms.mint.MintTokens(mintReq)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from lightning backend
@@ -354,6 +366,10 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
+	if method != BOLT11_METHOD {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
 
 	var meltRequest nut05.PostMeltQuoteBolt11Request
 	err := decodeJsonReqBody(req, &meltRequest)
@@ -362,7 +378,7 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	meltQuote, err := ms.mint.RequestMeltQuote(method, meltRequest.Request, meltRequest.Unit)
+	meltQuote, err := ms.mint.RequestMeltQuote(meltRequest)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from db
@@ -399,12 +415,16 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	quoteId := vars["quote_id"]
+	if method != BOLT11_METHOD {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	meltQuote, err := ms.mint.GetMeltQuoteState(ctx, method, quoteId)
+	quoteId := vars["quote_id"]
+	meltQuote, err := ms.mint.GetMeltQuoteState(ctx, quoteId)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from lightning backend
@@ -443,6 +463,10 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
+	if method != BOLT11_METHOD {
+		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
+		return
+	}
 
 	var meltTokensRequest nut05.PostMeltBolt11Request
 	err := decodeJsonReqBody(req, &meltTokensRequest)
@@ -458,7 +482,7 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	meltQuote, err := ms.mint.MeltTokens(ctx, method, meltTokensRequest.Quote, meltTokensRequest.Inputs)
+	meltQuote, err := ms.mint.MeltTokens(ctx, meltTokensRequest)
 	if err != nil {
 		cashuErr, ok := err.(*cashu.Error)
 		// note: if there was internal error from lightning backend

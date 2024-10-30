@@ -20,6 +20,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
@@ -392,7 +393,8 @@ func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) 
 	cashu.BlindedSignatures,
 	error) {
 
-	mintQuoteResponse, err := mint.RequestMintQuote(BOLT11_METHOD, amount, SAT_UNIT)
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: SAT_UNIT}
+	mintQuoteResponse, err := mint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("error requesting mint quote: %v", err)
 	}
@@ -413,7 +415,11 @@ func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) 
 		return nil, nil, nil, nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
 	}
 
-	blindedSignatures, err := mint.MintTokens(BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
+	mintTokensRequest := nut04.PostMintBolt11Request{
+		Quote:   mintQuoteResponse.Id,
+		Outputs: blindedMessages,
+	}
+	blindedSignatures, err := mint.MintTokens(mintTokensRequest)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
 	}
@@ -480,7 +486,8 @@ func GetProofsWithSpendingCondition(
 	mint *mint.Mint,
 	payer *btcdocker.Lnd,
 ) (cashu.Proofs, error) {
-	mintQuoteResponse, err := mint.RequestMintQuote(BOLT11_METHOD, amount, SAT_UNIT)
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: SAT_UNIT}
+	mintQuoteResponse, err := mint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting mint quote: %v", err)
 	}
@@ -503,7 +510,11 @@ func GetProofsWithSpendingCondition(
 		return nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
 	}
 
-	blindedSignatures, err := mint.MintTokens(BOLT11_METHOD, mintQuoteResponse.Id, blindedMessages)
+	mintTokensRequest := nut04.PostMintBolt11Request{
+		Quote:   mintQuoteResponse.Id,
+		Outputs: blindedMessages,
+	}
+	blindedSignatures, err := mint.MintTokens(mintTokensRequest)
 	if err != nil {
 		return nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
 	}
