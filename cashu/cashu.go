@@ -15,9 +15,27 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+type Unit int
+
+const (
+	Sat Unit = iota
+
+	BOLT11_METHOD = "bolt11"
+)
+
+func (unit Unit) String() string {
+	switch unit {
+	case Sat:
+		return "sat"
+	default:
+		return "unknown"
+	}
+}
+
 var (
 	ErrInvalidTokenV3 = errors.New("invalid V3 token")
 	ErrInvalidTokenV4 = errors.New("invalid V4 token")
+	ErrInvalidUnit    = errors.New("invalid unit")
 )
 
 // Cashu BlindedMessage. See https://github.com/cashubtc/nuts/blob/main/00.md#blindedmessage
@@ -143,15 +161,19 @@ type TokenV3Proof struct {
 	Proofs Proofs `json:"proofs"`
 }
 
-func NewTokenV3(proofs Proofs, mint, unit string, includeDLEQ bool) TokenV3 {
+func NewTokenV3(proofs Proofs, mint string, unit Unit, includeDLEQ bool) (TokenV3, error) {
 	if !includeDLEQ {
 		for i := 0; i < len(proofs); i++ {
 			proofs[i].DLEQ = nil
 		}
 	}
 
+	if unit != Sat {
+		return TokenV3{}, ErrInvalidUnit
+	}
+
 	tokenProof := TokenV3Proof{Mint: mint, Proofs: proofs}
-	return TokenV3{Token: []TokenV3Proof{tokenProof}, Unit: unit}
+	return TokenV3{Token: []TokenV3Proof{tokenProof}, Unit: unit.String()}, nil
 }
 
 func DecodeTokenV3(tokenstr string) (*TokenV3, error) {
@@ -237,7 +259,11 @@ type DLEQV4 struct {
 	R []byte `json:"r"`
 }
 
-func NewTokenV4(proofs Proofs, mint, unit string, includeDLEQ bool) (TokenV4, error) {
+func NewTokenV4(proofs Proofs, mint string, unit Unit, includeDLEQ bool) (TokenV4, error) {
+	if unit != Sat {
+		return TokenV4{}, ErrInvalidUnit
+	}
+
 	proofsMap := make(map[string][]ProofV4)
 	for _, proof := range proofs {
 		C, err := hex.DecodeString(proof.C)
@@ -294,7 +320,7 @@ func NewTokenV4(proofs Proofs, mint, unit string, includeDLEQ bool) (TokenV4, er
 		i++
 	}
 
-	return TokenV4{MintURL: mint, Unit: unit, TokenProofs: proofsV4}, nil
+	return TokenV4{MintURL: mint, Unit: unit.String(), TokenProofs: proofsV4}, nil
 }
 
 func DecodeTokenV4(tokenstr string) (*TokenV4, error) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 )
 
@@ -82,7 +83,7 @@ func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk ui
 
 	return &MintKeyset{
 		Id:                keysetId,
-		Unit:              "sat",
+		Unit:              cashu.Sat.String(),
 		Active:            true,
 		DerivationPathIdx: index,
 		Keys:              keys,
