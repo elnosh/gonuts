@@ -160,7 +160,7 @@ func configFromEnv() (*mint.Config, error) {
 	return &mint.Config{
 		DerivationPathIdx: uint32(derivationPathIdx),
 		Port:              port,
-		MintPath:          os.Getenv("MINT_DB_PATH"),
+		MintPath:          mintPath,
 		DBMigrationPath:   "../../mint/storage/sqlite/migrations",
 		InputFeePpk:       inputFeePpk,
 		MintInfo:          mintInfo,

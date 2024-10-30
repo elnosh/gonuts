@@ -1760,6 +1760,10 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 		return nil, errors.New("wallet already exists")
 	}
 
+	if err := os.MkdirAll(walletPath, 0700); err != nil {
+		return nil, err
+	}
+
 	// check mnemonic is valid
 	if !bip39.IsMnemonicValid(mnemonic) {
 		return nil, errors.New("invalid mnemonic")
