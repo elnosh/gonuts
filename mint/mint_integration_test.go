@@ -106,7 +106,7 @@ func testMain(m *testing.M) int {
 
 func TestRequestMintQuote(t *testing.T) {
 	var mintAmount uint64 = 10000
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	_, err := testMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
@@ -126,7 +126,7 @@ func TestRequestMintQuote(t *testing.T) {
 
 func TestMintQuoteState(t *testing.T) {
 	var mintAmount uint64 = 42000
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := testMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
@@ -189,7 +189,7 @@ func TestMintQuoteState(t *testing.T) {
 
 func TestMintTokens(t *testing.T) {
 	var mintAmount uint64 = 42000
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := testMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
@@ -251,7 +251,7 @@ func TestMintTokens(t *testing.T) {
 	}
 
 	// test mint with blinded messages already signed
-	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err = testMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
@@ -378,13 +378,13 @@ func TestRequestMeltQuote(t *testing.T) {
 	}
 
 	// test invalid invoice
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: "invoice1111", Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: "invoice1111", Unit: cashu.Sat.String()}
 	_, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err == nil {
 		t.Fatal("expected error but got nil")
 	}
 
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	_, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -411,7 +411,7 @@ func TestMeltQuoteState(t *testing.T) {
 		t.Fatalf("error finding invoice: %v", err)
 	}
 
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltRequest, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -472,7 +472,7 @@ func TestMelt(t *testing.T) {
 	}
 	paymentRequest := addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -535,7 +535,7 @@ func TestMelt(t *testing.T) {
 	paymentRequest = addInvoiceResponse.PaymentRequest
 
 	// test already used proofs
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	newQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -575,7 +575,7 @@ func TestMelt(t *testing.T) {
 	}
 	paymentRequest = addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err = mintFees.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -614,7 +614,7 @@ func TestMelt(t *testing.T) {
 	}
 	paymentRequest = noRouteInvoice.PaymentRequest
 
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -634,7 +634,7 @@ func TestMelt(t *testing.T) {
 
 	// test internal quotes (mint and melt quotes with same invoice)
 	var mintAmount uint64 = 42000
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := testMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
@@ -649,7 +649,7 @@ func TestMelt(t *testing.T) {
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
 		Request: mintQuoteResponse.PaymentRequest,
-		Unit:    testutils.SAT_UNIT,
+		Unit:    cashu.Sat.String(),
 	}
 	meltQuote, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
@@ -687,7 +687,7 @@ func TestPendingProofs(t *testing.T) {
 	}
 	paymentRequest := addHodlInvoiceRes.PaymentRequest
 
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -916,7 +916,7 @@ func TestMintLimits(t *testing.T) {
 
 	// test above mint max amount
 	var mintAmount uint64 = 20000
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := limitsMint.RequestMintQuote(mintQuoteRequest)
 	if !errors.Is(err, cashu.MintAmountExceededErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintAmountExceededErr, err)
@@ -924,7 +924,7 @@ func TestMintLimits(t *testing.T) {
 
 	// amount below max limit
 	mintAmount = 9500
-	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err = limitsMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
@@ -948,7 +948,7 @@ func TestMintLimits(t *testing.T) {
 	}
 
 	// test request mint that will make it go above max balance
-	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: 9000, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: 9000, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err = limitsMint.RequestMintQuote(mintQuoteRequest)
 	if !errors.Is(err, cashu.MintingDisabled) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintingDisabled, err)
@@ -962,7 +962,7 @@ func TestMintLimits(t *testing.T) {
 	}
 	paymentRequest := addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	_, err = limitsMint.RequestMeltQuote(meltQuoteRequest)
 	if !errors.Is(err, cashu.MeltAmountExceededErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltAmountExceededErr, err)
@@ -977,7 +977,7 @@ func TestMintLimits(t *testing.T) {
 	}
 	paymentRequest = addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := limitsMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -990,7 +990,7 @@ func TestMintLimits(t *testing.T) {
 	}
 
 	// this should be within max balance now
-	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: 9000, Unit: testutils.SAT_UNIT}
+	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{Amount: 9000, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err = limitsMint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error requesting mint quote: %v", err)
@@ -1158,7 +1158,7 @@ func TestNUT11P2PK(t *testing.T) {
 	}
 	paymentRequest := addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := p2pkMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -1195,7 +1195,7 @@ func TestNUT11P2PK(t *testing.T) {
 	}
 	paymentRequest = addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err = p2pkMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -1449,7 +1449,7 @@ func TestHTLC(t *testing.T) {
 	}
 	paymentRequest := addInvoiceResponse.PaymentRequest
 
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -1488,7 +1488,7 @@ func TestHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: addInvoiceResponse.PaymentRequest, Unit: testutils.SAT_UNIT}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: addInvoiceResponse.PaymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)

@@ -451,9 +451,9 @@ func send(ctx *cli.Context) error {
 
 	var token cashu.Token
 	if ctx.Bool(legacyFlag) {
-		token = cashu.NewTokenV3(proofsToSend, selectedMint, "sat", includeDLEQ)
+		token, _ = cashu.NewTokenV3(proofsToSend, selectedMint, cashu.Sat, includeDLEQ)
 	} else {
-		token, err = cashu.NewTokenV4(proofsToSend, selectedMint, "sat", includeDLEQ)
+		token, err = cashu.NewTokenV4(proofsToSend, selectedMint, cashu.Sat, includeDLEQ)
 		if err != nil {
 			printErr(fmt.Errorf("could not serialize token: %v", err))
 		}

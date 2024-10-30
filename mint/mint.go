@@ -40,8 +40,6 @@ import (
 
 const (
 	QuoteExpiryMins = 10
-	BOLT11_METHOD   = "bolt11"
-	SAT_UNIT        = "sat"
 )
 
 type Mint struct {
@@ -247,7 +245,7 @@ func (m *Mint) logDebugf(format string, args ...any) {
 // NUT-04 here: https://github.com/cashubtc/nuts/blob/main/04.md.
 func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Request) (storage.MintQuote, error) {
 	// only support sat unit
-	if mintQuoteRequest.Unit != SAT_UNIT {
+	if mintQuoteRequest.Unit != cashu.Sat.String() {
 		errmsg := fmt.Sprintf("unit '%v' not supported", mintQuoteRequest.Unit)
 		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
@@ -492,7 +490,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 // RequestMeltQuote will process a request to melt tokens and return a MeltQuote.
 // A melt is requested by a wallet to request the mint to pay an invoice.
 func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Request) (storage.MeltQuote, error) {
-	if meltQuoteRequest.Unit != SAT_UNIT {
+	if meltQuoteRequest.Unit != cashu.Sat.String() {
 		errmsg := fmt.Sprintf("unit '%v' not supported", meltQuoteRequest.Unit)
 		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
@@ -1371,8 +1369,8 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 		4: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
 				{
-					Method:    BOLT11_METHOD,
-					Unit:      SAT_UNIT,
+					Method:    cashu.BOLT11_METHOD,
+					Unit:      cashu.Sat.String(),
 					MinAmount: m.limits.MintingSettings.MinAmount,
 					MaxAmount: m.limits.MintingSettings.MaxAmount,
 				},
@@ -1382,8 +1380,8 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 		5: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
 				{
-					Method:    BOLT11_METHOD,
-					Unit:      SAT_UNIT,
+					Method:    cashu.BOLT11_METHOD,
+					Unit:      cashu.Sat.String(),
 					MinAmount: m.limits.MeltingSettings.MinAmount,
 					MaxAmount: m.limits.MeltingSettings.MaxAmount,
 				},
@@ -1401,7 +1399,7 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 
 	info := nut06.MintInfo{
 		Name:            mintInfo.Name,
-		Version:         "gonuts/0.2.0",
+		Version:         "gonuts/0.3.0",
 		Description:     mintInfo.Description,
 		LongDescription: mintInfo.LongDescription,
 		Contact:         mintInfo.Contact,

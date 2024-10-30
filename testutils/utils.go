@@ -37,9 +37,7 @@ import (
 )
 
 const (
-	NUM_BLOCKS    int64 = 110
-	BOLT11_METHOD       = "bolt11"
-	SAT_UNIT            = "sat"
+	NUM_BLOCKS int64 = 110
 )
 
 func MineBlocks(bitcoind *btcdocker.Bitcoind, numBlocks int64) error {
@@ -393,7 +391,7 @@ func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) 
 	cashu.BlindedSignatures,
 	error) {
 
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := mint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("error requesting mint quote: %v", err)
@@ -486,7 +484,7 @@ func GetProofsWithSpendingCondition(
 	mint *mint.Mint,
 	payer *btcdocker.Lnd,
 ) (cashu.Proofs, error) {
-	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: SAT_UNIT}
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := mint.RequestMintQuote(mintQuoteRequest)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting mint quote: %v", err)

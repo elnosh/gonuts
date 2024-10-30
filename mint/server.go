@@ -200,7 +200,7 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != BOLT11_METHOD {
+	if method != cashu.BOLT11_METHOD {
 		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
@@ -248,7 +248,7 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != BOLT11_METHOD {
+	if method != cashu.BOLT11_METHOD {
 		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
@@ -291,7 +291,7 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != BOLT11_METHOD {
+	if method != cashu.BOLT11_METHOD {
 		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
@@ -366,7 +366,7 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != BOLT11_METHOD {
+	if method != cashu.BOLT11_METHOD {
 		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
@@ -415,7 +415,7 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != BOLT11_METHOD {
+	if method != cashu.BOLT11_METHOD {
 		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}
@@ -463,7 +463,7 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	method := vars["method"]
-	if method != BOLT11_METHOD {
+	if method != cashu.BOLT11_METHOD {
 		ms.writeErr(rw, req, cashu.PaymentMethodNotSupportedErr)
 		return
 	}

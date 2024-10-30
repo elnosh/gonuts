@@ -132,7 +132,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		var lastActiveSatKeyset crypto.WalletKeyset
 		for _, keyset := range walletMint.activeKeysets {
 			_, err := hex.DecodeString(keyset.Id)
-			if keyset.Unit == "sat" && err == nil {
+			if keyset.Unit == cashu.Sat.String() && err == nil {
 				lastActiveSatKeyset = keyset
 				break
 			}
@@ -244,7 +244,7 @@ func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error
 		}
 
 		_, err := hex.DecodeString(keyset.Id)
-		if keyset.Unit == "sat" && err == nil {
+		if keyset.Unit == cashu.Sat.String() && err == nil {
 			keys, err := crypto.MapPubKeys(keysetsResponse.Keysets[i].Keys)
 			if err != nil {
 				return nil, err
@@ -278,7 +278,7 @@ func GetMintInactiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, err
 	inactiveKeysets := make(map[string]crypto.WalletKeyset)
 	for _, keysetRes := range keysetsResponse.Keysets {
 		_, err := hex.DecodeString(keysetRes.Id)
-		if !keysetRes.Active && keysetRes.Unit == "sat" && err == nil {
+		if !keysetRes.Active && keysetRes.Unit == cashu.Sat.String() && err == nil {
 			keyset := crypto.WalletKeyset{
 				Id:          keysetRes.Id,
 				MintURL:     mintURL,
@@ -335,7 +335,7 @@ func amount(proofs []storage.DBProof) uint64 {
 // RequestMint requests a mint quote to the wallet's current mint
 // for the specified amount
 func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
-	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: "sat"}
+	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: cashu.Sat.String()}
 	mintResponse, err := PostMintQuoteBolt11(w.currentMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
@@ -813,7 +813,7 @@ func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mintFromProofs string) (uint
 
 		// request melt quote from untrusted mint which will
 		// request mint to pay invoice generated from trusted mint in previous mint request
-		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: "sat"}
+		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: cashu.Sat.String()}
 		meltQuoteResponse, err = PostMeltQuoteBolt11(mintFromProofs, meltRequest)
 		if err != nil {
 			return 0, fmt.Errorf("error with melt request: %v", err)
@@ -918,7 +918,7 @@ func (w *Wallet) Melt(invoice, mintURL string) (*nut05.PostMeltQuoteBolt11Respon
 		return nil, fmt.Errorf("error decoding invoice: %v", err)
 	}
 
-	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: "sat"}
+	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice, Unit: cashu.Sat.String()}
 	meltQuoteResponse, err := PostMeltQuoteBolt11(mintURL, meltRequest)
 	if err != nil {
 		return nil, err
@@ -1639,7 +1639,7 @@ func (w *Wallet) getActiveSatKeyset(mintURL string) (*crypto.WalletKeyset, error
 
 		for _, keyset := range allKeysets.Keysets {
 			_, err = hex.DecodeString(keyset.Id)
-			if keyset.Active && keyset.Unit == "sat" && err == nil {
+			if keyset.Active && keyset.Unit == cashu.Sat.String() && err == nil {
 				keysetKeys, err := GetKeysetById(mintURL, keyset.Id)
 				if err != nil {
 					return nil, err
@@ -1715,7 +1715,7 @@ func getKeysetKeys(mintURL, id string) (map[uint64]*secp256k1.PublicKey, error) 
 	}
 
 	var keys map[uint64]*secp256k1.PublicKey
-	if len(keysetsResponse.Keysets) > 0 && keysetsResponse.Keysets[0].Unit == "sat" {
+	if len(keysetsResponse.Keysets) > 0 && keysetsResponse.Keysets[0].Unit == cashu.Sat.String() {
 		var err error
 		keys, err = crypto.MapPubKeys(keysetsResponse.Keysets[0].Keys)
 		if err != nil {
@@ -1802,7 +1802,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 		}
 
 		for _, keyset := range keysetsResponse.Keysets {
-			if keyset.Unit != "sat" {
+			if keyset.Unit != cashu.Sat.String() {
 				break
 			}
 
