@@ -475,8 +475,8 @@ func (w *Wallet) SendToPubkey(
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
-	nut11Info := mintInfo.Nuts[11].(map[string]interface{})
-	if nut11Info["supported"] != true {
+	nut11Info, ok := mintInfo.Nuts[11].(map[string]interface{})
+	if !ok || nut11Info["supported"] != true {
 		return nil, errors.New("mint does not support Pay to Public Key")
 	}
 
@@ -519,8 +519,8 @@ func (w *Wallet) HTLCLockedProofs(
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
-	nut14 := mintInfo.Nuts[14].(map[string]interface{})
-	if nut14["supported"] != true {
+	nut14, ok := mintInfo.Nuts[14].(map[string]interface{})
+	if !ok || nut14["supported"] != true {
 		return nil, errors.New("mint does not support HTLCs")
 	}
 
@@ -1792,9 +1792,9 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 			return nil, fmt.Errorf("error getting info from mint: %v", err)
 		}
 
-		nut7 := mintInfo.Nuts[7].(map[string]interface{})
-		nut9 := mintInfo.Nuts[9].(map[string]interface{})
-		if nut7["supported"] != true || nut9["supported"] != true {
+		nut7, ok := mintInfo.Nuts[7].(map[string]interface{})
+		nut9, ok2 := mintInfo.Nuts[9].(map[string]interface{})
+		if !ok || !ok2 || nut7["supported"] != true || nut9["supported"] != true {
 			fmt.Println("mint does not support the necessary operations to restore wallet")
 			continue
 		}
