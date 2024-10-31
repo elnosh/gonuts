@@ -870,8 +870,20 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 				return nil, err
 			}
 
+			pendingProofs := w.db.GetPendingProofsByQuoteId(quoteId)
+			var keysetId string
+			if len(pendingProofs) > 0 {
+				keysetId = pendingProofs[0].Id
+			}
 			if err := w.db.DeletePendingProofsByQuoteId(quoteId); err != nil {
 				return nil, fmt.Errorf("error removing pending proofs: %v", err)
+			}
+			change := len(quote.Change)
+			// increment the counter if there was change from this quote
+			if change > 0 {
+				if err := w.db.IncrementKeysetCounter(keysetId, uint32(change)); err != nil {
+					return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+				}
 			}
 		}
 
