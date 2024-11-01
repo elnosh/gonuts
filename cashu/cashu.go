@@ -245,6 +245,17 @@ type TokenV4Proof struct {
 	Proofs []ProofV4 `json:"p"`
 }
 
+func (tp *TokenV4Proof) MarshalJSON() ([]byte, error) {
+	tokenProof := struct {
+		Id     string    `json:"i"`
+		Proofs []ProofV4 `json:"p"`
+	}{
+		Id:     hex.EncodeToString(tp.Id),
+		Proofs: tp.Proofs,
+	}
+	return json.Marshal(tokenProof)
+}
+
 type ProofV4 struct {
 	Amount  uint64  `json:"a"`
 	Secret  string  `json:"s"`
@@ -253,10 +264,36 @@ type ProofV4 struct {
 	DLEQ    *DLEQV4 `json:"d,omitempty"`
 }
 
+func (p *ProofV4) MarshalJSON() ([]byte, error) {
+	proof := struct {
+		Amount  uint64  `json:"a"`
+		Secret  string  `json:"s"`
+		C       string  `json:"c"`
+		Witness string  `json:"w,omitempty"`
+		DLEQ    *DLEQV4 `json:"d,omitempty"`
+	}{
+		Amount:  p.Amount,
+		Secret:  p.Secret,
+		C:       hex.EncodeToString(p.C),
+		Witness: p.Witness,
+		DLEQ:    p.DLEQ,
+	}
+	return json.Marshal(proof)
+}
+
 type DLEQV4 struct {
 	E []byte `json:"e"`
 	S []byte `json:"s"`
 	R []byte `json:"r"`
+}
+
+func (d *DLEQV4) MarshalJSON() ([]byte, error) {
+	dleq := DLEQProof{
+		E: hex.EncodeToString(d.E),
+		S: hex.EncodeToString(d.S),
+		R: hex.EncodeToString(d.R),
+	}
+	return json.Marshal(dleq)
 }
 
 func NewTokenV4(proofs Proofs, mint string, unit Unit, includeDLEQ bool) (TokenV4, error) {
