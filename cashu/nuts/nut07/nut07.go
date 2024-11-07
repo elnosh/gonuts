@@ -61,8 +61,9 @@ type TempProofState struct {
 
 func (state *ProofState) MarshalJSON() ([]byte, error) {
 	tempProof := TempProofState{
-		Y:     state.Y,
-		State: state.State.String(),
+		Y:       state.Y,
+		State:   state.State.String(),
+		Witness: state.Witness,
 	}
 	return json.Marshal(tempProof)
 }

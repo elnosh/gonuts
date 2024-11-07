@@ -51,11 +51,12 @@ type DBKeyset struct {
 }
 
 type DBProof struct {
-	Amount uint64
-	Id     string
-	Secret string
-	Y      string
-	C      string
+	Amount  uint64
+	Id      string
+	Secret  string
+	Y       string
+	C       string
+	Witness string
 	// for proofs in pending table
 	MeltQuoteId string
 }
