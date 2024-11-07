@@ -145,7 +145,7 @@ func (sqlite *SQLiteDB) SaveProofs(proofs cashu.Proofs) error {
 		return err
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO proofs (y, amount, keyset_id, secret, c) VALUES (?, ?, ?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO proofs (y, amount, keyset_id, secret, c, witness) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (sqlite *SQLiteDB) SaveProofs(proofs cashu.Proofs) error {
 		}
 		Yhex := hex.EncodeToString(Y.SerializeCompressed())
 
-		if _, err := stmt.Exec(Yhex, proof.Amount, proof.Id, proof.Secret, proof.C); err != nil {
+		if _, err := stmt.Exec(Yhex, proof.Amount, proof.Id, proof.Secret, proof.C, proof.Witness); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -188,15 +188,21 @@ func (sqlite *SQLiteDB) GetProofsUsed(Ys []string) ([]storage.DBProof, error) {
 
 	for rows.Next() {
 		var proof storage.DBProof
+		var witness sql.NullString
+
 		err := rows.Scan(
 			&proof.Y,
 			&proof.Amount,
 			&proof.Id,
 			&proof.Secret,
 			&proof.C,
+			&witness,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if witness.Valid {
+			proof.Witness = witness.String
 		}
 
 		proofs = append(proofs, proof)
@@ -211,7 +217,7 @@ func (sqlite *SQLiteDB) AddPendingProofs(proofs cashu.Proofs, quoteId string) er
 		return err
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO pending_proofs (y, amount, keyset_id, secret, c, melt_quote_id) VALUES (?, ?, ?, ?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO pending_proofs (y, amount, keyset_id, secret, c, witness, melt_quote_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -224,7 +230,7 @@ func (sqlite *SQLiteDB) AddPendingProofs(proofs cashu.Proofs, quoteId string) er
 		}
 		Yhex := hex.EncodeToString(Y.SerializeCompressed())
 
-		if _, err := stmt.Exec(Yhex, proof.Amount, proof.Id, proof.Secret, proof.C, quoteId); err != nil {
+		if _, err := stmt.Exec(Yhex, proof.Amount, proof.Id, proof.Secret, proof.C, proof.Witness, quoteId); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -254,6 +260,8 @@ func (sqlite *SQLiteDB) GetPendingProofs(Ys []string) ([]storage.DBProof, error)
 
 	for rows.Next() {
 		var proof storage.DBProof
+		var witness sql.NullString
+
 		err := rows.Scan(
 			&proof.Y,
 			&proof.Amount,
@@ -261,9 +269,14 @@ func (sqlite *SQLiteDB) GetPendingProofs(Ys []string) ([]storage.DBProof, error)
 			&proof.Secret,
 			&proof.C,
 			&proof.MeltQuoteId,
+			&witness,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		if witness.Valid {
+			proof.Witness = witness.String
 		}
 
 		proofs = append(proofs, proof)
@@ -274,7 +287,7 @@ func (sqlite *SQLiteDB) GetPendingProofs(Ys []string) ([]storage.DBProof, error)
 
 func (sqlite *SQLiteDB) GetPendingProofsByQuote(quoteId string) ([]storage.DBProof, error) {
 	proofs := []storage.DBProof{}
-	query := `SELECT y, amount, keyset_id, secret, c FROM pending_proofs WHERE melt_quote_id = ?`
+	query := `SELECT y, amount, keyset_id, secret, c, witness FROM pending_proofs WHERE melt_quote_id = ?`
 
 	rows, err := sqlite.db.Query(query, quoteId)
 	if err != nil {
@@ -284,15 +297,22 @@ func (sqlite *SQLiteDB) GetPendingProofsByQuote(quoteId string) ([]storage.DBPro
 
 	for rows.Next() {
 		var proof storage.DBProof
+		var witness sql.NullString
+
 		err := rows.Scan(
 			&proof.Y,
 			&proof.Amount,
 			&proof.Id,
 			&proof.Secret,
 			&proof.C,
+			&witness,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		if witness.Valid {
+			proof.Witness = witness.String
 		}
 
 		proofs = append(proofs, proof)

@@ -783,55 +783,97 @@ func TestPendingProofs(t *testing.T) {
 }
 
 func TestProofsStateCheck(t *testing.T) {
-	validProofs, err := testutils.GetValidProofsForAmount(5000, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(5000, testMint, lnd2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	Ys := make([]string, len(validProofs))
-	for i, proof := range validProofs {
-		Y, _ := crypto.HashToCurve([]byte(proof.Secret))
-		Yhex := hex.EncodeToString(Y.SerializeCompressed())
-		Ys[i] = Yhex
+	// proofs with P2PK witness
+	lock, _ := btcec.NewPrivateKey()
+	p2pkSpendingCondition := nut10.SpendingCondition{
+		Kind: nut10.P2PK,
+		Data: hex.EncodeToString(lock.PubKey().SerializeCompressed()),
 	}
-
-	proofStates, err := testMint.ProofsStateCheck(Ys)
+	p2pkProofs, err := testutils.GetProofsWithSpendingCondition(2100, p2pkSpendingCondition, testMint, lnd2)
 	if err != nil {
-		t.Fatalf("unexpected error checking proof states: %v", err)
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	p2pkProofs, _ = testutils.AddP2PKWitnessToInputs(p2pkProofs, []*btcec.PrivateKey{lock})
+
+	// proofs with HTLC witness
+	preimage := "111111"
+	preimageBytes, _ := hex.DecodeString(preimage)
+	hashBytes := sha256.Sum256(preimageBytes)
+	htlcSpendingCondition := nut10.SpendingCondition{
+		Kind: nut10.HTLC,
+		Data: hex.EncodeToString(hashBytes[:]),
+	}
+	htlcProofs, err := testutils.GetProofsWithSpendingCondition(2100, htlcSpendingCondition, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error getting locked proofs: %v", err)
+	}
+	htlcProofs, _ = testutils.AddHTLCWitnessToInputs(htlcProofs, preimage, nil)
+
+	tests := []struct {
+		proofs cashu.Proofs
+	}{
+		{proofs},
+		{p2pkProofs},
+		{htlcProofs},
 	}
 
-	// proofs should be unspent here
-	for _, proofState := range proofStates {
-		if proofState.State != nut07.Unspent {
-			t.Fatalf("expected proof state '%s' but got '%s'", nut07.Unspent, proofState.State)
+	for _, test := range tests {
+		Ys := make([]string, len(test.proofs))
+		for i, proof := range test.proofs {
+			Y, _ := crypto.HashToCurve([]byte(proof.Secret))
+			Yhex := hex.EncodeToString(Y.SerializeCompressed())
+			Ys[i] = Yhex
 		}
-	}
 
-	// spend proofs and check spent state in response from mint
-	proofsToSpend := cashu.Proofs{}
-	numProofs := len(validProofs) / 2
-	Ys = make([]string, numProofs)
-	for i := 0; i < numProofs; i++ {
-		proofsToSpend = append(proofsToSpend, validProofs[i])
-		Y, _ := crypto.HashToCurve([]byte(validProofs[i].Secret))
-		Yhex := hex.EncodeToString(Y.SerializeCompressed())
-		Ys[i] = Yhex
-	}
+		proofStates, err := testMint.ProofsStateCheck(Ys)
+		if err != nil {
+			t.Fatalf("unexpected error checking proof states: %v", err)
+		}
 
-	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(proofsToSpend.Amount(), testMint.GetActiveKeyset())
-	_, err = testMint.Swap(proofsToSpend, blindedMessages)
-	if err != nil {
-		t.Fatalf("unexpected error in swap: %v", err)
-	}
+		// proofs should be unspent here
+		for _, proofState := range proofStates {
+			if proofState.State != nut07.Unspent {
+				t.Fatalf("expected proof state '%s' but got '%s'", nut07.Unspent, proofState.State)
+			}
+		}
 
-	proofStates, err = testMint.ProofsStateCheck(Ys)
-	if err != nil {
-		t.Fatalf("unexpected error checking proof states: %v", err)
-	}
+		// spend proofs and check spent state in response from mint
+		proofsToSpend := cashu.Proofs{}
+		numProofs := len(test.proofs) / 2
+		Ys = make([]string, numProofs)
+		for i := 0; i < numProofs; i++ {
+			proofsToSpend = append(proofsToSpend, test.proofs[i])
+			Y, _ := crypto.HashToCurve([]byte(test.proofs[i].Secret))
+			Yhex := hex.EncodeToString(Y.SerializeCompressed())
+			Ys[i] = Yhex
+		}
 
-	for _, proofState := range proofStates {
-		if proofState.State != nut07.Spent {
-			t.Fatalf("expected proof state '%s' but got '%s'", nut07.Spent, proofState.State)
+		blindedMessages, _, _, _ := testutils.CreateBlindedMessages(proofsToSpend.Amount(), testMint.GetActiveKeyset())
+		_, err = testMint.Swap(proofsToSpend, blindedMessages)
+		if err != nil {
+			t.Fatalf("unexpected error in swap: %v", err)
+		}
+
+		proofStates, err = testMint.ProofsStateCheck(Ys)
+		if err != nil {
+			t.Fatalf("unexpected error checking proof states: %v", err)
+		}
+
+		for i, proofState := range proofStates {
+			if proofState.State != nut07.Spent {
+				t.Fatalf("expected proof state '%s' but got '%s'", nut07.Spent, proofState.State)
+			}
+
+			if len(proofsToSpend[i].Witness) > 0 {
+				if proofState.Witness != proofsToSpend[i].Witness {
+					t.Fatalf("expected state witness '%s' but got '%s'", proofsToSpend[i].Witness, proofState.Witness)
+				}
+			}
 		}
 	}
 }

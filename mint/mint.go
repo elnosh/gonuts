@@ -640,10 +640,11 @@ func (m *Mint) removePendingProofsForQuote(quoteId string) (cashu.Proofs, error)
 		Ys[i] = dbproof.Y
 
 		proof := cashu.Proof{
-			Amount: dbproof.Amount,
-			Id:     dbproof.Id,
-			Secret: dbproof.Secret,
-			C:      dbproof.C,
+			Amount:  dbproof.Amount,
+			Id:      dbproof.Id,
+			Secret:  dbproof.Secret,
+			C:       dbproof.C,
+			Witness: dbproof.Witness,
 		}
 		proofs[i] = proof
 	}
@@ -930,19 +931,23 @@ func (m *Mint) ProofsStateCheck(Ys []string) ([]nut07.ProofState, error) {
 	for i, y := range Ys {
 		state := nut07.Unspent
 
-		YSpent := slices.ContainsFunc(usedProofs, func(proof storage.DBProof) bool {
+		YSpentIdx := slices.IndexFunc(usedProofs, func(proof storage.DBProof) bool {
 			return proof.Y == y
 		})
-		YPending := slices.ContainsFunc(pendingProofs, func(proof storage.DBProof) bool {
+		YPendingIdx := slices.IndexFunc(pendingProofs, func(proof storage.DBProof) bool {
 			return proof.Y == y
 		})
-		if YSpent {
+
+		var witness string
+		if YSpentIdx >= 0 {
 			state = nut07.Spent
-		} else if YPending {
+			witness = usedProofs[YSpentIdx].Witness
+		} else if YPendingIdx >= 0 {
 			state = nut07.Pending
+			witness = pendingProofs[YPendingIdx].Witness
 		}
 
-		proofStates[i] = nut07.ProofState{Y: y, State: state}
+		proofStates[i] = nut07.ProofState{Y: y, State: state, Witness: witness}
 	}
 
 	return proofStates, nil
