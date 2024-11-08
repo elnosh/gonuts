@@ -165,7 +165,7 @@ func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
 }
 
 func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.Lnd, amount uint64) error {
-	mintRes, err := wallet.RequestMint(amount)
+	mintRes, err := wallet.RequestMint(amount, wallet.CurrentMint())
 	if err != nil {
 		return fmt.Errorf("error requesting mint: %v", err)
 	}
