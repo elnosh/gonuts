@@ -20,7 +20,7 @@ func main() {
 	wallet, err := wallet.LoadWallet(config)
 
 	// Mint tokens
-	mintQuote, err := wallet.RequestMint(42)
+	mintQuote, err := wallet.RequestMint(42, wallet.CurrentMint())
 
 	// Check quote state
 	quoteState, err := wallet.MintQuoteState(mintQuote.Quote)
@@ -34,7 +34,7 @@ func main() {
 	includeFees := true
 	includeDLEQProof := false
 	proofsToSend, err := wallet.Send(21, mint, includeFees)
-	token, err := cashu.NewTokenV4(proofsToSend, mint, "sat", includeDLEQProof)
+	token, err := cashu.NewTokenV4(proofsToSend, mint, cashu.Sat, includeDLEQProof)
 	fmt.Println(token.Serialize())
 
 	// Receive

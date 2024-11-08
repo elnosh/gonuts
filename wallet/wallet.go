@@ -122,7 +122,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 	// if mint is new, add it
 	walletMint, ok := wallet.mints[mintURL]
 	if !ok {
-		mint, err := wallet.addMint(mintURL)
+		mint, err := wallet.AddMint(mintURL)
 		if err != nil {
 			return nil, fmt.Errorf("error adding new mint: %v", err)
 		}
@@ -198,8 +198,8 @@ func mintInfo(mintURL string) (*walletMint, error) {
 	return &walletMint{mintURL, activeKeysets, inactiveKeysets}, nil
 }
 
-// addMint adds the mint to the list of mints trusted by the wallet
-func (w *Wallet) addMint(mint string) (*walletMint, error) {
+// AddMint adds the mint to the list of mints trusted by the wallet
+func (w *Wallet) AddMint(mint string) (*walletMint, error) {
 	url, err := url.Parse(mint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid mint url: %v", err)
@@ -334,9 +334,14 @@ func amount(proofs []storage.DBProof) uint64 {
 
 // RequestMint requests a mint quote to the wallet's current mint
 // for the specified amount
-func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response, error) {
+func (w *Wallet) RequestMint(amount uint64, mint string) (*nut04.PostMintQuoteBolt11Response, error) {
+	selectedMint, ok := w.mints[mint]
+	if !ok {
+		return nil, ErrMintNotExist
+	}
+
 	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: cashu.Sat.String()}
-	mintResponse, err := PostMintQuoteBolt11(w.currentMint.mintURL, mintRequest)
+	mintResponse, err := PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -350,6 +355,7 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 		TransactionType: storage.Mint,
 		QuoteAmount:     amount,
 		Id:              mintResponse.Quote,
+		Mint:            selectedMint.mintURL,
 		PaymentRequest:  mintResponse.Request,
 		PaymentHash:     bolt11.PaymentHash,
 		CreatedAt:       int64(bolt11.CreatedAt),
@@ -366,7 +372,16 @@ func (w *Wallet) RequestMint(amount uint64) (*nut04.PostMintQuoteBolt11Response,
 }
 
 func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Response, error) {
-	return GetMintQuoteState(w.currentMint.mintURL, quoteId)
+	invoice := w.db.GetInvoiceByQuoteId(quoteId)
+	if invoice == nil {
+		return nil, ErrQuoteNotFound
+	}
+
+	mint := invoice.Mint
+	if len(invoice.Mint) == 0 {
+		mint = w.currentMint.mintURL
+	}
+	return GetMintQuoteState(mint, quoteId)
 }
 
 // MintTokens will check whether if the mint quote has been paid.
@@ -375,7 +390,16 @@ func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Respo
 // If successful, it will unblind the signatures to generate proofs
 // and store the proofs in the db.
 func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
-	mintQuote, err := w.MintQuoteState(quoteId)
+	invoice := w.db.GetInvoiceByQuoteId(quoteId)
+	if invoice == nil {
+		return 0, ErrQuoteNotFound
+	}
+	mint := invoice.Mint
+	if len(invoice.Mint) == 0 {
+		mint = w.currentMint.mintURL
+	}
+
+	mintQuote, err := GetMintQuoteState(mint, quoteId)
 	if err != nil {
 		return 0, err
 	}
@@ -387,22 +411,14 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 		return 0, errors.New("invoice not paid")
 	}
 
-	invoice, err := w.GetInvoiceByPaymentRequest(mintQuote.Request)
-	if err != nil {
-		return 0, err
-	}
-	if invoice == nil {
-		return 0, errors.New("invoice not found")
-	}
-
-	activeKeyset, err := w.getActiveSatKeyset(w.currentMint.mintURL)
+	activeKeyset, err := w.getActiveSatKeyset(mint)
 	if err != nil {
 		return 0, fmt.Errorf("error getting active sat keyset: %v", err)
 	}
 	// get counter for keyset
 	counter := w.counterForKeyset(activeKeyset.Id)
 
-	split := w.splitWalletTarget(invoice.QuoteAmount, w.currentMint.mintURL)
+	split := w.splitWalletTarget(invoice.QuoteAmount, mint)
 	blindedMessages, secrets, rs, err := w.createBlindedMessages(split, activeKeyset.Id, &counter)
 	if err != nil {
 		return 0, fmt.Errorf("error creating blinded messages: %v", err)
@@ -410,7 +426,7 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 
 	// request mint to sign the blinded messages
 	postMintRequest := nut04.PostMintBolt11Request{Quote: quoteId, Outputs: blindedMessages}
-	mintResponse, err := PostMintBolt11(w.currentMint.mintURL, postMintRequest)
+	mintResponse, err := PostMintBolt11(mint, postMintRequest)
 	if err != nil {
 		return 0, err
 	}
@@ -592,7 +608,7 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		// only add mint if not previously trusted
 		_, ok := w.mints[tokenMint]
 		if !ok {
-			_, err := w.addMint(tokenMint)
+			_, err := w.AddMint(tokenMint)
 			if err != nil {
 				return 0, err
 			}
@@ -654,7 +670,7 @@ func (w *Wallet) ReceiveHTLC(token cashu.Token, preimage string) (uint64, error)
 		// only add mint if not previously trusted
 		_, ok := w.mints[tokenMint]
 		if !ok {
-			_, err := w.addMint(tokenMint)
+			_, err := w.AddMint(tokenMint)
 			if err != nil {
 				return 0, err
 			}
@@ -796,57 +812,12 @@ func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mintFromProofs string) (uint
 		proofsToSwap = newProofs
 	}
 
-	var mintResponse *nut04.PostMintQuoteBolt11Response
-	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
-	invoicePct := 0.99
-	proofsAmount := proofsToSwap.Amount()
-	amount := float64(proofsAmount) * invoicePct
-	fees := uint64(feesForProofs(proofsToSwap, mint))
-	for {
-		// request a mint quote from the configured default mint
-		// this will generate an invoice from the trusted mint
-		mintAmountRequest := uint64(amount) - fees
-		mintResponse, err = w.RequestMint(mintAmountRequest)
-		if err != nil {
-			return 0, fmt.Errorf("error requesting mint: %v", err)
-		}
-
-		// request melt quote from untrusted mint which will
-		// request mint to pay invoice generated from trusted mint in previous mint request
-		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: cashu.Sat.String()}
-		meltQuoteResponse, err = PostMeltQuoteBolt11(mintFromProofs, meltRequest)
-		if err != nil {
-			return 0, fmt.Errorf("error with melt request: %v", err)
-		}
-
-		// if amount in proofs is less than amount asked from mint in melt request,
-		// lower the amount for mint request
-		if meltQuoteResponse.Amount+meltQuoteResponse.FeeReserve+fees > proofsAmount {
-			invoicePct -= 0.01
-			amount *= invoicePct
-		} else {
-			break
-		}
-	}
-
-	// request untrusted mint to pay invoice generated from trusted mint
-	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofsToSwap}
-	meltBolt11Response, err := PostMeltBolt11(mintFromProofs, meltBolt11Request)
+	amountSwapped, err := w.swapProofs(proofsToSwap, mint, w.currentMint)
 	if err != nil {
-		return 0, fmt.Errorf("error melting token: %v", err)
+		return 0, err
 	}
 
-	// if melt request was successful and untrusted mint paid the invoice,
-	// make mint request to trusted mint to get valid proofs
-	if meltBolt11Response.Paid {
-		mintedAmount, err := w.MintTokens(mintResponse.Quote)
-		if err != nil {
-			return 0, fmt.Errorf("error minting tokens: %v", err)
-		}
-		return mintedAmount, nil
-	} else {
-		return 0, errors.New("mint could not pay lightning invoice")
-	}
+	return amountSwapped, nil
 }
 
 func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error) {
@@ -1055,6 +1026,89 @@ func (w *Wallet) Melt(invoice, mintURL string) (*nut05.PostMeltQuoteBolt11Respon
 		}
 	}
 	return meltBolt11Response, err
+}
+
+// MintSwap will swap the amount from to the specified mint
+func (w *Wallet) MintSwap(amount uint64, from, to string) (uint64, error) {
+	// check both mints are in list of trusted mints
+	fromMint, fromOk := w.mints[from]
+	toMint, toOk := w.mints[to]
+	if !fromOk || !toOk {
+		return 0, ErrMintNotExist
+	}
+
+	balanceByMints := w.GetBalanceByMints()
+	if balanceByMints[from] < amount {
+		return 0, ErrInsufficientMintBalance
+	}
+
+	proofsToSwap, err := w.getProofsForAmount(amount, &fromMint, true)
+	if err != nil {
+		return 0, err
+	}
+
+	amountSwapped, err := w.swapProofs(proofsToSwap, &fromMint, &toMint)
+	if err != nil {
+		return 0, err
+	}
+
+	return amountSwapped, nil
+}
+
+// swapProofs will swap the proofs in the from mint to specified mint
+func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, error) {
+	var mintResponse *nut04.PostMintQuoteBolt11Response
+	var meltQuoteResponse *nut05.PostMeltQuoteBolt11Response
+	invoicePct := 0.99
+	proofsAmount := proofs.Amount()
+	amount := float64(proofsAmount) * invoicePct
+	fees := uint64(feesForProofs(proofs, from))
+	for {
+		// request mint quote to the 'to' mint
+		// this will generate an invoice
+		mintAmountRequest := uint64(amount) - fees
+		var err error
+		mintResponse, err = w.RequestMint(mintAmountRequest, to.mintURL)
+		if err != nil {
+			return 0, fmt.Errorf("error requesting mint quote: %v", err)
+		}
+
+		// request melt quote from the 'from' mint
+		// this melt will pay the invoice generated from the previous mint quote request
+		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: cashu.Sat.String()}
+		meltQuoteResponse, err = PostMeltQuoteBolt11(from.mintURL, meltRequest)
+		if err != nil {
+			return 0, fmt.Errorf("error with melt request: %v", err)
+		}
+
+		// if amount in proofs is less than amount asked from mint in melt request,
+		// lower the amount for mint request
+		if meltQuoteResponse.Amount+meltQuoteResponse.FeeReserve+fees > proofsAmount {
+			invoicePct -= 0.01
+			amount *= invoicePct
+		} else {
+			break
+		}
+	}
+
+	// request from mint to pay invoice from the mint quote request
+	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
+	meltBolt11Response, err := PostMeltBolt11(from.mintURL, meltBolt11Request)
+	if err != nil {
+		return 0, fmt.Errorf("error melting token: %v", err)
+	}
+
+	// if melt request was successful and invoice got paid,
+	// make mint request to get valid proofs
+	if meltBolt11Response.Paid {
+		mintedAmount, err := w.MintTokens(mintResponse.Quote)
+		if err != nil {
+			return 0, fmt.Errorf("error minting tokens: %v", err)
+		}
+		return mintedAmount, nil
+	} else {
+		return 0, errors.New("mint could not pay lightning invoice")
+	}
 }
 
 func (w *Wallet) getProofsFromMint(mintURL string) cashu.Proofs {

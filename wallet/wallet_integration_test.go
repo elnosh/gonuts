@@ -131,7 +131,7 @@ func TestMintTokens(t *testing.T) {
 
 	var mintAmount uint64 = 30000
 	// check no err
-	mintRes, err := testWallet.RequestMint(mintAmount)
+	mintRes, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("error requesting mint: %v", err)
 	}
@@ -456,6 +456,68 @@ func TestMelt(t *testing.T) {
 	}
 }
 
+func TestMintSwap(t *testing.T) {
+	mint2URL := "http://127.0.0.1:8081"
+	testMintPath := filepath.Join(".", "testmint2")
+	testMint, err := testutils.CreateTestMintServer(lnd2, "8081", testMintPath, dbMigrationPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testMintPath)
+	}()
+	go func() {
+		t.Fatal(testMint.Start())
+	}()
+
+	mintURL := "http://127.0.0.1:3338"
+	testWalletPath := filepath.Join(".", "/testmintswapwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	var amountToSwap uint64 = 1000
+	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mint2URL)
+	if !errors.Is(err, wallet.ErrMintNotExist) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
+	}
+
+	_, err = testWallet.AddMint(mint2URL)
+	if err != nil {
+		t.Fatalf("unexpected error adding mint to wallet: %v", err)
+	}
+
+	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mint2URL)
+	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
+	}
+
+	var fundAmount uint64 = 21000
+	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, fundAmount); err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+	amountSwapped, err := testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mint2URL)
+	if err != nil {
+		t.Fatalf("unexpected error doing mint swap: %v", err)
+	}
+
+	balanceByMints := testWallet.GetBalanceByMints()
+	mint1Balance := balanceByMints[testWallet.CurrentMint()]
+	expectedBalance := fundAmount - amountToSwap
+	if mint1Balance != expectedBalance {
+		t.Fatalf("expected balance '%v' but got '%v'", expectedBalance, mint1Balance)
+	}
+
+	mint2Balance := balanceByMints[mint2URL]
+	if mint2Balance != amountSwapped {
+		t.Fatalf("expected balance '%v' but got '%v'", amountSwapped, mint2Balance)
+	}
+}
+
 // check balance is correct after certain operations
 func TestWalletBalance(t *testing.T) {
 	mintURL := "http://127.0.0.1:3338"
@@ -470,7 +532,7 @@ func TestWalletBalance(t *testing.T) {
 
 	// test balance after mint request
 	var mintAmount uint64 = 20000
-	mintRequest, err := balanceTestWallet.RequestMint(mintAmount)
+	mintRequest, err := balanceTestWallet.RequestMint(mintAmount, balanceTestWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in mint request: %v", err)
 	}
@@ -780,7 +842,7 @@ func testWalletRestore(
 	mintURL := testWallet.CurrentMint()
 
 	var mintAmount uint64 = 20000
-	mintRequest, err := testWallet.RequestMint(mintAmount)
+	mintRequest, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in mint request: %v", err)
 	}
@@ -874,7 +936,7 @@ func TestHTLC(t *testing.T) {
 	}()
 
 	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000); err != nil {
-		t.Fatalf("error funding wallet")
+		t.Fatalf("error funding wallet: %v", err)
 	}
 
 	preimage := "aaaaaa"
@@ -971,7 +1033,7 @@ func testP2PK(
 	testWallet2 *wallet.Wallet,
 	fakeBackend bool,
 ) {
-	mintRequest, err := testWallet.RequestMint(20000)
+	mintRequest, err := testWallet.RequestMint(20000, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in mint request: %v", err)
 	}
@@ -1060,7 +1122,7 @@ func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
 		t.Fatalf("unexpected error getting keysets: %v", err)
 	}
 
-	mintRes, err := testWallet.RequestMint(10000)
+	mintRes, err := testWallet.RequestMint(10000, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error requesting mint: %v", err)
 	}
@@ -1118,7 +1180,7 @@ func TestNutshell(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	mintRes, err := testWallet.RequestMint(10000)
+	mintRes, err := testWallet.RequestMint(10000, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error requesting mint: %v", err)
 	}
@@ -1163,7 +1225,7 @@ func TestOverpaidFeesChange(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	mintRes, err := testWallet.RequestMint(10000)
+	mintRes, err := testWallet.RequestMint(10000, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error requesting mint: %v", err)
 	}
@@ -1199,7 +1261,7 @@ func TestOverpaidFeesChange(t *testing.T) {
 
 	// do extra ops after melting to check counter for blinded messages
 	// was incremented correctly
-	mintRes, err = testWallet.RequestMint(5000)
+	mintRes, err = testWallet.RequestMint(5000, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error requesting mint: %v", err)
 	}

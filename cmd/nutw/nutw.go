@@ -266,7 +266,7 @@ func requestMint(amountStr string) error {
 		return errors.New("invalid amount")
 	}
 
-	mintResponse, err := nutw.RequestMint(amount)
+	mintResponse, err := nutw.RequestMint(amount, nutw.CurrentMint())
 	if err != nil {
 		return err
 	}
