@@ -85,7 +85,7 @@ func (ms *MintServer) setupHttpServer(port string) error {
 		return errors.New("port cannot be empty")
 	}
 	server := &http.Server{
-		Addr:    "127.0.0.1:" + port,
+		Addr:    ":" + port,
 		Handler: r,
 	}
 
