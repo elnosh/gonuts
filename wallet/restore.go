@@ -84,7 +84,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 
 			var counter uint32 = 0
 
-			keysetKeys, err := getKeysetKeys(mint, keyset.Id)
+			keysetKeys, err := GetKeysetKeys(mint, keyset.Id)
 			if err != nil {
 				return nil, err
 			}

@@ -40,15 +40,14 @@ var (
 )
 
 type Wallet struct {
-	db        storage.WalletDB
-	unit      cashu.Unit
-	masterKey *hdkeychain.ExtendedKey
+	db          storage.WalletDB
+	unit        cashu.Unit
+	defaultMint string
+	masterKey   *hdkeychain.ExtendedKey
 
 	// key to receive locked ecash
 	privateKey *btcec.PrivateKey
 
-	// default mint
-	currentMint *walletMint
 	// list of mints that have been trusted
 	mints map[string]walletMint
 }
@@ -80,10 +79,9 @@ func LoadWallet(config Config) (*Wallet, error) {
 		return nil, fmt.Errorf("InitStorage: %v", err)
 	}
 
-	// create new seed if none exists
 	seed := db.GetSeed()
 	if len(seed) == 0 {
-		// create and save new seed
+		// create and save new seed if none existed previously
 		entropy, err := bip39.NewEntropy(128)
 		if err != nil {
 			return nil, fmt.Errorf("error generating seed: %v", err)
@@ -119,66 +117,21 @@ func LoadWallet(config Config) (*Wallet, error) {
 		return nil, fmt.Errorf("invalid mint url: %v", err)
 	}
 	mintURL := url.String()
+	wallet.defaultMint = mintURL
 
-	// if mint is new, add it
-	walletMint, ok := wallet.mints[mintURL]
+	_, ok := wallet.mints[mintURL]
 	if !ok {
-		mint, err := wallet.AddMint(mintURL)
+		// if mint is new, add it
+		_, err := wallet.AddMint(mintURL)
 		if err != nil {
 			return nil, fmt.Errorf("error adding new mint: %v", err)
 		}
-		wallet.currentMint = mint
 	} else {
-		// if mint is already known, check if active keyset has changed
-		keysetsResponse, err := GetAllKeysets(walletMint.mintURL)
+		// if mint is known, check if active keyset has changed
+		_, err := wallet.getActiveKeyset(mintURL)
 		if err != nil {
-			return nil, fmt.Errorf("error getting keysets from mint: %v", err)
+			return nil, err
 		}
-
-		lastActiveKeyset := walletMint.activeKeyset
-		for _, keyset := range keysetsResponse.Keysets {
-			if keyset.Active && keyset.Unit == wallet.unit.String() {
-				// if current active keyset is different from the wallet's
-				// last recorded active keyset, get keys for new one and save
-				if keyset.Id != lastActiveKeyset.Id {
-					storedKeyset := db.GetKeyset(keyset.Id)
-					// this case should be rare
-					if storedKeyset != nil {
-						// if not new, change active to true
-						storedKeyset.Active = true
-						if err := wallet.db.SaveKeyset(storedKeyset); err != nil {
-							return nil, err
-						}
-						walletMint.activeKeyset = *storedKeyset
-						delete(walletMint.inactiveKeysets, storedKeyset.Id)
-					} else {
-						keys, err := getKeysetKeys(walletMint.mintURL, keyset.Id)
-						if err != nil {
-							return nil, err
-						}
-						newActiveKeyset := crypto.WalletKeyset{
-							Id:          keyset.Id,
-							MintURL:     walletMint.mintURL,
-							Unit:        keyset.Unit,
-							Active:      true,
-							PublicKeys:  keys,
-							InputFeePpk: keyset.InputFeePpk,
-						}
-						if err := wallet.db.SaveKeyset(&newActiveKeyset); err != nil {
-							return nil, err
-						}
-						walletMint.activeKeyset = newActiveKeyset
-					}
-					// there is new keyset, change last active to inactive
-					lastActiveKeyset.Active = false
-					if err := wallet.db.SaveKeyset(&lastActiveKeyset); err != nil {
-						return nil, err
-					}
-					walletMint.inactiveKeysets[keyset.Id] = lastActiveKeyset
-				}
-			}
-		}
-		wallet.currentMint = &walletMint
 	}
 
 	return wallet, nil
@@ -197,7 +150,7 @@ func (w *Wallet) AddMint(mint string) (*walletMint, error) {
 		return nil, err
 	}
 
-	inactiveKeysets, err := GetMintInactiveKeysets(mintURL)
+	inactiveKeysets, err := GetMintInactiveKeysets(mintURL, w.unit)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +214,7 @@ func (w *Wallet) RequestMint(amount uint64, mint string) (*nut04.PostMintQuoteBo
 		return nil, ErrMintNotExist
 	}
 
-	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: cashu.Sat.String()}
+	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: w.unit.String()}
 	mintResponse, err := PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
@@ -300,7 +253,7 @@ func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Respo
 
 	mint := invoice.Mint
 	if len(invoice.Mint) == 0 {
-		mint = w.currentMint.mintURL
+		mint = w.defaultMint
 	}
 	return GetMintQuoteState(mint, quoteId)
 }
@@ -317,7 +270,7 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 	}
 	mint := invoice.Mint
 	if len(invoice.Mint) == 0 {
-		mint = w.currentMint.mintURL
+		mint = w.defaultMint
 	}
 
 	mintQuote, err := GetMintQuoteState(mint, quoteId)
@@ -332,7 +285,7 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 		return 0, errors.New("invoice not paid")
 	}
 
-	activeKeyset, err := w.getActiveSatKeyset(mint)
+	activeKeyset, err := w.getActiveKeyset(mint)
 	if err != nil {
 		return 0, fmt.Errorf("error getting active sat keyset: %v", err)
 	}
@@ -491,7 +444,7 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 	proofsToSwap := token.Proofs()
 	tokenMint := token.Mint()
 
-	keyset, err := w.getActiveSatKeyset(tokenMint)
+	keyset, err := w.getActiveKeyset(tokenMint)
 	if err != nil {
 		return 0, fmt.Errorf("could not get active keyset: %v", err)
 	}
@@ -515,27 +468,29 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 	}
 
 	// if mint in token is already the default mint, do not swap to trusted
-	if _, ok := w.mints[tokenMint]; ok && tokenMint == w.currentMint.mintURL {
+	if _, ok := w.mints[tokenMint]; ok && tokenMint == w.defaultMint {
 		swapToTrusted = false
 	}
 
 	if swapToTrusted {
-		amountSwapped, err := w.swapToTrusted(proofsToSwap, tokenMint)
+		mint := &walletMint{mintURL: tokenMint, activeKeyset: *keyset}
+		amountSwapped, err := w.swapToTrusted(proofsToSwap, mint)
 		if err != nil {
 			return 0, fmt.Errorf("error swapping token to trusted mint: %v", err)
 		}
 		return amountSwapped, nil
 	} else {
 		// only add mint if not previously trusted
-		_, ok := w.mints[tokenMint]
+		mint, ok := w.mints[tokenMint]
 		if !ok {
-			_, err := w.AddMint(tokenMint)
+			newMint, err := w.AddMint(tokenMint)
 			if err != nil {
 				return 0, err
 			}
+			mint = *newMint
 		}
 
-		req, err := w.createSwapRequest(proofsToSwap, tokenMint)
+		req, err := w.createSwapRequest(proofsToSwap, &mint)
 		if err != nil {
 			return 0, fmt.Errorf("could not create swap request: %v", err)
 		}
@@ -572,7 +527,7 @@ func (w *Wallet) ReceiveHTLC(token cashu.Token, preimage string) (uint64, error)
 	proofs := token.Proofs()
 	tokenMint := token.Mint()
 
-	keyset, err := w.getActiveSatKeyset(tokenMint)
+	keyset, err := w.getActiveKeyset(tokenMint)
 	if err != nil {
 		return 0, fmt.Errorf("could not get active keyset: %v", err)
 	}
@@ -589,15 +544,16 @@ func (w *Wallet) ReceiveHTLC(token cashu.Token, preimage string) (uint64, error)
 		}
 
 		// only add mint if not previously trusted
-		_, ok := w.mints[tokenMint]
+		mint, ok := w.mints[tokenMint]
 		if !ok {
-			_, err := w.AddMint(tokenMint)
+			newMint, err := w.AddMint(tokenMint)
 			if err != nil {
 				return 0, err
 			}
+			mint = *newMint
 		}
 
-		req, err := w.createSwapRequest(proofs, tokenMint)
+		req, err := w.createSwapRequest(proofs, &mint)
 		if err != nil {
 			return 0, fmt.Errorf("could not create swap request: %v", err)
 		}
@@ -638,31 +594,12 @@ type swapRequestPayload struct {
 	keyset *crypto.WalletKeyset
 }
 
-func (w *Wallet) createSwapRequest(proofs cashu.Proofs, mintURL string) (swapRequestPayload, error) {
-	var activeKeyset *crypto.WalletKeyset
-	var counter *uint32 = nil
-	mint, trustedMint := w.mints[mintURL]
-	if !trustedMint {
-		// get keys if mint not trusted
-		var err error
-		activeKeyset, err = GetMintActiveKeyset(mintURL, w.unit)
-		if err != nil {
-			return swapRequestPayload{}, err
-		}
-		mint = walletMint{mintURL: mintURL, activeKeyset: *activeKeyset}
-	} else {
-		var err error
-		activeKeyset, err = w.getActiveSatKeyset(mintURL)
-		if err != nil {
-			return swapRequestPayload{}, fmt.Errorf("error getting active sat keyset: %v", err)
-		}
-		keysetCounter := w.counterForKeyset(activeKeyset.Id)
-		counter = &keysetCounter
-	}
+func (w *Wallet) createSwapRequest(proofs cashu.Proofs, mint *walletMint) (swapRequestPayload, error) {
+	keysetCounter := w.counterForKeyset(mint.activeKeyset.Id)
 
-	fees := feesForProofs(proofs, &mint)
-	split := w.splitWalletTarget(proofs.Amount()-uint64(fees), mintURL)
-	outputs, secrets, rs, err := w.createBlindedMessages(split, activeKeyset.Id, counter)
+	fees := feesForProofs(proofs, mint)
+	split := w.splitWalletTarget(proofs.Amount()-uint64(fees), mint.mintURL)
+	outputs, secrets, rs, err := w.createBlindedMessages(split, mint.activeKeyset.Id, &keysetCounter)
 	if err != nil {
 		return swapRequestPayload{}, fmt.Errorf("createBlindedMessages: %v", err)
 	}
@@ -672,7 +609,7 @@ func (w *Wallet) createSwapRequest(proofs cashu.Proofs, mintURL string) (swapReq
 		outputs: outputs,
 		secrets: secrets,
 		rs:      rs,
-		keyset:  activeKeyset,
+		keyset:  &mint.activeKeyset,
 	}, nil
 }
 
@@ -703,18 +640,13 @@ func (w *Wallet) swap(mint string, swapRequest swapRequestPayload) (cashu.Proofs
 
 // swapToTrusted will swap the proofs from mint
 // to the wallet's configured default mint
-func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mintFromProofs string) (uint64, error) {
+func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mint *walletMint) (uint64, error) {
 	proofsToSwap := proofs
-	activeKeyset, err := GetMintActiveKeyset(mintFromProofs, w.unit)
-	if err != nil {
-		return 0, err
-	}
-	mint := &walletMint{mintURL: mintFromProofs, activeKeyset: *activeKeyset}
 
 	// if proofs are P2PK locked and sig all, add signatures to swap them first and then melt
 	nut10Secret, err := nut10.DeserializeSecret(proofs[0].Secret)
 	if err == nil && nut10Secret.Kind == nut10.P2PK && nut11.IsSigAll(nut10Secret) {
-		req, err := w.createSwapRequest(proofs, mintFromProofs)
+		req, err := w.createSwapRequest(proofs, mint)
 		if err != nil {
 			return 0, fmt.Errorf("could not create swap request: %v", err)
 		}
@@ -723,14 +655,15 @@ func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mintFromProofs string) (uint
 			return 0, fmt.Errorf("error signing outputs: %v", err)
 		}
 
-		newProofs, err := w.swap(mintFromProofs, req)
+		newProofs, err := w.swap(mint.mintURL, req)
 		if err != nil {
 			return 0, fmt.Errorf("could not swap proofs: %v", err)
 		}
 		proofsToSwap = newProofs
 	}
 
-	amountSwapped, err := w.swapProofs(proofsToSwap, mint, w.currentMint)
+	defaultMint := w.mints[w.defaultMint]
+	amountSwapped, err := w.swapProofs(proofsToSwap, mint, &defaultMint)
 	if err != nil {
 		return 0, err
 	}
@@ -836,7 +769,7 @@ func (w *Wallet) Melt(invoice, mintURL string) (*nut05.PostMeltQuoteBolt11Respon
 		return nil, fmt.Errorf("error saving pending proofs: %v", err)
 	}
 
-	activeKeyset, err := w.getActiveSatKeyset(selectedMint.mintURL)
+	activeKeyset, err := w.getActiveKeyset(selectedMint.mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting active sat keyset: %v", err)
 	}
@@ -1141,7 +1074,7 @@ func (w *Wallet) swapToSend(
 	spendingCondition *nut10.SpendingCondition,
 	includeFees bool,
 ) (cashu.Proofs, error) {
-	activeSatKeyset, err := w.getActiveSatKeyset(mint.mintURL)
+	activeSatKeyset, err := w.getActiveKeyset(mint.mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting active sat keyset: %v", err)
 	}
@@ -1584,7 +1517,7 @@ func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 			}
 
 			if len(keyset.PublicKeys) == 0 {
-				publicKeys, err := getKeysetKeys(keyset.MintURL, keyset.Id)
+				publicKeys, err := GetKeysetKeys(keyset.MintURL, keyset.Id)
 				if err != nil {
 					return nil, err
 				}
@@ -1611,7 +1544,7 @@ func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 
 // CurrentMint returns the current mint url
 func (w *Wallet) CurrentMint() string {
-	return w.currentMint.mintURL
+	return w.defaultMint
 }
 
 func (w *Wallet) TrustedMints() []string {
