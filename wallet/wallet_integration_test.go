@@ -1117,7 +1117,7 @@ func TestDLEQProofs(t *testing.T) {
 
 func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
 	mintURL := testWallet.CurrentMint()
-	keysets, err := wallet.GetMintActiveKeysets(mintURL)
+	keyset, err := wallet.GetMintActiveKeyset(mintURL, cashu.Sat)
 	if err != nil {
 		t.Fatalf("unexpected error getting keysets: %v", err)
 	}
@@ -1152,7 +1152,7 @@ func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
 			t.Fatal("got nil DLEQ proof from Send")
 		}
 
-		pubkey := keysets[proof.Id].PublicKeys[proof.Amount]
+		pubkey := keyset.PublicKeys[proof.Amount]
 		if !nut12.VerifyProofDLEQ(proof, pubkey) {
 			t.Fatal("invalid DLEQ proof returned from Send")
 		}

@@ -41,6 +41,7 @@ var (
 
 type Wallet struct {
 	db        storage.WalletDB
+	unit      cashu.Unit
 	masterKey *hdkeychain.ExtendedKey
 
 	// key to receive locked ecash
@@ -53,10 +54,8 @@ type Wallet struct {
 }
 
 type walletMint struct {
-	mintURL string
-	// active keysets from mint
-	activeKeysets map[string]crypto.WalletKeyset
-	// list of inactive keysets (if any) from mint
+	mintURL         string
+	activeKeyset    crypto.WalletKeyset
 	inactiveKeysets map[string]crypto.WalletKeyset
 }
 
@@ -110,7 +109,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		return nil, err
 	}
 
-	wallet := &Wallet{db: db, masterKey: masterKey, privateKey: privateKey}
+	wallet := &Wallet{db: db, unit: cashu.Sat, masterKey: masterKey, privateKey: privateKey}
 	wallet.mints, err = wallet.getWalletMints()
 	if err != nil {
 		return nil, err
@@ -129,75 +128,60 @@ func LoadWallet(config Config) (*Wallet, error) {
 			return nil, fmt.Errorf("error adding new mint: %v", err)
 		}
 		wallet.currentMint = mint
-	} else { // if mint is already known, check if active keyset has changed
-		// get last stored active sat keyset
-		var lastActiveSatKeyset crypto.WalletKeyset
-		for _, keyset := range walletMint.activeKeysets {
-			_, err := hex.DecodeString(keyset.Id)
-			if keyset.Unit == cashu.Sat.String() && err == nil {
-				lastActiveSatKeyset = keyset
-				break
-			}
-		}
-
+	} else {
+		// if mint is already known, check if active keyset has changed
 		keysetsResponse, err := GetAllKeysets(walletMint.mintURL)
 		if err != nil {
 			return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 		}
 
-		activeKeysetChanged := false
+		lastActiveKeyset := walletMint.activeKeyset
 		for _, keyset := range keysetsResponse.Keysets {
-			// check if last active recorded keyset is not active anymore
-			if keyset.Id == lastActiveSatKeyset.Id && !keyset.Active {
-				activeKeysetChanged = true
-
-				// there is new keyset, change last active to inactive
-				lastActiveSatKeyset.Active = false
-				wallet.db.SaveKeyset(&lastActiveSatKeyset)
-				break
-			}
-		}
-
-		// if active keyset changed, save accordingly
-		if activeKeysetChanged {
-			activeKeysets, err := GetMintActiveKeysets(walletMint.mintURL)
-			if err != nil {
-				return nil, fmt.Errorf("error getting keyset from mint: %v", err)
-			}
-
-			for i, keyset := range activeKeysets {
-				storedKeyset := db.GetKeyset(keyset.Id)
-				// save new keyset
-				if storedKeyset == nil {
-					db.SaveKeyset(&keyset)
-				} else { // if not new, change active to true
-					keyset.Active = true
-					keyset.Counter = storedKeyset.Counter
-					activeKeysets[i] = keyset
-					wallet.db.SaveKeyset(&keyset)
+			if keyset.Active && keyset.Unit == wallet.unit.String() {
+				// if current active keyset is different from the wallet's
+				// last recorded active keyset, get keys for new one and save
+				if keyset.Id != lastActiveKeyset.Id {
+					storedKeyset := db.GetKeyset(keyset.Id)
+					// this case should be rare
+					if storedKeyset != nil {
+						// if not new, change active to true
+						storedKeyset.Active = true
+						if err := wallet.db.SaveKeyset(storedKeyset); err != nil {
+							return nil, err
+						}
+						walletMint.activeKeyset = *storedKeyset
+						delete(walletMint.inactiveKeysets, storedKeyset.Id)
+					} else {
+						keys, err := getKeysetKeys(walletMint.mintURL, keyset.Id)
+						if err != nil {
+							return nil, err
+						}
+						newActiveKeyset := crypto.WalletKeyset{
+							Id:          keyset.Id,
+							MintURL:     walletMint.mintURL,
+							Unit:        keyset.Unit,
+							Active:      true,
+							PublicKeys:  keys,
+							InputFeePpk: keyset.InputFeePpk,
+						}
+						if err := wallet.db.SaveKeyset(&newActiveKeyset); err != nil {
+							return nil, err
+						}
+						walletMint.activeKeyset = newActiveKeyset
+					}
+					// there is new keyset, change last active to inactive
+					lastActiveKeyset.Active = false
+					if err := wallet.db.SaveKeyset(&lastActiveKeyset); err != nil {
+						return nil, err
+					}
+					walletMint.inactiveKeysets[keyset.Id] = lastActiveKeyset
 				}
 			}
-			walletMint.activeKeysets = activeKeysets
 		}
 		wallet.currentMint = &walletMint
 	}
 
 	return wallet, nil
-}
-
-// get mint keysets
-func mintInfo(mintURL string) (*walletMint, error) {
-	activeKeysets, err := GetMintActiveKeysets(mintURL)
-	if err != nil {
-		return nil, err
-	}
-
-	inactiveKeysets, err := GetMintInactiveKeysets(mintURL)
-	if err != nil {
-		return nil, err
-	}
-
-	return &walletMint{mintURL, activeKeysets, inactiveKeysets}, nil
 }
 
 // AddMint adds the mint to the list of mints trusted by the wallet
@@ -208,90 +192,28 @@ func (w *Wallet) AddMint(mint string) (*walletMint, error) {
 	}
 	mintURL := url.String()
 
-	mintInfo, err := mintInfo(mintURL)
+	activeKeyset, err := GetMintActiveKeyset(mintURL, w.unit)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, keyset := range mintInfo.activeKeysets {
-		w.db.SaveKeyset(&keyset)
-	}
-	for _, keyset := range mintInfo.inactiveKeysets {
-		w.db.SaveKeyset(&keyset)
-	}
-	w.mints[mintURL] = *mintInfo
-
-	return mintInfo, nil
-}
-
-func GetMintActiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error) {
-	keysets, err := GetAllKeysets(mintURL)
+	inactiveKeysets, err := GetMintInactiveKeysets(mintURL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
+		return nil, err
 	}
 
-	keysetsResponse, err := GetActiveKeysets(mintURL)
-	if err != nil {
-		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
+	if err := w.db.SaveKeyset(activeKeyset); err != nil {
+		return nil, err
 	}
-
-	activeKeysets := make(map[string]crypto.WalletKeyset)
-	for i, keyset := range keysetsResponse.Keysets {
-
-		var inputFeePpk uint
-		for _, response := range keysets.Keysets {
-			if response.Id == keyset.Id {
-				inputFeePpk = response.InputFeePpk
-			}
-		}
-
-		_, err := hex.DecodeString(keyset.Id)
-		if keyset.Unit == cashu.Sat.String() && err == nil {
-			keys, err := crypto.MapPubKeys(keysetsResponse.Keysets[i].Keys)
-			if err != nil {
-				return nil, err
-			}
-			id := crypto.DeriveKeysetId(keys)
-			if id != keyset.Id {
-				return nil, fmt.Errorf("Got invalid keyset. Derived id: '%v' but got '%v' from mint", id, keyset.Id)
-			}
-
-			activeKeyset := crypto.WalletKeyset{
-				Id:          id,
-				MintURL:     mintURL,
-				Unit:        keyset.Unit,
-				Active:      true,
-				PublicKeys:  keys,
-				InputFeePpk: inputFeePpk,
-			}
-			activeKeysets[id] = activeKeyset
+	for _, keyset := range inactiveKeysets {
+		if err := w.db.SaveKeyset(&keyset); err != nil {
+			return nil, err
 		}
 	}
+	newWalletMint := walletMint{mintURL, *activeKeyset, inactiveKeysets}
+	w.mints[mintURL] = newWalletMint
 
-	return activeKeysets, nil
-}
-
-func GetMintInactiveKeysets(mintURL string) (map[string]crypto.WalletKeyset, error) {
-	keysetsResponse, err := GetAllKeysets(mintURL)
-	if err != nil {
-		return nil, fmt.Errorf("error getting keysets from mint: %v", err)
-	}
-
-	inactiveKeysets := make(map[string]crypto.WalletKeyset)
-	for _, keysetRes := range keysetsResponse.Keysets {
-		_, err := hex.DecodeString(keysetRes.Id)
-		if !keysetRes.Active && keysetRes.Unit == cashu.Sat.String() && err == nil {
-			keyset := crypto.WalletKeyset{
-				Id:          keysetRes.Id,
-				MintURL:     mintURL,
-				Unit:        keysetRes.Unit,
-				Active:      keysetRes.Active,
-				InputFeePpk: keysetRes.InputFeePpk,
-			}
-			inactiveKeysets[keyset.Id] = keyset
-		}
-	}
-	return inactiveKeysets, nil
+	return &newWalletMint, nil
 }
 
 // GetBalance returns the total balance aggregated from all proofs
@@ -305,12 +227,9 @@ func (w *Wallet) GetBalanceByMints() map[string]uint64 {
 	mintsBalances := make(map[string]uint64)
 
 	for _, mint := range w.mints {
-		var mintBalance uint64 = 0
+		proofs := w.db.GetProofsByKeysetId(mint.activeKeyset.Id)
+		mintBalance := proofs.Amount()
 
-		for _, keyset := range mint.activeKeysets {
-			proofs := w.db.GetProofsByKeysetId(keyset.Id)
-			mintBalance += proofs.Amount()
-		}
 		for _, keyset := range mint.inactiveKeysets {
 			proofs := w.db.GetProofsByKeysetId(keyset.Id)
 			mintBalance += proofs.Amount()
@@ -726,14 +645,11 @@ func (w *Wallet) createSwapRequest(proofs cashu.Proofs, mintURL string) (swapReq
 	if !trustedMint {
 		// get keys if mint not trusted
 		var err error
-		activeKeysets, err := GetMintActiveKeysets(mintURL)
+		activeKeyset, err = GetMintActiveKeyset(mintURL, w.unit)
 		if err != nil {
 			return swapRequestPayload{}, err
 		}
-		for _, keyset := range activeKeysets {
-			activeKeyset = &keyset
-		}
-		mint = walletMint{mintURL: mintURL, activeKeysets: activeKeysets}
+		mint = walletMint{mintURL: mintURL, activeKeyset: *activeKeyset}
 	} else {
 		var err error
 		activeKeyset, err = w.getActiveSatKeyset(mintURL)
@@ -789,11 +705,11 @@ func (w *Wallet) swap(mint string, swapRequest swapRequestPayload) (cashu.Proofs
 // to the wallet's configured default mint
 func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mintFromProofs string) (uint64, error) {
 	proofsToSwap := proofs
-	activeKeysets, err := GetMintActiveKeysets(mintFromProofs)
+	activeKeyset, err := GetMintActiveKeyset(mintFromProofs, w.unit)
 	if err != nil {
 		return 0, err
 	}
-	mint := &walletMint{mintURL: mintFromProofs, activeKeysets: activeKeysets}
+	mint := &walletMint{mintURL: mintFromProofs, activeKeyset: *activeKeyset}
 
 	// if proofs are P2PK locked and sig all, add signatures to swap them first and then melt
 	nut10Secret, err := nut10.DeserializeSecret(proofs[0].Secret)
@@ -1133,14 +1049,7 @@ func (w *Wallet) getInactiveProofsByMint(mintURL string) cashu.Proofs {
 
 func (w *Wallet) getActiveProofsByMint(mintURL string) cashu.Proofs {
 	selectedMint := w.mints[mintURL]
-
-	proofs := cashu.Proofs{}
-	for _, keyset := range selectedMint.activeKeysets {
-		keysetProofs := w.db.GetProofsByKeysetId(keyset.Id)
-		proofs = append(proofs, keysetProofs...)
-	}
-
-	return proofs
+	return w.db.GetProofsByKeysetId(selectedMint.activeKeyset.Id)
 }
 
 // selectProofsToSend will try to select proofs for
@@ -1441,8 +1350,8 @@ func calculateBlankOutputs(feeReserve uint64) int {
 func feesForProofs(proofs cashu.Proofs, mint *walletMint) uint {
 	var fees uint = 0
 	for _, proof := range proofs {
-		if keyset, ok := mint.activeKeysets[proof.Id]; ok {
-			fees += keyset.InputFeePpk
+		if mint.activeKeyset.Id == proof.Id {
+			fees += mint.activeKeyset.InputFeePpk
 			continue
 		}
 		if keyset, ok := mint.inactiveKeysets[proof.Id]; ok {
@@ -1660,88 +1569,12 @@ func (w *Wallet) counterForKeyset(keysetId string) uint32 {
 	return w.db.GetKeysetCounter(keysetId)
 }
 
-// getActiveSatKeyset returns the active sat keyset for the mint passed.
-// if mint passed is known and the latest active sat keyset has changed,
-// it will inactivate the previous active and save new active to db
-func (w *Wallet) getActiveSatKeyset(mintURL string) (*crypto.WalletKeyset, error) {
-	mint, ok := w.mints[mintURL]
-	// if mint is not known, get active sat keyset from calling mint
-	if !ok {
-		activeKeysets, err := GetMintActiveKeysets(mintURL)
-		if err != nil {
-			return nil, err
-		}
-		for _, keyset := range activeKeysets {
-			return &keyset, nil
-		}
-	}
-
-	// get the latest active keyset
-	var activeKeyset crypto.WalletKeyset
-	for _, keyset := range mint.activeKeysets {
-		activeKeyset = keyset
-		break
-	}
-
-	allKeysets, err := GetAllKeysets(mintURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// check if there is new active keyset
-	activeChanged := true
-	for _, keyset := range allKeysets.Keysets {
-		if keyset.Active && keyset.Id == activeKeyset.Id {
-			activeChanged = false
-			break
-		}
-	}
-
-	// if new active, save it to db and inactivate previous
-	if activeChanged {
-		// inactivate previous active
-		activeKeyset.Active = false
-		w.db.SaveKeyset(&activeKeyset)
-		w.mints[mintURL].inactiveKeysets[activeKeyset.Id] = activeKeyset
-		delete(w.mints[mintURL].activeKeysets, activeKeyset.Id)
-
-		for _, keyset := range allKeysets.Keysets {
-			_, err = hex.DecodeString(keyset.Id)
-			if keyset.Active && keyset.Unit == cashu.Sat.String() && err == nil {
-				keysetKeys, err := GetKeysetById(mintURL, keyset.Id)
-				if err != nil {
-					return nil, err
-				}
-
-				keys, err := crypto.MapPubKeys(keysetKeys.Keysets[0].Keys)
-				if err != nil {
-					return nil, err
-				}
-
-				activeKeyset = crypto.WalletKeyset{
-					Id:          keyset.Id,
-					MintURL:     mintURL,
-					Unit:        keyset.Unit,
-					Active:      true,
-					PublicKeys:  keys,
-					InputFeePpk: keyset.InputFeePpk,
-				}
-
-				w.db.SaveKeyset(&activeKeyset)
-				w.mints[mintURL].activeKeysets[keyset.Id] = activeKeyset
-			}
-		}
-	}
-
-	return &activeKeyset, nil
-}
-
 func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 	walletMints := make(map[string]walletMint)
 
 	keysets := w.db.GetKeysets()
 	for k, mintKeysets := range keysets {
-		activeKeysets := make(map[string]crypto.WalletKeyset)
+		var activeKeyset crypto.WalletKeyset
 		inactiveKeysets := make(map[string]crypto.WalletKeyset)
 		for _, keyset := range mintKeysets {
 			// ignore keysets with non-hex id
@@ -1760,7 +1593,7 @@ func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 			}
 
 			if keyset.Active {
-				activeKeysets[keyset.Id] = keyset
+				activeKeyset = keyset
 			} else {
 				inactiveKeysets[keyset.Id] = keyset
 			}
@@ -1768,30 +1601,12 @@ func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 
 		walletMints[k] = walletMint{
 			mintURL:         k,
-			activeKeysets:   activeKeysets,
+			activeKeyset:    activeKeyset,
 			inactiveKeysets: inactiveKeysets,
 		}
 	}
 
 	return walletMints, nil
-}
-
-func getKeysetKeys(mintURL, id string) (map[uint64]*secp256k1.PublicKey, error) {
-	keysetsResponse, err := GetKeysetById(mintURL, id)
-	if err != nil {
-		return nil, fmt.Errorf("error getting keyset from mint: %v", err)
-	}
-
-	var keys map[uint64]*secp256k1.PublicKey
-	if len(keysetsResponse.Keysets) > 0 && keysetsResponse.Keysets[0].Unit == cashu.Sat.String() {
-		var err error
-		keys, err = crypto.MapPubKeys(keysetsResponse.Keysets[0].Keys)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return keys, nil
 }
 
 // CurrentMint returns the current mint url
