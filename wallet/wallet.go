@@ -503,7 +503,7 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 			}
 		}
 
-		newProofs, err := w.swap(tokenMint, req)
+		newProofs, err := swap(tokenMint, req)
 		if err != nil {
 			return 0, fmt.Errorf("could not swap proofs: %v", err)
 		}
@@ -566,7 +566,7 @@ func (w *Wallet) ReceiveHTLC(token cashu.Token, preimage string) (uint64, error)
 			}
 		}
 
-		newProofs, err := w.swap(tokenMint, req)
+		newProofs, err := swap(tokenMint, req)
 		if err != nil {
 			return 0, fmt.Errorf("could not swap proofs: %v", err)
 		}
@@ -613,7 +613,7 @@ func (w *Wallet) createSwapRequest(proofs cashu.Proofs, mint *walletMint) (swapR
 	}, nil
 }
 
-func (w *Wallet) swap(mint string, swapRequest swapRequestPayload) (cashu.Proofs, error) {
+func swap(mint string, swapRequest swapRequestPayload) (cashu.Proofs, error) {
 	request := nut03.PostSwapRequest{
 		Inputs:  swapRequest.inputs,
 		Outputs: swapRequest.outputs,
@@ -655,7 +655,7 @@ func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mint *walletMint) (uint64, e
 			return 0, fmt.Errorf("error signing outputs: %v", err)
 		}
 
-		newProofs, err := w.swap(mint.mintURL, req)
+		newProofs, err := swap(mint.mintURL, req)
 		if err != nil {
 			return 0, fmt.Errorf("could not swap proofs: %v", err)
 		}
@@ -985,6 +985,47 @@ func (w *Wallet) getActiveProofsByMint(mintURL string) cashu.Proofs {
 	return w.db.GetProofsByKeysetId(selectedMint.activeKeyset.Id)
 }
 
+// selectProofsForAmount tries to select proofs from inactive keysets (if any) first
+// and then proofs from the active keyset
+func (w *Wallet) selectProofsForAmount(
+	amount uint64,
+	mint *walletMint,
+	includeFees bool,
+) (cashu.Proofs, error) {
+	// TODO: need to check first if 'input_fee_ppk' for keyset has changed
+	var selectedProofs cashu.Proofs
+	var fees uint64 = 0
+
+	inactiveKeysetProofs := w.getInactiveProofsByMint(mint.mintURL)
+	// if there are proofs from inactive keysets, select from those first
+	if len(inactiveKeysetProofs) > 0 {
+		// safe to ignore error here because if proofs aren't enough for the amount
+		// will add proofs from active keyset after
+		selectedProofs, _ = selectProofsToSend(inactiveKeysetProofs, amount, mint, includeFees)
+		if includeFees {
+			fees = uint64(feesForProofs(selectedProofs, mint))
+		}
+	}
+
+	totalAmountNeeded := amount + fees
+	selectedAmount := selectedProofs.Amount()
+	// return if amount from inactive proofs selected is already enough
+	if selectedAmount >= totalAmountNeeded {
+		return selectedProofs, nil
+	} else {
+		remainingAmount := totalAmountNeeded - selectedAmount
+		activeKeysetProofs := w.getActiveProofsByMint(mint.mintURL)
+
+		proofsForRemainingAmount, err := selectProofsToSend(activeKeysetProofs, remainingAmount, mint, includeFees)
+		if err != nil {
+			return nil, err
+		}
+		selectedProofs = append(selectedProofs, proofsForRemainingAmount...)
+	}
+
+	return selectedProofs, nil
+}
+
 // selectProofsToSend will try to select proofs for
 // amount + fees (if includeFees is true)
 func selectProofsToSend(
@@ -1086,8 +1127,7 @@ func (w *Wallet) swapToSend(
 		amount += uint64(feesToReceive)
 	}
 
-	proofs := w.getProofsFromMint(mint.mintURL)
-	proofsToSwap, err := selectProofsToSend(proofs, amount, mint, true)
+	proofsToSwap, err := w.selectProofsForAmount(amount, mint, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1184,9 +1224,7 @@ func (w *Wallet) getProofsForAmount(
 	mint *walletMint,
 	includeFees bool,
 ) (cashu.Proofs, error) {
-	// TODO: need to check first if 'input_fee_ppk' for keyset has changed
-	mintProofs := w.getProofsFromMint(mint.mintURL)
-	selectedProofs, err := selectProofsToSend(mintProofs, amount, mint, includeFees)
+	selectedProofs, err := w.selectProofsForAmount(amount, mint, includeFees)
 	if err != nil {
 		return nil, err
 	}
