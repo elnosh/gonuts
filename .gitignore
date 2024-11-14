@@ -1,4 +1,5 @@
 cmd/nutw/nutw
+cmd/nutw/wallet
 **/.env
 *.txt
 .vscode
