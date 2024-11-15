@@ -473,7 +473,11 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 	}
 
 	if swapToTrusted {
-		mint := &walletMint{mintURL: tokenMint, activeKeyset: *keyset}
+		inactiveKeysets, err := GetMintInactiveKeysets(tokenMint, w.unit)
+		if err != nil {
+			return 0, err
+		}
+		mint := &walletMint{mintURL: tokenMint, activeKeyset: *keyset, inactiveKeysets: inactiveKeysets}
 		amountSwapped, err := w.swapToTrusted(proofsToSwap, mint)
 		if err != nil {
 			return 0, fmt.Errorf("error swapping token to trusted mint: %v", err)
