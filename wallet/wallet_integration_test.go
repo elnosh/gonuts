@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	btcdocker "github.com/elnosh/btc-docker-test"
@@ -19,6 +20,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
+	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -85,7 +87,7 @@ func testMain(m *testing.M) int {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err := testutils.CreateTestMintServer(lnd1, "3338", testMintPath, dbMigrationPath, 0)
+	testMint, err := testutils.CreateTestMintServer(lnd1, "3338", 0, testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -98,7 +100,7 @@ func testMain(m *testing.M) int {
 	}()
 
 	mintPath := filepath.Join(".", "testmintwithfees")
-	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "8888", mintPath, dbMigrationPath, 100)
+	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "8888", 0, mintPath, dbMigrationPath, 100)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -154,7 +156,6 @@ func TestMintTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
-
 	if mintedAmount != mintAmount {
 		t.Fatalf("expected proofs amount of '%v' but got '%v' instead", mintAmount, mintedAmount)
 	}
@@ -260,7 +261,7 @@ func TestReceive(t *testing.T) {
 	}
 
 	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := testutils.CreateTestMintServer(lnd2, "3339", testMintPath, dbMigrationPath, 0)
+	testMint, err := testutils.CreateTestMintServer(lnd2, "3339", 0, testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +460,7 @@ func TestMelt(t *testing.T) {
 func TestMintSwap(t *testing.T) {
 	mint2URL := "http://127.0.0.1:8081"
 	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := testutils.CreateTestMintServer(lnd2, "8081", testMintPath, dbMigrationPath, 0)
+	testMint, err := testutils.CreateTestMintServer(lnd2, "8081", 0, testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,6 +809,107 @@ func TestPendingProofs(t *testing.T) {
 	}
 }
 
+// Test wallet operations work after mint rotates to new keyset
+func TestKeysetRotations(t *testing.T) {
+	mintURL := "http://127.0.0.1:8082"
+	testMintPath := filepath.Join(".", "testmintkeysetrotation")
+	var keysetDerivationIdx uint32 = 0
+	testMint, err := testutils.CreateTestMintServer(lnd1, "8082", keysetDerivationIdx, testMintPath, dbMigrationPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testMintPath)
+	}()
+	go func() {
+		if err := testMint.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	var bumpKeyset = func(mint *mint.MintServer) *mint.MintServer {
+		testMint.Shutdown()
+		keysetDerivationIdx++
+		testMint, err := testutils.CreateTestMintServer(lnd1, "8082", keysetDerivationIdx, testMintPath, dbMigrationPath, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return testMint
+	}
+
+	testWalletPath := filepath.Join(".", "/testkeysetrotationwallet")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath)
+	}()
+
+	testWalletPath2 := filepath.Join(".", "/testkeysetrotationwallet2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	var mintAmount uint64 = 30000
+	mintRes, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("error requesting mint: %v", err)
+	}
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: mintRes.Request,
+	}
+	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	}
+
+	testMint = bumpKeyset(testMint)
+	go func() {
+		if err := testMint.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	time.Sleep(time.Millisecond * 500)
+
+	_, err = testWallet.MintTokens(mintRes.Quote)
+	if err != nil {
+		t.Fatalf("got unexpected error minting tokens: %v", err)
+	}
+
+	testMint = bumpKeyset(testMint)
+	go func() {
+		if err := testMint.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	time.Sleep(time.Millisecond * 500)
+
+	activeKeyset, _ := wallet.GetMintActiveKeyset(mintURL, cashu.Sat)
+	// SendToPubkey would require a swap so new proofs should have id from new keyset
+	lockedProofs, err := testWallet.SendToPubkey(210, mintURL, testWallet.GetReceivePubkey(), nil, false)
+	if err != nil {
+		t.Fatalf("unexpected getting locked proofs: %v", err)
+	}
+	if lockedProofs[0].Id != activeKeyset.Id {
+		t.Fatalf("expected proofs with id '%v' but got '%v'", activeKeyset.Id, lockedProofs[0].Id)
+	}
+	token, _ := cashu.NewTokenV4(lockedProofs, mintURL, cashu.Sat, false)
+
+	testMint = bumpKeyset(testMint)
+	go func() {
+		if err := testMint.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	time.Sleep(time.Millisecond * 500)
+	_, err = testWallet2.Receive(token, false)
+}
+
 func TestWalletRestore(t *testing.T) {
 	mintURL := "http://127.0.0.1:3338"
 
@@ -905,7 +1007,7 @@ func testWalletRestore(
 
 func TestHTLC(t *testing.T) {
 	htlcMintPath := filepath.Join(".", "htlcmint1")
-	htlcMint, err := testutils.CreateTestMintServer(lnd1, "8080", htlcMintPath, dbMigrationPath, 0)
+	htlcMint, err := testutils.CreateTestMintServer(lnd1, "8080", 0, htlcMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -981,7 +1083,7 @@ func TestHTLC(t *testing.T) {
 
 func TestSendToPubkey(t *testing.T) {
 	p2pkMintPath := filepath.Join(".", "p2pkmint1")
-	p2pkMint, err := testutils.CreateTestMintServer(lnd1, "8889", p2pkMintPath, dbMigrationPath, 0)
+	p2pkMint, err := testutils.CreateTestMintServer(lnd1, "8889", 0, p2pkMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -994,7 +1096,7 @@ func TestSendToPubkey(t *testing.T) {
 	p2pkMintURL := "http://127.0.0.1:8889"
 
 	p2pkMintPath2 := filepath.Join(".", "p2pkmint2")
-	p2pkMint2, err := testutils.CreateTestMintServer(lnd2, "8890", p2pkMintPath2, dbMigrationPath, 0)
+	p2pkMint2, err := testutils.CreateTestMintServer(lnd2, "8890", 0, p2pkMintPath2, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

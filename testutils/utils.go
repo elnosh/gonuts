@@ -187,14 +187,47 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.
 	return nil
 }
 
-func mintConfig(
+func MintConfig(
 	lnd *btcdocker.Lnd,
 	port string,
+	derivationPathIdx uint32,
 	dbpath string,
 	dbMigrationPath string,
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Config, error) {
+	if err := os.MkdirAll(dbpath, 0750); err != nil {
+		return nil, err
+	}
+
+	var lightningClient lightning.Client
+	if lnd != nil {
+		var err error
+		lightningClient, err = LndClient(lnd, dbpath)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		lightningClient = &lightning.FakeBackend{}
+	}
+
+	timeout := time.Second * 2
+	mintConfig := &mint.Config{
+		DerivationPathIdx: derivationPathIdx,
+		Port:              port,
+		MintPath:          dbpath,
+		DBMigrationPath:   dbMigrationPath,
+		InputFeePpk:       inputFeePpk,
+		Limits:            limits,
+		LightningClient:   lightningClient,
+		LogLevel:          mint.Disable,
+		MeltTimeout:       &timeout,
+	}
+
+	return mintConfig, nil
+}
+
+func LndClient(lnd *btcdocker.Lnd, dbpath string) (*lightning.LndClient, error) {
 	if err := os.MkdirAll(dbpath, 0750); err != nil {
 		return nil, err
 	}
@@ -239,20 +272,7 @@ func mintConfig(
 		return nil, fmt.Errorf("error setting LND client: %v", err)
 	}
 
-	timeout := time.Second * 2
-	mintConfig := &mint.Config{
-		DerivationPathIdx: 0,
-		Port:              port,
-		MintPath:          dbpath,
-		DBMigrationPath:   dbMigrationPath,
-		InputFeePpk:       inputFeePpk,
-		Limits:            limits,
-		LightningClient:   lndClient,
-		LogLevel:          mint.Disable,
-		MeltTimeout:       &timeout,
-	}
-
-	return mintConfig, nil
+	return lndClient, nil
 }
 
 func CreateTestMint(
@@ -262,7 +282,7 @@ func CreateTestMint(
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Mint, error) {
-	config, err := mintConfig(lnd, "", dbpath, dbMigrationPath, inputFeePpk, limits)
+	config, err := MintConfig(lnd, "", 0, dbpath, dbMigrationPath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -277,11 +297,12 @@ func CreateTestMint(
 func CreateTestMintServer(
 	lnd *btcdocker.Lnd,
 	port string,
+	derivationPathIdx uint32,
 	dbpath string,
 	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := mintConfig(lnd, port, dbpath, dbMigrationPath, inputFeePpk, mint.MintLimits{})
+	config, err := MintConfig(lnd, port, derivationPathIdx, dbpath, dbMigrationPath, inputFeePpk, mint.MintLimits{})
 	if err != nil {
 		return nil, err
 	}
