@@ -170,13 +170,15 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.
 		return fmt.Errorf("error requesting mint: %v", err)
 	}
 
-	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintRes.Request,
-	}
-	response, _ := lnd.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		return fmt.Errorf("error paying invoice: %v", response.PaymentError)
+	if lnd != nil {
+		//pay invoice
+		sendPaymentRequest := lnrpc.SendRequest{
+			PaymentRequest: mintRes.Request,
+		}
+		response, _ := lnd.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+		if len(response.PaymentError) > 0 {
+			return fmt.Errorf("error paying invoice: %v", response.PaymentError)
+		}
 	}
 
 	_, err = wallet.MintTokens(mintRes.Quote)
@@ -188,7 +190,7 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.
 }
 
 func MintConfig(
-	lnd *btcdocker.Lnd,
+	backend lightning.Client,
 	port string,
 	derivationPathIdx uint32,
 	dbpath string,
@@ -200,17 +202,6 @@ func MintConfig(
 		return nil, err
 	}
 
-	var lightningClient lightning.Client
-	if lnd != nil {
-		var err error
-		lightningClient, err = LndClient(lnd, dbpath)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		lightningClient = &lightning.FakeBackend{}
-	}
-
 	timeout := time.Second * 2
 	mintConfig := &mint.Config{
 		DerivationPathIdx: derivationPathIdx,
@@ -219,7 +210,7 @@ func MintConfig(
 		DBMigrationPath:   dbMigrationPath,
 		InputFeePpk:       inputFeePpk,
 		Limits:            limits,
-		LightningClient:   lightningClient,
+		LightningClient:   backend,
 		LogLevel:          mint.Disable,
 		MeltTimeout:       &timeout,
 	}
@@ -282,7 +273,11 @@ func CreateTestMint(
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Mint, error) {
-	config, err := MintConfig(lnd, "", 0, dbpath, dbMigrationPath, inputFeePpk, limits)
+	lndClient, err := LndClient(lnd, dbpath)
+	if err != nil {
+		return nil, err
+	}
+	config, err := MintConfig(lndClient, "", 0, dbpath, dbMigrationPath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -295,14 +290,14 @@ func CreateTestMint(
 }
 
 func CreateTestMintServer(
-	lnd *btcdocker.Lnd,
+	backend lightning.Client,
 	port string,
 	derivationPathIdx uint32,
 	dbpath string,
 	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := MintConfig(lnd, port, derivationPathIdx, dbpath, dbMigrationPath, inputFeePpk, mint.MintLimits{})
+	config, err := MintConfig(backend, port, derivationPathIdx, dbpath, dbMigrationPath, inputFeePpk, mint.MintLimits{})
 	if err != nil {
 		return nil, err
 	}
@@ -685,7 +680,7 @@ type NutshellMintContainer struct {
 
 func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int) (*NutshellMintContainer, error) {
 	req := testcontainers.ContainerRequest{
-		Image:        "cashubtc/nutshell:0.16.0",
+		Image:        "cashubtc/nutshell:latest",
 		ExposedPorts: []string{"3338"},
 		Cmd: []string{
 			"poetry",

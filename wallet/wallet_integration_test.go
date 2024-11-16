@@ -4,7 +4,6 @@ package wallet_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"flag"
 	"log"
@@ -15,25 +14,24 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/mint"
+	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
-	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 )
 
 var (
 	ctx             context.Context
-	bitcoind        *btcdocker.Bitcoind
-	lnd1            *btcdocker.Lnd
-	lnd2            *btcdocker.Lnd
 	dbMigrationPath = "../mint/storage/sqlite/migrations"
 	nutshellMint    *testutils.NutshellMintContainer
+
+	mintURL1        = "http://127.0.0.1:3338"
+	mintURL2        = "http://127.0.0.1:3339"
+	mintWithFeesURL = "http://127.0.0.1:8080"
 )
 
 func TestMain(m *testing.M) {
@@ -42,52 +40,11 @@ func TestMain(m *testing.M) {
 
 func testMain(m *testing.M) int {
 	flag.Parse()
-
 	ctx = context.Background()
-	var err error
-	bitcoind, err = btcdocker.NewBitcoind(ctx)
-	if err != nil {
-		log.Println(err)
-		return 1
-	}
-
-	_, err = bitcoind.Client.CreateWallet("")
-	if err != nil {
-		log.Println(err)
-		return 1
-	}
-
-	lnd1, err = btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
-		log.Println(err)
-		return 1
-	}
-
-	lnd2, err = btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
-		log.Println(err)
-		return 1
-	}
-	defer func() {
-		bitcoind.Terminate(ctx)
-		lnd1.Terminate(ctx)
-		lnd2.Terminate(ctx)
-	}()
-
-	err = testutils.FundLndNode(ctx, bitcoind, lnd1)
-	if err != nil {
-		log.Println(err)
-		return 1
-	}
-
-	err = testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 15000000)
-	if err != nil {
-		log.Println(err)
-		return 1
-	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err := testutils.CreateTestMintServer(lnd1, "3338", 0, testMintPath, dbMigrationPath, 0)
+	fakeBackend := &lightning.FakeBackend{}
+	testMint, err := testutils.CreateTestMintServer(fakeBackend, "3338", 0, testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -99,8 +56,23 @@ func testMain(m *testing.M) int {
 		log.Fatal(testMint.Start())
 	}()
 
+	testMintPath2 := filepath.Join(".", "testmint2")
+	fakeBackend2 := &lightning.FakeBackend{}
+	testMint2, err := testutils.CreateTestMintServer(fakeBackend2, "3339", 0, testMintPath2, dbMigrationPath, 0)
+	if err != nil {
+		log.Println(err)
+		return 1
+	}
+	defer func() {
+		os.RemoveAll(testMintPath2)
+	}()
+	go func() {
+		log.Fatal(testMint2.Start())
+	}()
+
 	mintPath := filepath.Join(".", "testmintwithfees")
-	mintWithFees, err := testutils.CreateTestMintServer(lnd1, "8888", 0, mintPath, dbMigrationPath, 100)
+	fakeBackend3 := &lightning.FakeBackend{}
+	mintWithFees, err := testutils.CreateTestMintServer(fakeBackend3, "8080", 0, mintPath, dbMigrationPath, 100)
 	if err != nil {
 		log.Println(err)
 		return 1
@@ -123,7 +95,7 @@ func testMain(m *testing.M) int {
 
 func TestMintTokens(t *testing.T) {
 	testWalletPath := filepath.Join(".", "/testmintwallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, "http://127.0.0.1:3338")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,19 +104,9 @@ func TestMintTokens(t *testing.T) {
 	}()
 
 	var mintAmount uint64 = 30000
-	// check no err
 	mintRes, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("error requesting mint: %v", err)
-	}
-
-	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintRes.Request,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
 	}
 
 	mintInvoice, _ := testWallet.GetInvoiceByPaymentRequest(mintRes.Request)
@@ -162,15 +124,14 @@ func TestMintTokens(t *testing.T) {
 
 	// non-existent quote
 	_, err = testWallet.MintTokens("id198274")
-	if err == nil {
-		t.Fatalf("expected error but got nil")
+	if !errors.Is(err, wallet.ErrQuoteNotFound) {
+		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrQuoteNotFound, err)
 	}
 }
 
 func TestSend(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testsendwallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,13 +139,12 @@ func TestSend(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
 	var sendAmount uint64 = 4200
-	proofsToSend, err := testWallet.Send(sendAmount, mintURL, true)
+	proofsToSend, err := testWallet.Send(sendAmount, testWallet.CurrentMint(), true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
@@ -199,13 +159,12 @@ func TestSend(t *testing.T) {
 	}
 
 	// insufficient balance in wallet
-	_, err = testWallet.Send(2000000, mintURL, true)
+	_, err = testWallet.Send(2000000, testWallet.CurrentMint(), true)
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
 
 	// test mint with fees
-	mintWithFeesURL := "http://127.0.0.1:8888"
 	feesWalletPath := filepath.Join(".", "/testsendwalletfees")
 	feesWallet, err := testutils.CreateTestWallet(feesWalletPath, mintWithFeesURL)
 	if err != nil {
@@ -215,18 +174,17 @@ func TestSend(t *testing.T) {
 		os.RemoveAll(feesWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, feesWallet, lnd2, 10000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, feesWallet, nil, 10000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
 	sendAmount = 2000
-	proofsToSend, err = feesWallet.Send(sendAmount, mintWithFeesURL, true)
+	proofsToSend, err = feesWallet.Send(sendAmount, feesWallet.CurrentMint(), true)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
 
-	fees, err := testutils.Fees(proofsToSend, mintWithFeesURL)
+	fees, err := testutils.Fees(proofsToSend, feesWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
@@ -235,7 +193,7 @@ func TestSend(t *testing.T) {
 	}
 
 	// send without fees to receive
-	proofsToSend, err = feesWallet.Send(sendAmount, mintWithFeesURL, false)
+	proofsToSend, err = feesWallet.Send(sendAmount, feesWallet.CurrentMint(), false)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
@@ -245,9 +203,8 @@ func TestSend(t *testing.T) {
 }
 
 func TestReceive(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testreceivewallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,26 +212,12 @@ func TestReceive(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := testutils.CreateTestMintServer(lnd2, "3339", 0, testMintPath, dbMigrationPath, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.RemoveAll(testMintPath)
-	}()
-	go func() {
-		t.Fatal(testMint.Start())
-	}()
-
-	mint2URL := "http://127.0.0.1:3339"
 	testWalletPath2 := filepath.Join(".", "/testreceivewallet2")
-	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mint2URL)
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,16 +225,15 @@ func TestReceive(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, testWallet2, lnd1, 15000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet2, nil, 15000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	proofsToSend, err := testWallet2.Send(1500, mint2URL, true)
+	proofsToSend, err := testWallet2.Send(1500, mintURL2, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mint2URL, cashu.Sat, false)
+	token, _ := cashu.NewTokenV4(proofsToSend, mintURL2, cashu.Sat, false)
 
 	// test receive swap == true
 	_, err = testWallet.Receive(token, true)
@@ -304,15 +246,15 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("expected len of trusted mints '%v' but got '%v' instead", 1, len(trustedMints))
 	}
 	defaultMint := "http://127.0.0.1:3338"
-	if !slices.Contains(trustedMints, defaultMint) {
+	if trustedMints[0] != defaultMint {
 		t.Fatalf("expected '%v' in list of trusted of trusted mints", defaultMint)
 	}
 
-	proofsToSend, err = testWallet2.Send(1500, mint2URL, true)
+	proofsToSend, err = testWallet2.Send(1500, mintURL2, true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ = cashu.NewTokenV4(proofsToSend, mint2URL, cashu.Sat, false)
+	token, _ = cashu.NewTokenV4(proofsToSend, mintURL2, cashu.Sat, false)
 
 	// test receive swap == false
 	_, err = testWallet.Receive(token, false)
@@ -325,16 +267,14 @@ func TestReceive(t *testing.T) {
 	if len(trustedMints) != 2 {
 		t.Fatalf("expected len of trusted mints '%v' but got '%v' instead", 2, len(trustedMints))
 	}
-	if !slices.Contains(trustedMints, mint2URL) {
-		t.Fatalf("expected '%v' in list of trusted of trusted mints", mint2URL)
+	if !slices.Contains(trustedMints, mintURL2) {
+		t.Fatalf("expected '%v' in list of trusted of trusted mints", mintURL2)
 	}
 }
 
 func TestReceiveFees(t *testing.T) {
-	// mint with fees url
-	mintURL := "http://127.0.0.1:8888"
 	testWalletPath := filepath.Join(".", "/testreceivefees")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintWithFeesURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,13 +282,12 @@ func TestReceiveFees(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
 	testWalletPath2 := filepath.Join(".", "/testreceivefees2")
-	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintWithFeesURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,18 +296,18 @@ func TestReceiveFees(t *testing.T) {
 	}()
 
 	var sendAmount uint64 = 2000
-	proofsToSend, err := testWallet.Send(sendAmount, mintURL, true)
+	proofsToSend, err := testWallet.Send(sendAmount, testWallet.CurrentMint(), true)
 	if err != nil {
 		t.Fatalf("got unexpected error in send: %v", err)
 	}
-	token, _ := cashu.NewTokenV4(proofsToSend, mintURL, cashu.Sat, false)
+	token, _ := cashu.NewTokenV4(proofsToSend, testWallet.CurrentMint(), cashu.Sat, false)
 
 	amountReceived, err := testWallet2.Receive(token, false)
 	if err != nil {
 		t.Fatalf("got unexpected error in receive: %v", err)
 	}
 
-	fees, err := testutils.Fees(proofsToSend, mintURL)
+	fees, err := testutils.Fees(proofsToSend, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
@@ -379,9 +318,8 @@ func TestReceiveFees(t *testing.T) {
 }
 
 func TestMelt(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testmeltwallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,19 +327,12 @@ func TestMelt(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	// create invoice for melt request
-	invoice := lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
-	if err != nil {
-		t.Fatalf("error creating invoice: %v", err)
-	}
-
-	meltResponse, err := testWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
+	bolt11, _, _, _ := lightning.CreateFakeInvoice(30000, false)
+	meltResponse, err := testWallet.Melt(bolt11, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
@@ -410,23 +341,18 @@ func TestMelt(t *testing.T) {
 	}
 
 	// try melt for invoice over balance
-	invoice = lnrpc.Invoice{Value: 6000000}
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
-	if err != nil {
-		t.Fatalf("error creating invoice: %v", err)
-	}
-	_, err = testWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
+	bolt11, _, _, _ = lightning.CreateFakeInvoice(600000, false)
+	_, err = testWallet.Melt(bolt11, testWallet.CurrentMint())
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
 
-	_, err = testWallet.Melt(addInvoiceResponse.PaymentRequest, "http://nonexistent.mint")
+	_, err = testWallet.Melt(bolt11, "http://nonexistent.mint")
 	if !errors.Is(err, wallet.ErrMintNotExist) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
 
 	// test melt with fees
-	mintWithFeesURL := "http://127.0.0.1:8888"
 	feesWalletPath := filepath.Join(".", "/testsendwalletfees")
 	feesWallet, err := testutils.CreateTestWallet(feesWalletPath, mintWithFeesURL)
 	if err != nil {
@@ -436,19 +362,12 @@ func TestMelt(t *testing.T) {
 		os.RemoveAll(feesWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, feesWallet, lnd2, 10000)
-	if err != nil {
+	if err := testutils.FundCashuWallet(ctx, feesWallet, nil, 10000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	// create invoice for melt request
-	invoice = lnrpc.Invoice{Value: 5000}
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
-	if err != nil {
-		t.Fatalf("error creating invoice: %v", err)
-	}
-
-	meltResponse, err = feesWallet.Melt(addInvoiceResponse.PaymentRequest, mintWithFeesURL)
+	bolt11, _, _, _ = lightning.CreateFakeInvoice(5000, false)
+	meltResponse, err = feesWallet.Melt(bolt11, mintWithFeesURL)
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
@@ -458,22 +377,8 @@ func TestMelt(t *testing.T) {
 }
 
 func TestMintSwap(t *testing.T) {
-	mint2URL := "http://127.0.0.1:8081"
-	testMintPath := filepath.Join(".", "testmint2")
-	testMint, err := testutils.CreateTestMintServer(lnd2, "8081", 0, testMintPath, dbMigrationPath, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.RemoveAll(testMintPath)
-	}()
-	go func() {
-		t.Fatal(testMint.Start())
-	}()
-
-	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testmintswapwallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,26 +387,26 @@ func TestMintSwap(t *testing.T) {
 	}()
 
 	var amountToSwap uint64 = 1000
-	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mint2URL)
+	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mintURL2)
 	if !errors.Is(err, wallet.ErrMintNotExist) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
 
-	_, err = testWallet.AddMint(mint2URL)
+	_, err = testWallet.AddMint(mintURL2)
 	if err != nil {
 		t.Fatalf("unexpected error adding mint to wallet: %v", err)
 	}
 
-	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mint2URL)
+	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mintURL2)
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
 
 	var fundAmount uint64 = 21000
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, fundAmount); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, fundAmount); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
-	amountSwapped, err := testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mint2URL)
+	amountSwapped, err := testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mintURL2)
 	if err != nil {
 		t.Fatalf("unexpected error doing mint swap: %v", err)
 	}
@@ -513,7 +418,7 @@ func TestMintSwap(t *testing.T) {
 		t.Fatalf("expected balance '%v' but got '%v'", expectedBalance, mint1Balance)
 	}
 
-	mint2Balance := balanceByMints[mint2URL]
+	mint2Balance := balanceByMints[mintURL2]
 	if mint2Balance != amountSwapped {
 		t.Fatalf("expected balance '%v' but got '%v'", amountSwapped, mint2Balance)
 	}
@@ -521,9 +426,8 @@ func TestMintSwap(t *testing.T) {
 
 // check balance is correct after certain operations
 func TestWalletBalance(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testwalletbalance")
-	balanceTestWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	balanceTestWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,13 +442,6 @@ func TestWalletBalance(t *testing.T) {
 		t.Fatalf("unexpected error in mint request: %v", err)
 	}
 
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintRequest.Request,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
-	}
 	_, err = balanceTestWallet.MintTokens(mintRequest.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error in mint tokens: %v", err)
@@ -553,7 +450,7 @@ func TestWalletBalance(t *testing.T) {
 	if balanceTestWallet.GetBalance() != mintAmount {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", mintAmount, balanceTestWallet.GetBalance())
 	}
-	mintBalance := balanceTestWallet.GetBalanceByMints()[mintURL]
+	mintBalance := balanceTestWallet.GetBalanceByMints()[mintURL1]
 	if mintBalance != mintAmount {
 		t.Fatalf("expected mint balance of '%v' but got '%v' instead", mintAmount, mintBalance)
 	}
@@ -561,7 +458,7 @@ func TestWalletBalance(t *testing.T) {
 	balance := balanceTestWallet.GetBalance()
 	// test balance after send
 	var sendAmount uint64 = 1200
-	_, err = balanceTestWallet.Send(sendAmount, mintURL, true)
+	_, err = balanceTestWallet.Send(sendAmount, balanceTestWallet.CurrentMint(), true)
 	if err != nil {
 		t.Fatalf("unexpected error in send: %v", err)
 	}
@@ -570,15 +467,14 @@ func TestWalletBalance(t *testing.T) {
 	}
 
 	// test balance is same after failed melt request
-	invoice := lnrpc.Invoice{Value: 5000}
-	addInvoiceResponse, err := lnd1.Client.AddInvoice(ctx, &invoice)
+	failPayment := true
+	// this will make the payment fail
+	bolt11, _, _, err := lightning.CreateFakeInvoice(5000, failPayment)
 	if err != nil {
-		t.Fatalf("error creating invoice: %v", err)
+		t.Fatal(err)
 	}
-
 	balanceBeforeMelt := balanceTestWallet.GetBalance()
-	// doing self-payment so this should make melt return unpaid
-	meltresponse, err := balanceTestWallet.Melt(addInvoiceResponse.PaymentRequest, mintURL)
+	meltresponse, err := balanceTestWallet.Melt(bolt11, balanceTestWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("got unexpected error in melt: %v", err)
 	}
@@ -586,7 +482,6 @@ func TestWalletBalance(t *testing.T) {
 		t.Fatalf("expected melt with unpaid state but got '%v'", meltresponse.State.String())
 	}
 
-	// check balance is same after failed melt
 	if balanceTestWallet.GetBalance() != balanceBeforeMelt {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", balanceBeforeMelt, balanceTestWallet.GetBalance())
 	}
@@ -594,9 +489,8 @@ func TestWalletBalance(t *testing.T) {
 
 // check balance is correct after ops with fees
 func TestWalletBalanceFees(t *testing.T) {
-	mintURL := "http://127.0.0.1:8888"
 	testWalletPath := filepath.Join(".", "/testwalletbalancefees")
-	balanceTestWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	balanceTestWallet, err := testutils.CreateTestWallet(testWalletPath, mintWithFeesURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,13 +498,13 @@ func TestWalletBalanceFees(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	err = testutils.FundCashuWallet(ctx, balanceTestWallet, lnd2, 30000)
+	err = testutils.FundCashuWallet(ctx, balanceTestWallet, nil, 30000)
 	if err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
 	testWalletPath2 := filepath.Join(".", "/testreceivefees2")
-	balanceTestWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	balanceTestWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintWithFeesURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,11 +515,11 @@ func TestWalletBalanceFees(t *testing.T) {
 	sendAmounts := []uint64{1200, 2000, 5000}
 
 	for _, sendAmount := range sendAmounts {
-		proofsToSend, err := balanceTestWallet.Send(sendAmount, mintURL, true)
+		proofsToSend, err := balanceTestWallet.Send(sendAmount, balanceTestWallet.CurrentMint(), true)
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
-		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, cashu.Sat, false)
+		token, _ := cashu.NewTokenV4(proofsToSend, balanceTestWallet.CurrentMint(), cashu.Sat, false)
 
 		// test balance in receiving wallet
 		balanceBeforeReceive := balanceTestWallet2.GetBalance()
@@ -641,13 +535,13 @@ func TestWalletBalanceFees(t *testing.T) {
 
 	// test without including fees in send
 	for _, sendAmount := range sendAmounts {
-		proofsToSend, err := balanceTestWallet.Send(sendAmount, mintURL, false)
+		proofsToSend, err := balanceTestWallet.Send(sendAmount, balanceTestWallet.CurrentMint(), false)
 		if err != nil {
 			t.Fatalf("unexpected error in send: %v", err)
 		}
-		token, _ := cashu.NewTokenV4(proofsToSend, mintURL, cashu.Sat, false)
+		token, _ := cashu.NewTokenV4(proofsToSend, balanceTestWallet.CurrentMint(), cashu.Sat, false)
 
-		fees, err := testutils.Fees(proofsToSend, mintURL)
+		fees, err := testutils.Fees(proofsToSend, balanceTestWallet.CurrentMint())
 		if err != nil {
 			t.Fatalf("got unexpected error: %v", err)
 		}
@@ -668,7 +562,21 @@ func TestWalletBalanceFees(t *testing.T) {
 }
 
 func TestPendingProofs(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
+	mintURL := "http://127.0.0.1:8081"
+	testMintPath := filepath.Join(".", "testmint2")
+	// Setting delay so that it marks payments as pending
+	fakeBackend := &lightning.FakeBackend{PaymentDelay: int64(time.Minute) * 2}
+	testMint, err := testutils.CreateTestMintServer(fakeBackend, "8081", 0, testMintPath, dbMigrationPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testMintPath)
+	}()
+	go func() {
+		t.Fatal(testMint.Start())
+	}()
+
 	testWalletPath := filepath.Join(".", "/testpendingwallet")
 	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
 	if err != nil {
@@ -679,20 +587,13 @@ func TestPendingProofs(t *testing.T) {
 	}()
 
 	var fundingBalance uint64 = 15000
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, fundingBalance); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, fundingBalance); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
-	// use hodl invoice to cause melt to get stuck in pending
-	preimage, _ := testutils.GenerateRandomBytes()
-	hash := sha256.Sum256(preimage)
-	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
-	addHodlInvoiceRes, err := lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
-	if err != nil {
-		t.Fatalf("error creating hodl invoice: %v", err)
-	}
-
-	meltQuote, err := testWallet.Melt(addHodlInvoiceRes.PaymentRequest, testWallet.CurrentMint())
+	// fake backend has payment delay set so this invoice will return pending
+	bolt11, _, paymentHash, err := lightning.CreateFakeInvoice(2100, false)
+	meltQuote, err := testWallet.Melt(bolt11, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in melt: %v", err)
 	}
@@ -718,12 +619,8 @@ func TestPendingProofs(t *testing.T) {
 			meltQuote.Quote, pendingMeltQuotes[0])
 	}
 
-	// settle hodl invoice and test that there are no pending proofs now
-	settleHodlInvoice := invoicesrpc.SettleInvoiceMsg{Preimage: preimage}
-	_, err = lnd2.InvoicesClient.SettleInvoice(ctx, &settleHodlInvoice)
-	if err != nil {
-		t.Fatalf("error settling hodl invoice: %v", err)
-	}
+	// check no pending balance after settling payment and checking melt quote state
+	fakeBackend.SetInvoiceStatus(paymentHash, lightning.Succeeded)
 
 	meltQuoteStateResponse, err := testWallet.CheckMeltQuoteState(meltQuote.Quote)
 	if err != nil {
@@ -733,8 +630,6 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected quote state of '%s' but got '%s' instead",
 			nut05.Paid, meltQuoteStateResponse.State)
 	}
-
-	// check no pending balance after settling and checking melt quote state
 	if testWallet.PendingBalance() != 0 {
 		t.Fatalf("expected no pending balance but got '%v' instead", pendingBalance)
 	}
@@ -745,16 +640,9 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected no pending quotes but got '%v' instead", len(pendingMeltQuotes))
 	}
 
-	// test hodl invoice to cause melt to get stuck in pending and then cancel it
-	preimage, _ = testutils.GenerateRandomBytes()
-	hash = sha256.Sum256(preimage)
-	hodlInvoice = invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
-	addHodlInvoiceRes, err = lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
-	if err != nil {
-		t.Fatalf("error creating hodl invoice: %v", err)
-	}
-
-	meltQuote, err = testWallet.Melt(addHodlInvoiceRes.PaymentRequest, testWallet.CurrentMint())
+	// test pending payment and then cancel it
+	bolt11, _, paymentHash, err = lightning.CreateFakeInvoice(2100, false)
+	meltQuote, err = testWallet.Melt(bolt11, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in melt: %v", err)
 	}
@@ -773,12 +661,7 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected '%v' pending quote but got '%v' instead", 1, len(pendingMeltQuotes))
 	}
 
-	cancelInvoice := invoicesrpc.CancelInvoiceMsg{PaymentHash: hash[:]}
-	_, err = lnd2.InvoicesClient.CancelInvoice(ctx, &cancelInvoice)
-	if err != nil {
-		t.Fatalf("error canceling hodl invoice: %v", err)
-	}
-
+	fakeBackend.SetInvoiceStatus(paymentHash, lightning.Failed)
 	meltQuoteStateResponse, err = testWallet.CheckMeltQuoteState(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error checking melt quote state: %v", err)
@@ -814,7 +697,8 @@ func TestKeysetRotations(t *testing.T) {
 	mintURL := "http://127.0.0.1:8082"
 	testMintPath := filepath.Join(".", "testmintkeysetrotation")
 	var keysetDerivationIdx uint32 = 0
-	testMint, err := testutils.CreateTestMintServer(lnd1, "8082", keysetDerivationIdx, testMintPath, dbMigrationPath, 0)
+	fakeBackend := &lightning.FakeBackend{}
+	testMint, err := testutils.CreateTestMintServer(fakeBackend, "8082", keysetDerivationIdx, testMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -830,7 +714,7 @@ func TestKeysetRotations(t *testing.T) {
 	var bumpKeyset = func(mint *mint.MintServer) *mint.MintServer {
 		testMint.Shutdown()
 		keysetDerivationIdx++
-		testMint, err := testutils.CreateTestMintServer(lnd1, "8082", keysetDerivationIdx, testMintPath, dbMigrationPath, 0)
+		testMint, err := testutils.CreateTestMintServer(fakeBackend, "8082", keysetDerivationIdx, testMintPath, dbMigrationPath, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -859,13 +743,6 @@ func TestKeysetRotations(t *testing.T) {
 	mintRes, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("error requesting mint: %v", err)
-	}
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintRes.Request,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
 	}
 
 	testMint = bumpKeyset(testMint)
@@ -911,10 +788,8 @@ func TestKeysetRotations(t *testing.T) {
 }
 
 func TestWalletRestore(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
-
 	testWalletPath := filepath.Join(".", "/testrestorewallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -923,7 +798,7 @@ func TestWalletRestore(t *testing.T) {
 	}()
 
 	testWalletPath2 := filepath.Join(".", "/testrestorewallet2")
-	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -931,7 +806,7 @@ func TestWalletRestore(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
-	testWalletRestore(t, testWallet, testWallet2, testWalletPath, false)
+	testWalletRestore(t, testWallet, testWallet2, testWalletPath)
 }
 
 func testWalletRestore(
@@ -939,7 +814,6 @@ func testWalletRestore(
 	testWallet *wallet.Wallet,
 	testWallet2 *wallet.Wallet,
 	restorePath string,
-	fakeBackend bool,
 ) {
 	mintURL := testWallet.CurrentMint()
 
@@ -947,17 +821,6 @@ func testWalletRestore(
 	mintRequest, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in mint request: %v", err)
-	}
-
-	if !fakeBackend {
-		//pay invoice
-		sendPaymentRequest := lnrpc.SendRequest{
-			PaymentRequest: mintRequest.Request,
-		}
-		response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-		if len(response.PaymentError) > 0 {
-			t.Fatalf("error paying invoice: %v", response.PaymentError)
-		}
 	}
 
 	_, err = testWallet.MintTokens(mintRequest.Quote)
@@ -1006,18 +869,7 @@ func testWalletRestore(
 }
 
 func TestHTLC(t *testing.T) {
-	htlcMintPath := filepath.Join(".", "htlcmint1")
-	htlcMint, err := testutils.CreateTestMintServer(lnd1, "8080", 0, htlcMintPath, dbMigrationPath, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.RemoveAll(htlcMintPath)
-	}()
-	go func() {
-		t.Fatal(htlcMint.Start())
-	}()
-	htlcMintURL := "http://127.0.0.1:8080"
+	htlcMintURL := mintURL1
 
 	testWalletPath := filepath.Join(".", "/testwallethtlc")
 	testWallet, err := testutils.CreateTestWallet(testWalletPath, htlcMintURL)
@@ -1037,7 +889,7 @@ func TestHTLC(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd2, 30000); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
@@ -1083,7 +935,8 @@ func TestHTLC(t *testing.T) {
 
 func TestSendToPubkey(t *testing.T) {
 	p2pkMintPath := filepath.Join(".", "p2pkmint1")
-	p2pkMint, err := testutils.CreateTestMintServer(lnd1, "8889", 0, p2pkMintPath, dbMigrationPath, 0)
+	fakeBackend := &lightning.FakeBackend{}
+	p2pkMint, err := testutils.CreateTestMintServer(fakeBackend, "8889", 0, p2pkMintPath, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1096,7 +949,8 @@ func TestSendToPubkey(t *testing.T) {
 	p2pkMintURL := "http://127.0.0.1:8889"
 
 	p2pkMintPath2 := filepath.Join(".", "p2pkmint2")
-	p2pkMint2, err := testutils.CreateTestMintServer(lnd2, "8890", 0, p2pkMintPath2, dbMigrationPath, 0)
+	fakeBackend2 := &lightning.FakeBackend{}
+	p2pkMint2, err := testutils.CreateTestMintServer(fakeBackend2, "8890", 0, p2pkMintPath2, dbMigrationPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1126,29 +980,17 @@ func TestSendToPubkey(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
-	testP2PK(t, testWallet, testWallet2, false)
+	testP2PK(t, testWallet, testWallet2)
 }
 
 func testP2PK(
 	t *testing.T,
 	testWallet *wallet.Wallet,
 	testWallet2 *wallet.Wallet,
-	fakeBackend bool,
 ) {
 	mintRequest, err := testWallet.RequestMint(20000, testWallet.CurrentMint())
 	if err != nil {
 		t.Fatalf("unexpected error in mint request: %v", err)
-	}
-
-	if !fakeBackend {
-		//pay invoice
-		sendPaymentRequest := lnrpc.SendRequest{
-			PaymentRequest: mintRequest.Request,
-		}
-		response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-		if len(response.PaymentError) > 0 {
-			t.Fatalf("error paying invoice: %v", response.PaymentError)
-		}
 	}
 
 	_, err = testWallet.MintTokens(mintRequest.Quote)
@@ -1204,9 +1046,8 @@ func testP2PK(
 }
 
 func TestDLEQProofs(t *testing.T) {
-	mintURL := "http://127.0.0.1:3338"
 	testWalletPath := filepath.Join(".", "/testdleqwallet")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL)
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1214,10 +1055,10 @@ func TestDLEQProofs(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	testDLEQ(t, testWallet, false)
+	testDLEQ(t, testWallet)
 }
 
-func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
+func testDLEQ(t *testing.T, testWallet *wallet.Wallet) {
 	mintURL := testWallet.CurrentMint()
 	keyset, err := wallet.GetMintActiveKeyset(mintURL, cashu.Sat)
 	if err != nil {
@@ -1229,17 +1070,6 @@ func testDLEQ(t *testing.T, testWallet *wallet.Wallet, fakeBackend bool) {
 		t.Fatalf("unexpected error requesting mint: %v", err)
 	}
 
-	if !fakeBackend {
-		//pay invoice
-		sendPaymentRequest := lnrpc.SendRequest{
-			PaymentRequest: mintRes.Request,
-		}
-		response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-		if len(response.PaymentError) > 0 {
-			t.Fatalf("error paying invoice: %v", response.PaymentError)
-		}
-
-	}
 	_, err = testWallet.MintTokens(mintRes.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error minting tokens: %v", err)
@@ -1337,15 +1167,14 @@ func TestOverpaidFeesChange(t *testing.T) {
 		t.Fatalf("unexpected error minting tokens: %v", err)
 	}
 
-	var invoiceAmount int64 = 2000
-	invoice := lnrpc.Invoice{Value: invoiceAmount}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
-	if err != nil {
-		t.Fatalf("error creating invoice: %v", err)
-	}
+	var invoiceAmount uint64 = 2000
+	bolt11 := "lnbcrt20u1pnn00ztpp5h6frn7fk93jurxpygwnkck2u7dc05c2he7l7amgna7ngteeynk2qdqqcqzzsxqyz5vqsp5s6fw9g7twqcv5h9pv74vutwj7v3f4xy8jgtwww05mt0lp0sl8zsq9qyyssqt9khadm8v7mzc7z7rkuah4xqncrsjfxueqjfv2enze7vvha478asgztpfdw9c6redv2zr4xru7t6k6epfsw50tguzc08g88up0ct08gpalvp8d"
+
+	// TODO: this invoice was being rejected by nutshell
+	//bolt11, _, _, _ := lightning.CreateFakeInvoice(invoiceAmount, false)
 
 	balanceBeforeMelt := testWallet.GetBalance()
-	meltResponse, err := testWallet.Melt(addInvoiceResponse.PaymentRequest, nutshellURL)
+	meltResponse, err := testWallet.Melt(bolt11, nutshellURL)
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
@@ -1356,7 +1185,7 @@ func TestOverpaidFeesChange(t *testing.T) {
 
 	// actual lightning fee paid
 	lightningFee := meltResponse.FeeReserve - meltResponse.Change.Amount()
-	expectedBalance := balanceBeforeMelt - uint64(invoiceAmount) - lightningFee
+	expectedBalance := balanceBeforeMelt - invoiceAmount - lightningFee
 	if testWallet.GetBalance() != expectedBalance {
 		t.Fatalf("expected balance of '%v' but got '%v' instead", expectedBalance, testWallet.GetBalance())
 	}
@@ -1411,7 +1240,7 @@ func TestSendToPubkeyNutshell(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
-	testP2PK(t, testWallet, testWallet2, true)
+	testP2PK(t, testWallet, testWallet2)
 }
 
 func TestDLEQProofsNutshell(t *testing.T) {
@@ -1426,7 +1255,7 @@ func TestDLEQProofsNutshell(t *testing.T) {
 		os.RemoveAll(testWalletPath)
 	}()
 
-	testDLEQ(t, testWallet, true)
+	testDLEQ(t, testWallet)
 }
 
 func TestWalletRestoreNutshell(t *testing.T) {
@@ -1450,5 +1279,5 @@ func TestWalletRestoreNutshell(t *testing.T) {
 		os.RemoveAll(testWalletPath2)
 	}()
 
-	testWalletRestore(t, testWallet, testWallet2, testWalletPath, true)
+	testWalletRestore(t, testWallet, testWallet2, testWalletPath)
 }
