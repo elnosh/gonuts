@@ -130,11 +130,13 @@ func LoadMint(config Config) (*Mint, error) {
 
 		if dbkeyset.Id == activeKeyset.Id {
 			activeKeysetNew = false
+			mint.db.UpdateKeysetActive(activeKeyset.Id, true)
 		}
 		keyset, err := crypto.GenerateKeyset(master, dbkeyset.DerivationPathIdx, dbkeyset.InputFeePpk)
 		if err != nil {
 			return nil, err
 		}
+		keyset.Active = dbkeyset.Active
 		mintKeysets[keyset.Id] = *keyset
 	}
 
