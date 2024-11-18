@@ -25,12 +25,8 @@ func GetMintActiveKeyset(mintURL string, unit cashu.Unit) (*crypto.WalletKeyset,
 				if err != nil {
 					return nil, err
 				}
-				id := crypto.DeriveKeysetId(keys)
-				if id != keyset.Id {
-					return nil, fmt.Errorf("Got invalid keyset. Derived id: '%v' but got '%v' from mint", id, keyset.Id)
-				}
 				return &crypto.WalletKeyset{
-					Id:          id,
+					Id:          keyset.Id,
 					MintURL:     mintURL,
 					Unit:        keyset.Unit,
 					Active:      true,
@@ -80,6 +76,10 @@ func GetKeysetKeys(mintURL, id string) (map[uint64]*secp256k1.PublicKey, error) 
 		if err != nil {
 			return nil, err
 		}
+	}
+	derivedId := crypto.DeriveKeysetId(keys)
+	if id != derivedId {
+		return nil, fmt.Errorf("Got invalid keyset. Derived id: '%v' but got '%v' from mint", derivedId, keysetsResponse.Keysets[0].Id)
 	}
 
 	return keys, nil
@@ -139,13 +139,8 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 					if err != nil {
 						return nil, err
 					}
-					id := crypto.DeriveKeysetId(keys)
-					if id != keyset.Id {
-						return nil, fmt.Errorf("Got invalid keyset. Derived id: '%v' but got '%v' from mint", id, keyset.Id)
-					}
-
 					activeKeyset = crypto.WalletKeyset{
-						Id:          id,
+						Id:          keyset.Id,
 						MintURL:     mintURL,
 						Unit:        keyset.Unit,
 						Active:      true,
