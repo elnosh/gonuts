@@ -487,14 +487,19 @@ func pay(ctx *cli.Context) error {
 	}
 	selectedMint := promptMintSelection("pay invoice")
 
-	meltResponse, err := nutw.Melt(invoice, selectedMint)
+	meltQuote, err := nutw.RequestMeltQuote(invoice, selectedMint)
 	if err != nil {
 		printErr(err)
 	}
 
-	switch meltResponse.State {
+	meltResult, err := nutw.Melt(meltQuote.Quote)
+	if err != nil {
+		printErr(err)
+	}
+
+	switch meltResult.State {
 	case nut05.Paid:
-		fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResponse.Preimage)
+		fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResult.Preimage)
 	case nut05.Pending:
 		fmt.Println("payment is pending")
 	case nut05.Unpaid:

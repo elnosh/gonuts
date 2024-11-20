@@ -72,8 +72,8 @@ type MintQuote struct {
 	Method         string
 	State          nut04.State
 	Unit           string
-	Amount         uint64
 	PaymentRequest string
+	Amount         uint64
 	CreatedAt      int64
 	SettledAt      int64
 	QuoteExpiry    uint64
@@ -89,6 +89,7 @@ type MeltQuote struct {
 	Amount         uint64
 	FeeReserve     uint64
 	Preimage       string
+	CreatedAt      int64
 	SettledAt      int64
 	QuoteExpiry    uint64
 }
