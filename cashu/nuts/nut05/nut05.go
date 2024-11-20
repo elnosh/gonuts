@@ -53,7 +53,6 @@ type PostMeltQuoteBolt11Response struct {
 	Amount     uint64                  `json:"amount"`
 	FeeReserve uint64                  `json:"fee_reserve"`
 	State      State                   `json:"state"`
-	Paid       bool                    `json:"paid"` // DEPRECATED: use state instead
 	Expiry     uint64                  `json:"expiry"`
 	Preimage   string                  `json:"payment_preimage,omitempty"`
 	Change     cashu.BlindedSignatures `json:"change,omitempty"`
@@ -70,7 +69,6 @@ type TempQuote struct {
 	Amount     uint64                  `json:"amount"`
 	FeeReserve uint64                  `json:"fee_reserve"`
 	State      string                  `json:"state"`
-	Paid       bool                    `json:"paid"` // DEPRECATED: use state instead
 	Expiry     uint64                  `json:"expiry"`
 	Preimage   string                  `json:"payment_preimage,omitempty"`
 	Change     cashu.BlindedSignatures `json:"change,omitempty"`
@@ -82,7 +80,6 @@ func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) 
 		Amount:     quoteResponse.Amount,
 		FeeReserve: quoteResponse.FeeReserve,
 		State:      quoteResponse.State.String(),
-		Paid:       quoteResponse.Paid,
 		Expiry:     quoteResponse.Expiry,
 		Preimage:   quoteResponse.Preimage,
 		Change:     quoteResponse.Change,
@@ -102,7 +99,6 @@ func (quoteResponse *PostMeltQuoteBolt11Response) UnmarshalJSON(data []byte) err
 	quoteResponse.FeeReserve = tempQuote.FeeReserve
 	state := StringToState(tempQuote.State)
 	quoteResponse.State = state
-	quoteResponse.Paid = tempQuote.Paid
 	quoteResponse.Expiry = tempQuote.Expiry
 	quoteResponse.Preimage = tempQuote.Preimage
 	quoteResponse.Change = tempQuote.Change

@@ -336,7 +336,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
-	if !meltResponse.Paid {
+	if meltResponse.State != nut05.Paid {
 		t.Fatalf("expected paid melt")
 	}
 
@@ -371,7 +371,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
-	if !meltResponse.Paid {
+	if meltResponse.State != nut05.Paid {
 		t.Fatalf("expected paid melt")
 	}
 }

@@ -302,12 +302,11 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 		return 0, err
 	}
 
-	// TODO: remove usage of 'Paid' field after mints have upgraded
+	if mintQuote.State == nut04.Unpaid {
+		return 0, errors.New("payment request has not paid")
+	}
 	if mintQuote.State == nut04.Issued {
 		return 0, errors.New("quote has already been issued")
-	}
-	if !mintQuote.Paid || mintQuote.State == nut04.Unpaid {
-		return 0, errors.New("invoice not paid")
 	}
 
 	activeKeyset, err := w.getActiveKeyset(mint)
@@ -711,7 +710,7 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 
 	if quote.State != nut05.Paid {
 		// if quote was previously not paid and status has changed, update in db
-		if quoteState.State == nut05.Paid || quoteState.Paid {
+		if quoteState.State == nut05.Paid {
 			quote.Preimage = quoteState.Preimage
 			quote.SettledAt = time.Now().Unix()
 			if err := w.db.SaveMeltQuote(*quote); err != nil {
@@ -735,7 +734,7 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 			}
 		}
 
-		if (quoteState.State == nut05.Unknown && !quoteState.Paid) || quoteState.State == nut05.Unpaid {
+		if quoteState.State == nut05.Unknown || quoteState.State == nut05.Unpaid {
 			pendingProofs := w.db.GetPendingProofsByQuoteId(quoteId)
 			// if there were any pending proofs tied to this quote, remove them from pending
 			// and add them to available proofs for wallet to use
@@ -841,22 +840,7 @@ func (w *Wallet) Melt(invoice, mintURL string) (*nut05.PostMeltQuoteBolt11Respon
 		return nil, err
 	}
 
-	// TODO: deprecate paid field and only use State
-	meltState := nut05.Unpaid
-	// if state field is present, use that instead of paid
-	if meltBolt11Response.State != nut05.Unknown {
-		meltState = meltBolt11Response.State
-	} else {
-		if meltBolt11Response.Paid {
-			meltState = nut05.Paid
-			meltBolt11Response.State = nut05.Paid
-		} else {
-			meltState = nut05.Unpaid
-			meltBolt11Response.State = nut05.Unpaid
-		}
-	}
-
-	switch meltState {
+	switch meltBolt11Response.State {
 	case nut05.Unpaid:
 		// if quote is unpaid, remove proofs from pending and add them
 		// to proofs available
@@ -977,7 +961,7 @@ func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, 
 
 	// if melt request was successful and invoice got paid,
 	// make mint request to get valid proofs
-	if meltBolt11Response.Paid {
+	if meltBolt11Response.State == nut05.Paid {
 		mintedAmount, err := w.MintTokens(mintResponse.Quote)
 		if err != nil {
 			return 0, fmt.Errorf("error minting tokens: %v", err)
