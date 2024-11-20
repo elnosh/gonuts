@@ -232,7 +232,6 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		Quote:   mintQuote.Id,
 		Request: mintQuote.PaymentRequest,
 		State:   mintQuote.State,
-		Paid:    false,
 		Expiry:  mintQuote.Expiry,
 	}
 	jsonRes, err := json.Marshal(&mintQuoteResponse)
@@ -270,12 +269,10 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	paid := mintQuote.State == nut04.Paid || mintQuote.State == nut04.Issued
 	mintQuoteStateResponse := nut04.PostMintQuoteBolt11Response{
 		Quote:   mintQuote.Id,
 		Request: mintQuote.PaymentRequest,
 		State:   mintQuote.State,
-		Paid:    paid, // DEPRECATED: remove after wallets have upgraded
 		Expiry:  mintQuote.Expiry,
 	}
 	jsonRes, err := json.Marshal(&mintQuoteStateResponse)
@@ -396,7 +393,6 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
-		Paid:       false,
 		Expiry:     meltQuote.Expiry,
 	}
 
@@ -439,13 +435,11 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	paid := meltQuote.State == nut05.Paid
 	quoteState := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
-		Paid:       paid,
 		Expiry:     meltQuote.Expiry,
 		Preimage:   meltQuote.Preimage,
 	}
@@ -501,13 +495,11 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	paid := meltQuote.State == nut05.Paid
 	meltQuoteResponse := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
 		Amount:     meltQuote.Amount,
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
-		Paid:       paid,
 		Expiry:     meltQuote.Expiry,
 		Preimage:   meltQuote.Preimage,
 	}
