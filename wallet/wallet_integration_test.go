@@ -332,7 +332,11 @@ func TestMelt(t *testing.T) {
 	}
 
 	bolt11, _, _, _ := lightning.CreateFakeInvoice(30000, false)
-	meltResponse, err := testWallet.Melt(bolt11, testWallet.CurrentMint())
+	meltQuote, err := testWallet.RequestMeltQuote(bolt11, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+	meltResponse, err := testWallet.Melt(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
@@ -342,12 +346,17 @@ func TestMelt(t *testing.T) {
 
 	// try melt for invoice over balance
 	bolt11, _, _, _ = lightning.CreateFakeInvoice(600000, false)
-	_, err = testWallet.Melt(bolt11, testWallet.CurrentMint())
+	meltQuote, err = testWallet.RequestMeltQuote(bolt11, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+	_, err = testWallet.Melt(meltQuote.Quote)
 	if !errors.Is(err, wallet.ErrInsufficientMintBalance) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrInsufficientMintBalance, err)
 	}
 
-	_, err = testWallet.Melt(bolt11, "http://nonexistent.mint")
+	bolt11, _, _, _ = lightning.CreateFakeInvoice(600000, false)
+	_, err = testWallet.RequestMeltQuote(bolt11, "http://nonexistent.mint")
 	if !errors.Is(err, wallet.ErrMintNotExist) {
 		t.Fatalf("expected error '%v' but got error '%v'", wallet.ErrMintNotExist, err)
 	}
@@ -367,7 +376,11 @@ func TestMelt(t *testing.T) {
 	}
 
 	bolt11, _, _, _ = lightning.CreateFakeInvoice(5000, false)
-	meltResponse, err = feesWallet.Melt(bolt11, mintWithFeesURL)
+	meltQuote, err = feesWallet.RequestMeltQuote(bolt11, feesWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+	meltResponse, err = feesWallet.Melt(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}
@@ -474,7 +487,12 @@ func TestWalletBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	balanceBeforeMelt := balanceTestWallet.GetBalance()
-	meltresponse, err := balanceTestWallet.Melt(bolt11, balanceTestWallet.CurrentMint())
+
+	meltQuote, err := balanceTestWallet.RequestMeltQuote(bolt11, balanceTestWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+	meltresponse, err := balanceTestWallet.Melt(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt: %v", err)
 	}
@@ -593,11 +611,16 @@ func TestPendingProofs(t *testing.T) {
 
 	// fake backend has payment delay set so this invoice will return pending
 	bolt11, _, paymentHash, err := lightning.CreateFakeInvoice(2100, false)
-	meltQuote, err := testWallet.Melt(bolt11, testWallet.CurrentMint())
+	meltQuote, err := testWallet.RequestMeltQuote(bolt11, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+
+	meltResponse, err := testWallet.Melt(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error in melt: %v", err)
 	}
-	if meltQuote.State != nut05.Pending {
+	if meltResponse.State != nut05.Pending {
 		t.Fatalf("expected quote state of '%s' but got '%s' instead", nut05.Pending, meltQuote.State)
 	}
 
@@ -642,11 +665,16 @@ func TestPendingProofs(t *testing.T) {
 
 	// test pending payment and then cancel it
 	bolt11, _, paymentHash, err = lightning.CreateFakeInvoice(2100, false)
-	meltQuote, err = testWallet.Melt(bolt11, testWallet.CurrentMint())
+	meltQuote, err = testWallet.RequestMeltQuote(bolt11, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+
+	meltResponse, err = testWallet.Melt(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("unexpected error in melt: %v", err)
 	}
-	if meltQuote.State != nut05.Pending {
+	if meltResponse.State != nut05.Pending {
 		t.Fatalf("expected quote state of '%s' but got '%s' instead", nut05.Pending, meltQuote.State)
 	}
 
@@ -1174,7 +1202,13 @@ func TestOverpaidFeesChange(t *testing.T) {
 	//bolt11, _, _, _ := lightning.CreateFakeInvoice(invoiceAmount, false)
 
 	balanceBeforeMelt := testWallet.GetBalance()
-	meltResponse, err := testWallet.Melt(bolt11, nutshellURL)
+
+	meltQuote, err := testWallet.RequestMeltQuote(bolt11, testWallet.CurrentMint())
+	if err != nil {
+		t.Fatalf("unexpected error requesting melt quote: %v", err)
+	}
+
+	meltResponse, err := testWallet.Melt(meltQuote.Quote)
 	if err != nil {
 		t.Fatalf("got unexpected melt error: %v", err)
 	}

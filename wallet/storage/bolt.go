@@ -145,8 +145,7 @@ func (db *BoltDB) GetProofs() cashu.Proofs {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var proof cashu.Proof
 			if err := json.Unmarshal(v, &proof); err != nil {
-				proofs = cashu.Proofs{}
-				return nil
+				continue
 			}
 			proofs = append(proofs, proof)
 		}
@@ -232,8 +231,7 @@ func (db *BoltDB) GetPendingProofs() []DBProof {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var proof DBProof
 			if err := json.Unmarshal(v, &proof); err != nil {
-				proofs = []DBProof{}
-				return nil
+				continue
 			}
 			proofs = append(proofs, proof)
 		}
@@ -486,9 +484,7 @@ func (db *BoltDB) GetMintQuotes() []MintQuote {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var quote MintQuote
 			if err := json.Unmarshal(v, &quote); err != nil {
-				fmt.Println(err)
-				mintQuotes = []MintQuote{}
-				return nil
+				continue
 			}
 			mintQuotes = append(mintQuotes, quote)
 		}
@@ -537,8 +533,7 @@ func (db *BoltDB) GetMeltQuotes() []MeltQuote {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var quote MeltQuote
 			if err := json.Unmarshal(v, &quote); err != nil {
-				meltQuotes = []MeltQuote{}
-				return nil
+				continue
 			}
 			meltQuotes = append(meltQuotes, quote)
 		}
@@ -613,6 +608,14 @@ func (db *BoltDB) MigrateInvoicesToQuotes() error {
 		default:
 			continue
 		}
+	}
+
+	// delete invoices bucket after migrating to quotes buckets
+	if len(invoices) > 0 {
+		db.bolt.Update(func(tx *bolt.Tx) error {
+			tx.DeleteBucket([]byte(INVOICES_BUCKET))
+			return nil
+		})
 	}
 
 	return nil
