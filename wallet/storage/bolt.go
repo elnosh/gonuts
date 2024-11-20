@@ -8,17 +8,21 @@ import (
 	"path/filepath"
 
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/crypto"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	keysetsBucket       = "keysets"
-	proofsBucket        = "proofs"
-	pendingProofsBucket = "pending_proofs"
-	invoicesBucket      = "invoices"
-	seedBucket          = "seed"
-	mnemonicKey         = "mnemonic"
+	KEYSETS_BUCKET        = "keysets"
+	PROOFS_BUCKET         = "proofs"
+	PENDING_PROOFS_BUCKET = "pending_proofs"
+	MINT_QUOTES_BUCKET    = "mint_quotes"
+	MELT_QUOTES_BUCKET    = "melt_quotes"
+	INVOICES_BUCKET       = "invoices"
+	SEED_BUCKET           = "seed"
+	MNEMONIC_KEY          = "mnemonic"
 )
 
 var (
@@ -41,32 +45,41 @@ func InitBolt(path string) (*BoltDB, error) {
 		return nil, fmt.Errorf("error setting bolt db: %v", err)
 	}
 
+	if err := boltdb.MigrateInvoicesToQuotes(); err != nil {
+		return nil, fmt.Errorf("error migrating db: %v", err)
+	}
+
 	return boltdb, nil
 }
 
 func (db *BoltDB) initWalletBuckets() error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(keysetsBucket))
+		_, err := tx.CreateBucketIfNotExists([]byte(KEYSETS_BUCKET))
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte(proofsBucket))
+		_, err = tx.CreateBucketIfNotExists([]byte(PROOFS_BUCKET))
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte(pendingProofsBucket))
+		_, err = tx.CreateBucketIfNotExists([]byte(PENDING_PROOFS_BUCKET))
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte(invoicesBucket))
+		_, err = tx.CreateBucketIfNotExists([]byte(MINT_QUOTES_BUCKET))
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists([]byte(seedBucket))
+		_, err = tx.CreateBucketIfNotExists([]byte(MELT_QUOTES_BUCKET))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(SEED_BUCKET))
 		if err != nil {
 			return err
 		}
@@ -77,9 +90,9 @@ func (db *BoltDB) initWalletBuckets() error {
 
 func (db *BoltDB) SaveMnemonicSeed(mnemonic string, seed []byte) {
 	db.bolt.Update(func(tx *bolt.Tx) error {
-		seedb := tx.Bucket([]byte(seedBucket))
-		seedb.Put([]byte(seedBucket), seed)
-		seedb.Put([]byte(mnemonicKey), []byte(mnemonic))
+		seedb := tx.Bucket([]byte(SEED_BUCKET))
+		seedb.Put([]byte(SEED_BUCKET), seed)
+		seedb.Put([]byte(MNEMONIC_KEY), []byte(mnemonic))
 		return nil
 	})
 }
@@ -87,8 +100,8 @@ func (db *BoltDB) SaveMnemonicSeed(mnemonic string, seed []byte) {
 func (db *BoltDB) GetMnemonic() string {
 	var mnemonic string
 	db.bolt.View(func(tx *bolt.Tx) error {
-		seedb := tx.Bucket([]byte(seedBucket))
-		mnemonic = string(seedb.Get([]byte(mnemonicKey)))
+		seedb := tx.Bucket([]byte(SEED_BUCKET))
+		mnemonic = string(seedb.Get([]byte(MNEMONIC_KEY)))
 		return nil
 	})
 	return mnemonic
@@ -97,8 +110,8 @@ func (db *BoltDB) GetMnemonic() string {
 func (db *BoltDB) GetSeed() []byte {
 	var seed []byte
 	db.bolt.View(func(tx *bolt.Tx) error {
-		seedb := tx.Bucket([]byte(seedBucket))
-		seed = seedb.Get([]byte(seedBucket))
+		seedb := tx.Bucket([]byte(SEED_BUCKET))
+		seed = seedb.Get([]byte(SEED_BUCKET))
 		return nil
 	})
 	return seed
@@ -106,7 +119,7 @@ func (db *BoltDB) GetSeed() []byte {
 
 func (db *BoltDB) SaveProofs(proofs cashu.Proofs) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
-		proofsb := tx.Bucket([]byte(proofsBucket))
+		proofsb := tx.Bucket([]byte(PROOFS_BUCKET))
 		for _, proof := range proofs {
 			key := []byte(proof.Secret)
 			jsonProof, err := json.Marshal(proof)
@@ -126,7 +139,7 @@ func (db *BoltDB) GetProofs() cashu.Proofs {
 	proofs := cashu.Proofs{}
 
 	db.bolt.View(func(tx *bolt.Tx) error {
-		proofsb := tx.Bucket([]byte(proofsBucket))
+		proofsb := tx.Bucket([]byte(PROOFS_BUCKET))
 
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -146,7 +159,7 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
 	proofs := cashu.Proofs{}
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
-		proofsb := tx.Bucket([]byte(proofsBucket))
+		proofsb := tx.Bucket([]byte(PROOFS_BUCKET))
 
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -169,7 +182,7 @@ func (db *BoltDB) GetProofsByKeysetId(id string) cashu.Proofs {
 
 func (db *BoltDB) DeleteProof(secret string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
-		proofsb := tx.Bucket([]byte(proofsBucket))
+		proofsb := tx.Bucket([]byte(PROOFS_BUCKET))
 		val := proofsb.Get([]byte(secret))
 		if val == nil {
 			return ProofNotFound
@@ -180,7 +193,7 @@ func (db *BoltDB) DeleteProof(secret string) error {
 
 func (db *BoltDB) AddPendingProofsByQuoteId(proofs cashu.Proofs, quoteId string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
-		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
 		for _, proof := range proofs {
 			Y, err := crypto.HashToCurve([]byte(proof.Secret))
 			if err != nil {
@@ -214,7 +227,7 @@ func (db *BoltDB) GetPendingProofs() []DBProof {
 	proofs := []DBProof{}
 
 	db.bolt.View(func(tx *bolt.Tx) error {
-		proofsb := tx.Bucket([]byte(pendingProofsBucket))
+		proofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
 		c := proofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var proof DBProof
@@ -233,7 +246,7 @@ func (db *BoltDB) GetPendingProofsByQuoteId(quoteId string) []DBProof {
 	proofs := []DBProof{}
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
-		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
 
 		c := pendingProofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -256,7 +269,7 @@ func (db *BoltDB) GetPendingProofsByQuoteId(quoteId string) []DBProof {
 
 func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
-		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
 
 		c := pendingProofsb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -281,7 +294,7 @@ func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
 
 func (db *BoltDB) DeletePendingProofs(Ys []string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
-		pendingProofsb := tx.Bucket([]byte(pendingProofsBucket))
+		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
 
 		for _, v := range Ys {
 			y, err := hex.DecodeString(v)
@@ -308,7 +321,7 @@ func (db *BoltDB) SaveKeyset(keyset *crypto.WalletKeyset) error {
 	}
 
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
-		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
 		mintBucket, err := keysetsb.CreateBucketIfNotExists([]byte(keyset.MintURL))
 		if err != nil {
 			return err
@@ -324,7 +337,7 @@ func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 	keysets := make(crypto.KeysetsMap)
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
-		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
 
 		return keysetsb.ForEach(func(mintURL, v []byte) error {
 			mintKeysets := make(map[string]crypto.WalletKeyset)
@@ -353,7 +366,7 @@ func (db *BoltDB) GetKeyset(keysetId string) *crypto.WalletKeyset {
 	var keyset *crypto.WalletKeyset
 
 	db.bolt.View(func(tx *bolt.Tx) error {
-		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
 
 		return keysetsb.ForEach(func(mintURL, v []byte) error {
 			mintBucket := keysetsb.Bucket(mintURL)
@@ -373,7 +386,7 @@ func (db *BoltDB) GetKeyset(keysetId string) *crypto.WalletKeyset {
 
 func (db *BoltDB) IncrementKeysetCounter(keysetId string, num uint32) error {
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
-		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
 		var keyset *crypto.WalletKeyset
 		keysetFound := false
 
@@ -415,7 +428,7 @@ func (db *BoltDB) GetKeysetCounter(keysetId string) uint32 {
 	var counter uint32 = 0
 
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
-		keysetsb := tx.Bucket([]byte(keysetsBucket))
+		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
 		var keyset *crypto.WalletKeyset
 		keysetFound := false
 
@@ -447,6 +460,164 @@ func (db *BoltDB) GetKeysetCounter(keysetId string) uint32 {
 	return counter
 }
 
+func (db *BoltDB) SaveMintQuote(quote MintQuote) error {
+	jsonbytes, err := json.Marshal(quote)
+	if err != nil {
+		return fmt.Errorf("invalid mint quote: %v", err)
+	}
+
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		quotesb := tx.Bucket([]byte(MINT_QUOTES_BUCKET))
+		key := []byte(quote.QuoteId)
+		return quotesb.Put(key, jsonbytes)
+	}); err != nil {
+		return fmt.Errorf("error saving mint quote: %v", err)
+	}
+	return nil
+}
+
+func (db *BoltDB) GetMintQuotes() []MintQuote {
+	var mintQuotes []MintQuote
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		quotesb := tx.Bucket([]byte(MINT_QUOTES_BUCKET))
+		c := quotesb.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var quote MintQuote
+			if err := json.Unmarshal(v, &quote); err != nil {
+				fmt.Println(err)
+				mintQuotes = []MintQuote{}
+				return nil
+			}
+			mintQuotes = append(mintQuotes, quote)
+		}
+		return nil
+	})
+
+	return mintQuotes
+}
+
+func (db *BoltDB) GetMintQuoteById(id string) *MintQuote {
+	var quote *MintQuote
+	db.bolt.View(func(tx *bolt.Tx) error {
+		quotesb := tx.Bucket([]byte(MINT_QUOTES_BUCKET))
+		quoteBytes := quotesb.Get([]byte(id))
+		if err := json.Unmarshal(quoteBytes, &quote); err != nil {
+			quote = nil
+		}
+		return nil
+	})
+	return quote
+}
+
+func (db *BoltDB) SaveMeltQuote(quote MeltQuote) error {
+	jsonbytes, err := json.Marshal(quote)
+	if err != nil {
+		return fmt.Errorf("invalid melt quote: %v", err)
+	}
+
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		quotesb := tx.Bucket([]byte(MELT_QUOTES_BUCKET))
+		key := []byte(quote.QuoteId)
+		return quotesb.Put(key, jsonbytes)
+	}); err != nil {
+		return fmt.Errorf("error saving melt quote: %v", err)
+	}
+	return nil
+}
+
+func (db *BoltDB) GetMeltQuotes() []MeltQuote {
+	var meltQuotes []MeltQuote
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		quotesb := tx.Bucket([]byte(MELT_QUOTES_BUCKET))
+		c := quotesb.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var quote MeltQuote
+			if err := json.Unmarshal(v, &quote); err != nil {
+				meltQuotes = []MeltQuote{}
+				return nil
+			}
+			meltQuotes = append(meltQuotes, quote)
+		}
+		return nil
+	})
+
+	return meltQuotes
+}
+
+func (db *BoltDB) GetMeltQuoteById(id string) *MeltQuote {
+	var quote *MeltQuote
+	db.bolt.View(func(tx *bolt.Tx) error {
+		quotesb := tx.Bucket([]byte(MELT_QUOTES_BUCKET))
+		quoteBytes := quotesb.Get([]byte(id))
+		if err := json.Unmarshal(quoteBytes, &quote); err != nil {
+			quote = nil
+		}
+		return nil
+	})
+	return quote
+}
+
+func (db *BoltDB) MigrateInvoicesToQuotes() error {
+	invoices := db.GetInvoices()
+
+	for _, invoice := range invoices {
+		switch invoice.TransactionType {
+		case Mint:
+			state := nut04.Unpaid
+			if invoice.Paid {
+				state = nut04.Paid
+			}
+
+			mintQuote := MintQuote{
+				QuoteId:        invoice.Id,
+				Mint:           invoice.Mint,
+				Method:         cashu.BOLT11_METHOD,
+				State:          state,
+				Unit:           cashu.Sat.String(),
+				Amount:         invoice.QuoteAmount,
+				PaymentRequest: invoice.PaymentRequest,
+				CreatedAt:      invoice.CreatedAt,
+				QuoteExpiry:    invoice.QuoteExpiry,
+			}
+			if err := db.SaveMintQuote(mintQuote); err != nil {
+				return fmt.Errorf("error saving mint quote: %v", err)
+			}
+
+		case Melt:
+			state := nut05.Unpaid
+			if invoice.Paid {
+				state = nut05.Paid
+			}
+
+			meltQuote := MeltQuote{
+				QuoteId:        invoice.Id,
+				Mint:           invoice.Mint,
+				Method:         cashu.BOLT11_METHOD,
+				State:          state,
+				Unit:           cashu.Sat.String(),
+				PaymentRequest: invoice.PaymentRequest,
+				Amount:         invoice.QuoteAmount,
+				FeeReserve:     invoice.QuoteAmount - invoice.InvoiceAmount,
+				Preimage:       invoice.Preimage,
+				SettledAt:      invoice.SettledAt,
+				QuoteExpiry:    invoice.QuoteExpiry,
+			}
+			if err := db.SaveMeltQuote(meltQuote); err != nil {
+				return fmt.Errorf("error saving melt quote: %v", err)
+			}
+
+		default:
+			continue
+		}
+	}
+
+	return nil
+}
+
 func (db *BoltDB) SaveInvoice(invoice Invoice) error {
 	jsonbytes, err := json.Marshal(invoice)
 	if err != nil {
@@ -454,7 +625,7 @@ func (db *BoltDB) SaveInvoice(invoice Invoice) error {
 	}
 
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
-		invoicesb := tx.Bucket([]byte(invoicesBucket))
+		invoicesb := tx.Bucket([]byte(INVOICES_BUCKET))
 		key := []byte(invoice.PaymentHash)
 		return invoicesb.Put(key, jsonbytes)
 	}); err != nil {
@@ -467,7 +638,7 @@ func (db *BoltDB) GetInvoice(paymentHash string) *Invoice {
 	var invoice *Invoice
 
 	db.bolt.View(func(tx *bolt.Tx) error {
-		invoicesb := tx.Bucket([]byte(invoicesBucket))
+		invoicesb := tx.Bucket([]byte(INVOICES_BUCKET))
 		invoiceBytes := invoicesb.Get([]byte(paymentHash))
 		err := json.Unmarshal(invoiceBytes, &invoice)
 		if err != nil {
@@ -483,7 +654,7 @@ func (db *BoltDB) GetInvoiceByQuoteId(quoteId string) *Invoice {
 	var quoteInvoice *Invoice
 
 	if err := db.bolt.View(func(tx *bolt.Tx) error {
-		invoicesb := tx.Bucket([]byte(invoicesBucket))
+		invoicesb := tx.Bucket([]byte(INVOICES_BUCKET))
 
 		c := invoicesb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -509,7 +680,10 @@ func (db *BoltDB) GetInvoices() []Invoice {
 	var invoices []Invoice
 
 	db.bolt.View(func(tx *bolt.Tx) error {
-		invoicesb := tx.Bucket([]byte(invoicesBucket))
+		invoicesb := tx.Bucket([]byte(INVOICES_BUCKET))
+		if invoicesb == nil {
+			return nil
+		}
 
 		c := invoicesb.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {

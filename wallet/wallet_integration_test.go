@@ -109,12 +109,12 @@ func TestMintTokens(t *testing.T) {
 		t.Fatalf("error requesting mint: %v", err)
 	}
 
-	mintInvoice, _ := testWallet.GetInvoiceByPaymentRequest(mintRes.Request)
-	if mintInvoice == nil {
-		t.Fatal("got unexpected nil invoice")
+	quote, err := testWallet.GetMintQuoteByPaymentRequest(mintRes.Request)
+	if err != nil {
+		t.Fatalf("got unexpected error: %v", err)
 	}
 
-	mintedAmount, err := testWallet.MintTokens(mintInvoice.Id)
+	mintedAmount, err := testWallet.MintTokens(quote.QuoteId)
 	if err != nil {
 		t.Fatalf("got unexpected error: %v", err)
 	}
