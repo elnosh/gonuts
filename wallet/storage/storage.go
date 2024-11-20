@@ -2,6 +2,8 @@ package storage
 
 import (
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/crypto"
 )
 
@@ -44,10 +46,13 @@ type WalletDB interface {
 	IncrementKeysetCounter(string, uint32) error
 	GetKeysetCounter(string) uint32
 
-	SaveInvoice(Invoice) error
-	GetInvoice(string) *Invoice
-	GetInvoiceByQuoteId(string) *Invoice
-	GetInvoices() []Invoice
+	SaveMintQuote(MintQuote) error
+	GetMintQuotes() []MintQuote
+	GetMintQuoteById(string) *MintQuote
+
+	SaveMeltQuote(MeltQuote) error
+	GetMeltQuotes() []MeltQuote
+	GetMeltQuoteById(string) *MeltQuote
 }
 
 type DBProof struct {
@@ -59,6 +64,33 @@ type DBProof struct {
 	DLEQ   *cashu.DLEQProof `json:"dleq,omitempty"`
 	// set if proofs are tied to a melt quote
 	MeltQuoteId string `json:"quote_id"`
+}
+
+type MintQuote struct {
+	QuoteId        string
+	Mint           string
+	Method         string
+	State          nut04.State
+	Unit           string
+	Amount         uint64
+	PaymentRequest string
+	CreatedAt      int64
+	SettledAt      int64
+	QuoteExpiry    uint64
+}
+
+type MeltQuote struct {
+	QuoteId        string
+	Mint           string
+	Method         string
+	State          nut05.State
+	Unit           string
+	PaymentRequest string
+	Amount         uint64
+	FeeReserve     uint64
+	Preimage       string
+	SettledAt      int64
+	QuoteExpiry    uint64
 }
 
 type Invoice struct {

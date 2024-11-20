@@ -277,15 +277,12 @@ func requestMint(amountStr string) error {
 }
 
 func mintTokens(paymentRequest string) error {
-	invoice, err := nutw.GetInvoiceByPaymentRequest(paymentRequest)
+	quote, err := nutw.GetMintQuoteByPaymentRequest(paymentRequest)
 	if err != nil {
 		return err
 	}
-	if invoice == nil {
-		return errors.New("invoice not found")
-	}
 
-	mintedAmount, err := nutw.MintTokens(invoice.Id)
+	mintedAmount, err := nutw.MintTokens(quote.QuoteId)
 	if err != nil {
 		return err
 	}
