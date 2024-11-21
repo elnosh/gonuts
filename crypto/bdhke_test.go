@@ -219,3 +219,108 @@ func TestVerifyDLEQ(t *testing.T) {
 		t.Errorf("VerifyDLEQ failed")
 	}
 }
+
+var result *secp256k1.PublicKey
+
+func BenchmarkHashToCurve(b *testing.B) {
+	var Y *secp256k1.PublicKey
+	for n := 0; n < b.N; n++ {
+		Y, _ = HashToCurve([]byte("test_message"))
+	}
+	result = Y
+}
+
+func BenchmarkBlindMessage(b *testing.B) {
+	bf, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	r := secp256k1.PrivKeyFromBytes(bf)
+
+	var B_ *secp256k1.PublicKey
+	for n := 0; n < b.N; n++ {
+		B_, _, _ = BlindMessage("test_message", r)
+	}
+
+	result = B_
+}
+
+func BenchmarkSignBlindedMessage(b *testing.B) {
+	bf, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	r := secp256k1.PrivKeyFromBytes(bf)
+
+	B_, _, _ := BlindMessage("test_message", r)
+
+	keyBytes, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	k := secp256k1.PrivKeyFromBytes(keyBytes)
+
+	var C_ *secp256k1.PublicKey
+	for n := 0; n < b.N; n++ {
+		C_ = SignBlindedMessage(B_, k)
+	}
+
+	result = C_
+}
+
+func BenchmarkUnblindSignature(b *testing.B) {
+	bf, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	r := secp256k1.PrivKeyFromBytes(bf)
+
+	B_, _, _ := BlindMessage("test_message", r)
+
+	keyBytes, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	k := secp256k1.PrivKeyFromBytes(keyBytes)
+	C_ := SignBlindedMessage(B_, k)
+
+	var C *secp256k1.PublicKey
+	for n := 0; n < b.N; n++ {
+		C = UnblindSignature(C_, r, k.PubKey())
+	}
+
+	result = C
+}
+
+var boolResult bool
+
+func BenchmarkVerify(b *testing.B) {
+	secret := "test_message"
+	rhex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000002")
+	r := secp256k1.PrivKeyFromBytes(rhex)
+
+	B_, r, _ := BlindMessage(secret, r)
+
+	khex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	k := secp256k1.PrivKeyFromBytes(khex)
+	K := k.PubKey()
+
+	C_ := SignBlindedMessage(B_, k)
+	C := UnblindSignature(C_, r, K)
+
+	var valid bool
+	for n := 0; n < b.N; n++ {
+		valid = Verify(secret, k, C)
+	}
+
+	boolResult = valid
+}
+
+func BenchmarkE2E(b *testing.B) {
+	rhex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000002")
+	r := secp256k1.PrivKeyFromBytes(rhex)
+
+	khex, _ := hex.DecodeString("0000000000000000000000000000000000000000000000000000000000000001")
+	k := secp256k1.PrivKeyFromBytes(khex)
+
+	var C *secp256k1.PublicKey
+	for n := 0; n < b.N; n++ {
+		secret := "test_message"
+		Y, _ := HashToCurve([]byte("test_message"))
+		result = Y
+
+		B_, _, _ := BlindMessage(secret, r)
+		C_ := SignBlindedMessage(B_, k)
+		C = UnblindSignature(C_, r, k.PubKey())
+
+		valid := Verify(secret, k, C)
+		boolResult = valid
+	}
+
+	result = C
+}
