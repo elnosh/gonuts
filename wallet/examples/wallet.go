@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// Send
-	mint := "http://localhost:3338"
+	mint := wallet.CurrentMint()
 	includeFees := true
 	includeDLEQProof := false
 	proofsToSend, err := wallet.Send(21, mint, includeFees)
@@ -44,5 +44,6 @@ func main() {
 	amountReceived, err := wallet.Receive(receiveToken, swapToTrustedMint)
 
 	// Melt (pay invoice)
-	meltResponse, err := wallet.Melt("lnbc100n1pja0w9pdqqx...", mint)
+	meltQuote, err := wallet.RequestMeltQuote("lnbc100n1pja0w9pdqqx...", mint)
+	meltResult, err := wallet.Melt(meltQuote.Quote)
 }
