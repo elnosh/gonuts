@@ -1692,7 +1692,7 @@ func (w *Wallet) GetMintQuoteByPaymentRequest(request string) (*storage.MintQuot
 	return nil, errors.New("quote for request does not exist")
 }
 
-func (w *Wallet) GetMeltQuotes(id string) []storage.MeltQuote {
+func (w *Wallet) GetMeltQuotes() []storage.MeltQuote {
 	return w.db.GetMeltQuotes()
 }
 
