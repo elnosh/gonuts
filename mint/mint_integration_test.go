@@ -739,8 +739,8 @@ func TestPendingProofs(t *testing.T) {
 
 	meltTokensRequest = nut05.PostMeltBolt11Request{Quote: meltQuote.Id, Inputs: validProofs}
 	_, err = testMint.MeltTokens(ctx, meltTokensRequest)
-	if !errors.Is(err, cashu.MeltQuotePending) {
-		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltQuotePending, err)
+	if !errors.Is(err, cashu.QuotePending) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.QuotePending, err)
 	}
 
 	// try to use currently pending proofs in another op.
