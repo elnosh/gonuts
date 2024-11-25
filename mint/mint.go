@@ -302,7 +302,6 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 }
 
 // GetMintQuoteState returns the state of a mint quote.
-// Used to check whether a mint quote has been paid.
 func (m *Mint) GetMintQuoteState(quoteId string) (storage.MintQuote, error) {
 	mintQuote, err := m.db.GetMintQuote(quoteId)
 	if err != nil {
@@ -335,78 +334,82 @@ func (m *Mint) GetMintQuoteState(quoteId string) (storage.MintQuote, error) {
 // MintTokens verifies whether the mint quote with id has been paid and proceeds to
 // sign the blindedMessages and return the BlindedSignatures if it was paid.
 func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.BlindedSignatures, error) {
-	mintQuote, err := m.db.GetMintQuote(mintTokensRequest.Quote)
+	mintQuote, err := m.GetMintQuoteState(mintTokensRequest.Quote)
 	if err != nil {
-		return nil, cashu.QuoteNotExistErr
+		return nil, err
 	}
 
-	blindedMessages := mintTokensRequest.Outputs
 	var blindedSignatures cashu.BlindedSignatures
 
-	invoicePaid := false
-	if mintQuote.State == nut04.Unpaid {
-		m.logDebugf("checking status of invoice with hash '%v'", mintQuote.PaymentHash)
-		invoiceStatus, err := m.lightningClient.InvoiceStatus(mintQuote.PaymentHash)
-		if err != nil {
-			errmsg := fmt.Sprintf("error getting invoice status: %v", err)
-			return nil, cashu.BuildCashuError(errmsg, cashu.LightningBackendErrCode)
-		}
-		if invoiceStatus.Settled {
-			m.logInfof("mint quote '%v' with invoice payment hash '%v' was paid", mintQuote.Id, mintQuote.PaymentHash)
-			invoicePaid = true
-		}
-	} else {
-		invoicePaid = true
-	}
+	switch mintQuote.State {
+	case nut04.Unpaid:
+		return nil, cashu.MintQuoteRequestNotPaid
+	case nut04.Issued:
+		return nil, cashu.MintQuoteAlreadyIssued
+	case nut04.Pending:
+		return nil, cashu.QuotePending
+	case nut04.Paid:
+		err := func() error {
+			// set quote as pending while validating blinded messages and signing
+			err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Pending)
+			if err != nil {
+				errmsg := fmt.Sprintf("error mint quote state: %v", err)
+				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+			}
 
-	if invoicePaid {
-		if mintQuote.State == nut04.Issued {
-			return nil, cashu.MintQuoteAlreadyIssued
-		}
+			blindedMessages := mintTokensRequest.Outputs
+			var blindedMessagesAmount uint64
+			B_s := make([]string, len(blindedMessages))
+			for i, bm := range blindedMessages {
+				blindedMessagesAmount += bm.Amount
+				B_s[i] = bm.B_
+			}
 
-		var blindedMessagesAmount uint64
-		B_s := make([]string, len(blindedMessages))
-		for i, bm := range blindedMessages {
-			blindedMessagesAmount += bm.Amount
-			B_s[i] = bm.B_
-		}
-
-		if len(blindedMessages) > 0 {
-			for _, msg := range blindedMessages {
-				if blindedMessagesAmount < msg.Amount {
-					return nil, cashu.InvalidBlindedMessageAmount
+			if len(blindedMessages) > 0 {
+				for _, msg := range blindedMessages {
+					if blindedMessagesAmount < msg.Amount {
+						return cashu.InvalidBlindedMessageAmount
+					}
 				}
 			}
-		}
 
-		// verify that amount from blinded messages is less
-		// than quote amount
-		if blindedMessagesAmount > mintQuote.Amount {
-			return nil, cashu.OutputsOverQuoteAmountErr
-		}
+			// verify that amount from blinded messages is less
+			// than quote amount
+			if blindedMessagesAmount > mintQuote.Amount {
+				return cashu.OutputsOverQuoteAmountErr
+			}
 
-		sigs, err := m.db.GetBlindSignatures(B_s)
+			sigs, err := m.db.GetBlindSignatures(B_s)
+			if err != nil {
+				errmsg := fmt.Sprintf("error getting blind signatures from db: %v", err)
+				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+			}
+
+			if len(sigs) > 0 {
+				return cashu.BlindedMessageAlreadySigned
+			}
+
+			blindedSignatures, err = m.signBlindedMessages(blindedMessages)
+			if err != nil {
+				return err
+			}
+
+			// mark quote as issued after signing the blinded messages
+			err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued)
+			if err != nil {
+				errmsg := fmt.Sprintf("error mint quote state: %v", err)
+				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+			}
+			return nil
+		}()
+
+		// update mint quote to previous state if there was an error
 		if err != nil {
-			errmsg := fmt.Sprintf("error getting blind signatures from db: %v", err)
-			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
-		}
-		if len(sigs) > 0 {
-			return nil, cashu.BlindedMessageAlreadySigned
-		}
-
-		blindedSignatures, err = m.signBlindedMessages(blindedMessages)
-		if err != nil {
+			if err := m.db.UpdateMintQuoteState(mintQuote.Id, mintQuote.State); err != nil {
+				return nil, err
+			}
 			return nil, err
 		}
-
-		// mark quote as issued after signing the blinded messages
-		err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued)
-		if err != nil {
-			errmsg := fmt.Sprintf("error mint quote state: %v", err)
-			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
-		}
-	} else {
-		return nil, cashu.MintQuoteRequestNotPaid
 	}
 
 	return blindedSignatures, nil
@@ -685,7 +688,7 @@ func (m *Mint) MeltTokens(ctx context.Context, meltTokensRequest nut05.PostMeltB
 		return storage.MeltQuote{}, cashu.MeltQuoteAlreadyPaid
 	}
 	if meltQuote.State == nut05.Pending {
-		return storage.MeltQuote{}, cashu.MeltQuotePending
+		return storage.MeltQuote{}, cashu.QuotePending
 	}
 
 	err = m.verifyProofs(proofs, Ys)

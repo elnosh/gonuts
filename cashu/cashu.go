@@ -499,7 +499,7 @@ var (
 	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
 	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: MeltQuoteErrCode}
-	MeltQuotePending             = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
+	QuotePending                 = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
 	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: AmountLimitExceeded}
 	MeltQuoteForRequestExists    = Error{Detail: "melt quote for payment request already exists", Code: MeltQuoteErrCode}
