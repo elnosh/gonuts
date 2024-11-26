@@ -805,7 +805,7 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 
 // Melt will melt proofs by requesting the mint to pay the
 // payment request from the melt quote passed
-func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error) {
+func (w *Wallet) Melt(quoteId string, proofs cashu.Proofs) (*nut05.PostMeltQuoteBolt11Response, error) {
 	quote := w.db.GetMeltQuoteById(quoteId)
 	if quote == nil {
 		return nil, ErrQuoteNotFound
@@ -829,11 +829,11 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 
 	mint := w.mints[quote.Mint]
 
-	amountNeeded := quote.Amount + quote.FeeReserve
-	proofs, err := w.getProofsForAmount(amountNeeded, &mint, true)
-	if err != nil {
-		return nil, err
-	}
+	// amountNeeded := quote.Amount + quote.FeeReserve
+	// proofs, err := w.getProofsForAmount(amountNeeded, &mint, true)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	// set proofs to pending
 	if err := w.db.AddPendingProofsByQuoteId(proofs, quote.QuoteId); err != nil {
@@ -1009,7 +1009,7 @@ func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, 
 	}
 }
 
-func (w *Wallet) getProofsFromMint(mintURL string) cashu.Proofs {
+func (w *Wallet) GetProofsFromMint(mintURL string) cashu.Proofs {
 	proofs := w.getInactiveProofsByMint(mintURL)
 	proofs = append(proofs, w.getActiveProofsByMint(mintURL)...)
 	return proofs
@@ -1305,7 +1305,7 @@ func (w *Wallet) getProofsForAmount(
 // it has a defautl target of 3 coins of each amount
 func (w *Wallet) splitWalletTarget(amountToSplit uint64, mint string) []uint64 {
 	target := 3
-	proofs := w.getProofsFromMint(mint)
+	proofs := w.GetProofsFromMint(mint)
 
 	// amounts that are in wallet
 	amountsInWallet := make([]uint64, len(proofs))
