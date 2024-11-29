@@ -21,6 +21,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
@@ -362,6 +363,10 @@ func (w *Wallet) Send(amount uint64, mintURL string, includeFees bool) (cashu.Pr
 	proofsToSend, err := w.getProofsForAmount(amount, &selectedMint, includeFees)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := w.db.AddPendingProofs(proofsToSend); err != nil {
+		return nil, fmt.Errorf("could not save proofs to pending: %v\n", err)
 	}
 
 	return proofsToSend, nil
@@ -1653,16 +1658,141 @@ func (w *Wallet) Mnemonic() string {
 	return w.db.GetMnemonic()
 }
 
+func (w *Wallet) pendingProofsByMint() map[string][]storage.DBProof {
+	proofsByKeysetId := make(map[string][]storage.DBProof)
+	for _, proof := range w.db.GetPendingProofs() {
+		proofsByKeysetId[proof.Id] = append(proofsByKeysetId[proof.Id], proof)
+	}
+
+	proofsByMint := make(map[string][]storage.DBProof)
+	for keysetId, proofs := range proofsByKeysetId {
+		for _, mint := range w.mints {
+			if mint.activeKeyset.Id == keysetId {
+				proofsByMint[mint.mintURL] = append(proofsByMint[mint.mintURL], proofs...)
+				break
+			}
+			for _, inactiveKeyset := range mint.inactiveKeysets {
+				if inactiveKeyset.Id == keysetId {
+					proofsByMint[mint.mintURL] = append(proofsByMint[mint.mintURL], proofs...)
+					break
+				}
+			}
+		}
+	}
+
+	return proofsByMint
+}
+
+// RemoveSpentProofs will check the state of pending proofs
+// and remove the ones in spent state
+func (w *Wallet) RemoveSpentProofs() error {
+	pendingProofs := w.pendingProofsByMint()
+
+	for mint, proofs := range pendingProofs {
+		var Ys []string
+		for _, proof := range proofs {
+			Ys = append(Ys, proof.Y)
+		}
+
+		proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
+		proofStateResponse, err := PostCheckProofState(mint, proofStateRequest)
+		if err != nil {
+			return err
+		}
+
+		var YsToDelete []string
+		for _, state := range proofStateResponse.States {
+			if state.State == nut07.Spent {
+				YsToDelete = append(YsToDelete, state.Y)
+			}
+		}
+
+		if err := w.db.DeletePendingProofs(YsToDelete); err != nil {
+			return fmt.Errorf("error removing pending proofs: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// ReclaimUnspentProofs will check the state of pending proofs
+// and try to reclaim proofs that are in a unspent state
+func (w *Wallet) ReclaimUnspentProofs() (uint64, error) {
+	pendingProofs := w.pendingProofsByMint()
+
+	var amountReclaimed uint64
+	for mintURL, proofs := range pendingProofs {
+		var Ys []string
+		for _, proof := range proofs {
+			Ys = append(Ys, proof.Y)
+		}
+
+		proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
+		proofStateResponse, err := PostCheckProofState(mintURL, proofStateRequest)
+		if err != nil {
+			return 0, err
+		}
+
+		var proofsToReclaim cashu.Proofs
+		var pendingYsToDelete []string
+		for _, state := range proofStateResponse.States {
+			if state.State == nut07.Unspent {
+				for _, proof := range proofs {
+					if proof.Y == state.Y {
+						proofToReclaim := cashu.Proof{
+							Amount: proof.Amount,
+							Id:     proof.Id,
+							Secret: proof.Secret,
+							C:      proof.C,
+						}
+						proofsToReclaim = append(proofsToReclaim, proofToReclaim)
+						pendingYsToDelete = append(pendingYsToDelete, proof.Y)
+						break
+					}
+				}
+			}
+		}
+
+		if len(proofsToReclaim) > 0 {
+			mint := w.mints[mintURL]
+			req, err := w.createSwapRequest(proofsToReclaim, &mint)
+			if err != nil {
+				return 0, fmt.Errorf("could not create swap request: %v", err)
+			}
+			newProofs, err := swap(mintURL, req)
+			if err != nil {
+				return 0, fmt.Errorf("could not swap proofs: %v", err)
+			}
+			err = w.db.IncrementKeysetCounter(req.keyset.Id, uint32(len(req.outputs)))
+			if err != nil {
+				return 0, fmt.Errorf("error incrementing keyset counter: %v", err)
+			}
+			if err := w.db.SaveProofs(newProofs); err != nil {
+				return 0, fmt.Errorf("error storing proofs: %v", err)
+			}
+			if err := w.db.DeletePendingProofs(pendingYsToDelete); err != nil {
+				return 0, fmt.Errorf("error removing pending proofs: %v", err)
+			}
+
+			amountReclaimed = newProofs.Amount()
+		}
+	}
+
+	return amountReclaimed, nil
+}
+
 // GetPendingMeltQuotes return a list of pending quote ids
 func (w *Wallet) GetPendingMeltQuotes() []string {
 	pendingProofs := w.db.GetPendingProofs()
 	pendingProofsMap := make(map[string][]storage.DBProof)
 	var pendingQuotes []string
 	for _, proof := range pendingProofs {
-		if _, ok := pendingProofsMap[proof.MeltQuoteId]; !ok {
-			pendingQuotes = append(pendingQuotes, proof.MeltQuoteId)
+		if len(proof.MeltQuoteId) > 0 {
+			if _, ok := pendingProofsMap[proof.MeltQuoteId]; !ok {
+				pendingQuotes = append(pendingQuotes, proof.MeltQuoteId)
+			}
+			pendingProofsMap[proof.MeltQuoteId] = append(pendingProofsMap[proof.MeltQuoteId], proof)
 		}
-		pendingProofsMap[proof.MeltQuoteId] = append(pendingProofsMap[proof.MeltQuoteId], proof)
 	}
 
 	return pendingQuotes

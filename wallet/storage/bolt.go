@@ -190,6 +190,37 @@ func (db *BoltDB) DeleteProof(secret string) error {
 	})
 }
 
+func (db *BoltDB) AddPendingProofs(proofs cashu.Proofs) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
+		for _, proof := range proofs {
+			Y, err := crypto.HashToCurve([]byte(proof.Secret))
+			if err != nil {
+				return err
+			}
+			Yhex := hex.EncodeToString(Y.SerializeCompressed())
+
+			dbProof := DBProof{
+				Y:      Yhex,
+				Amount: proof.Amount,
+				Id:     proof.Id,
+				Secret: proof.Secret,
+				C:      proof.C,
+				DLEQ:   proof.DLEQ,
+			}
+
+			jsonProof, err := json.Marshal(dbProof)
+			if err != nil {
+				return fmt.Errorf("invalid proof: %v", err)
+			}
+			if err := pendingProofsb.Put(Y.SerializeCompressed(), jsonProof); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (db *BoltDB) AddPendingProofsByQuoteId(proofs cashu.Proofs, quoteId string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
 		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
@@ -265,6 +296,24 @@ func (db *BoltDB) GetPendingProofsByQuoteId(quoteId string) []DBProof {
 	return proofs
 }
 
+func (db *BoltDB) DeletePendingProofs(Ys []string) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
+
+		for _, v := range Ys {
+			y, err := hex.DecodeString(v)
+			if err != nil {
+				return fmt.Errorf("invalid Y: %v", err)
+			}
+			if err := pendingProofsb.Delete(y); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
 func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
 		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
@@ -286,28 +335,6 @@ func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
 				}
 			}
 		}
-		return nil
-	})
-}
-
-func (db *BoltDB) DeletePendingProofs(Ys []string) error {
-	return db.bolt.Update(func(tx *bolt.Tx) error {
-		pendingProofsb := tx.Bucket([]byte(PENDING_PROOFS_BUCKET))
-
-		for _, v := range Ys {
-			y, err := hex.DecodeString(v)
-			if err != nil {
-				return fmt.Errorf("invalid Y: %v", err)
-			}
-			val := pendingProofsb.Get(y)
-			if val == nil {
-				return ProofNotFound
-			}
-			if err := pendingProofsb.Delete(y); err != nil {
-				return err
-			}
-		}
-
 		return nil
 	})
 }

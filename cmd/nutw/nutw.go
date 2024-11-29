@@ -102,6 +102,7 @@ func main() {
 			sendCmd,
 			receiveCmd,
 			payCmd,
+			pendingCmd,
 			quotesCmd,
 			p2pkLockCmd,
 			mnemonicCmd,
@@ -116,11 +117,22 @@ func main() {
 	}
 }
 
+const (
+	pendingFlag = "pending"
+)
+
 var balanceCmd = &cli.Command{
 	Name:   "balance",
 	Usage:  "Wallet balance",
 	Before: setupWallet,
 	Action: getBalance,
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:               pendingFlag,
+			Usage:              "show pending balance",
+			DisableDefaultText: true,
+		},
+	},
 }
 
 func getBalance(ctx *cli.Context) error {
@@ -139,10 +151,11 @@ func getBalance(ctx *cli.Context) error {
 
 	fmt.Printf("\nTotal balance: %v sats\n", totalBalance)
 
-	pendingBalance := nutw.PendingBalance()
-	if pendingBalance > 0 {
+	if ctx.Bool(pendingFlag) {
+		pendingBalance := nutw.PendingBalance()
 		fmt.Printf("Pending balance: %v sats\n", pendingBalance)
 	}
+
 	return nil
 }
 
@@ -506,6 +519,59 @@ func pay(ctx *cli.Context) error {
 		fmt.Println("mint could not pay invoice")
 	}
 
+	return nil
+}
+
+const (
+	removeFlag  = "remove"
+	reclaimFlag = "reclaim"
+)
+
+var pendingCmd = &cli.Command{
+	Name:   "pending",
+	Usage:  "Manage pending proofs",
+	Before: setupWallet,
+	Action: pending,
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:               removeFlag,
+			Usage:              "remove spent proofs",
+			DisableDefaultText: true,
+		},
+		&cli.BoolFlag{
+			Name:               reclaimFlag,
+			Usage:              "reclaim unspent pending proofs",
+			DisableDefaultText: true,
+		},
+	},
+}
+
+func pending(ctx *cli.Context) error {
+	if ctx.Bool(removeFlag) {
+		if err := nutw.RemoveSpentProofs(); err != nil {
+			printErr(err)
+		}
+		pendingBalance := nutw.PendingBalance()
+		fmt.Printf("Pending balance: %v sats\n", pendingBalance)
+		return nil
+	}
+
+	if ctx.Bool(reclaimFlag) {
+		amountReclaimed, err := nutw.ReclaimUnspentProofs()
+		if err != nil {
+			printErr(err)
+		}
+
+		if amountReclaimed > 0 {
+			fmt.Printf("reclaimed %v sats\n", amountReclaimed)
+		} else {
+			fmt.Println("no amount to reclaim")
+		}
+		return nil
+	}
+
+	pendingBalance := nutw.PendingBalance()
+	fmt.Printf("Pending balance: %v sats\n", pendingBalance)
 	return nil
 }
 
