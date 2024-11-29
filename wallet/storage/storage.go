@@ -35,9 +35,11 @@ type WalletDB interface {
 	GetProofsByKeysetId(string) cashu.Proofs
 	DeleteProof(string) error
 
+	AddPendingProofs(cashu.Proofs) error
 	AddPendingProofsByQuoteId(cashu.Proofs, string) error
 	GetPendingProofs() []DBProof
 	GetPendingProofsByQuoteId(string) []DBProof
+	DeletePendingProofs([]string) error
 	DeletePendingProofsByQuoteId(string) error
 
 	SaveKeyset(*crypto.WalletKeyset) error
@@ -62,7 +64,7 @@ type DBProof struct {
 	Secret string           `json:"secret"`
 	C      string           `json:"C"`
 	DLEQ   *cashu.DLEQProof `json:"dleq,omitempty"`
-	// set if proofs are tied to a melt quote
+	// set if pending proofs are tied to a melt quote
 	MeltQuoteId string `json:"quote_id"`
 }
 
