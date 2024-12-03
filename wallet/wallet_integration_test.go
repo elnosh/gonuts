@@ -718,6 +718,64 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected wallet balance of '%v' but got '%v' instead",
 			expectedWalletBalance, walletBalance)
 	}
+
+	proofsToSend1, _ := testWallet.Send(100, testWallet.CurrentMint(), false)
+	proofsToSend2, _ := testWallet.Send(21, testWallet.CurrentMint(), false)
+
+	pendingBalance = testWallet.PendingBalance()
+	expectedPending := proofsToSend1.Amount() + proofsToSend2.Amount()
+	if pendingBalance != expectedPending {
+		t.Fatalf("expected pending balance of '%v' but got '%v' instead", expectedPending, pendingBalance)
+	}
+
+	testWalletPath2 := filepath.Join(".", "/testpendingwallet2")
+	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testWalletPath2)
+	}()
+
+	// redeem proofs from other wallet to mark them spent
+	token, _ := cashu.NewTokenV4(proofsToSend2, testWallet.CurrentMint(), cashu.Sat, false)
+	_, _ = testWallet2.Receive(token, false)
+
+	if err := testWallet.RemoveSpentProofs(); err != nil {
+		t.Fatalf("unexpected error in removing spent proofs: %v", err)
+	}
+
+	// after RemoveSpentProofs call, pending balance should decrease by amount of redeemed proofs
+	pendingBalance = testWallet.PendingBalance()
+	expectedPending = proofsToSend1.Amount()
+	if pendingBalance != expectedPending {
+		t.Fatalf("expected pending balance of '%v' but got '%v' instead", expectedPending, pendingBalance)
+	}
+
+	balanceBeforeReclaiming := testWallet.GetBalance()
+
+	amountReclaimed, err := testWallet.ReclaimUnspentProofs()
+	if err != nil {
+		t.Fatalf("unexpected error in reclaiming unspent proofs: %v", err)
+	}
+
+	expectedAmount := proofsToSend1.Amount()
+	if amountReclaimed != expectedAmount {
+		t.Fatalf("expected reclaimed amount of '%v' but got '%v' instead", expectedAmount, amountReclaimed)
+	}
+
+	// pending balance should now be 0
+	pendingBalance = testWallet.PendingBalance()
+	if pendingBalance != 0 {
+		t.Fatalf("expected no pending balance but got '%v' instead", pendingBalance)
+	}
+
+	// wallet balance should have added reclaimed proofs
+	expectedWalletBalance = balanceBeforeReclaiming + amountReclaimed
+	if expectedWalletBalance != testWallet.GetBalance() {
+		t.Fatalf("expected wallet balance of '%v' but got '%v' instead", expectedWalletBalance, testWallet.GetBalance())
+	}
+
 }
 
 // Test wallet operations work after mint rotates to new keyset
