@@ -109,7 +109,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 	}
 
 	wallet := &Wallet{db: db, unit: cashu.Sat, masterKey: masterKey, privateKey: privateKey}
-	wallet.mints, err = wallet.getWalletMints()
+	wallet.mints, err = wallet.loadWalletMints()
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +159,13 @@ func (w *Wallet) AddMint(mint string) (*walletMint, error) {
 	if err := w.db.SaveKeyset(activeKeyset); err != nil {
 		return nil, err
 	}
-	for _, keyset := range inactiveKeysets {
+	for i, keyset := range inactiveKeysets {
 		if err := w.db.SaveKeyset(&keyset); err != nil {
 			return nil, err
 		}
+		// do not have public keys of inactive keysets in memory
+		keyset.PublicKeys = make(map[uint64]*secp256k1.PublicKey)
+		inactiveKeysets[i] = keyset
 	}
 	newWalletMint := walletMint{mintURL, *activeKeyset, inactiveKeysets}
 	w.mints[mintURL] = newWalletMint
@@ -1592,7 +1595,7 @@ func (w *Wallet) counterForKeyset(keysetId string) uint32 {
 	return w.db.GetKeysetCounter(keysetId)
 }
 
-func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
+func (w *Wallet) loadWalletMints() (map[string]walletMint, error) {
 	walletMints := make(map[string]walletMint)
 
 	keysets := w.db.GetKeysets()
@@ -1618,6 +1621,8 @@ func (w *Wallet) getWalletMints() (map[string]walletMint, error) {
 			if keyset.Active {
 				activeKeyset = keyset
 			} else {
+				// no need to have public keys of inactive keysets in memory
+				keyset.PublicKeys = make(map[uint64]*secp256k1.PublicKey)
 				inactiveKeysets[keyset.Id] = keyset
 			}
 		}
