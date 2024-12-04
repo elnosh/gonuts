@@ -105,11 +105,13 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 	}
 
 	activeKeyset := mint.activeKeyset
+	var activeInputFeePpk uint
 	// check if there is new active keyset
 	activeChanged := true
 	for _, keyset := range allKeysets.Keysets {
 		if keyset.Active && keyset.Id == activeKeyset.Id {
 			activeChanged = false
+			activeInputFeePpk = keyset.InputFeePpk
 			break
 		}
 	}
@@ -129,10 +131,12 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 				storedKeyset := w.db.GetKeyset(keyset.Id)
 				if storedKeyset != nil {
 					storedKeyset.Active = true
+					storedKeyset.InputFeePpk = keyset.InputFeePpk
 					if err := w.db.SaveKeyset(storedKeyset); err != nil {
 						return nil, err
 					}
-					mint.activeKeyset = *storedKeyset
+					activeKeyset = *storedKeyset
+					mint.activeKeyset = activeKeyset
 					delete(mint.inactiveKeysets, storedKeyset.Id)
 				} else {
 					keys, err := GetKeysetKeys(mintURL, keyset.Id)
@@ -155,6 +159,18 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 				}
 				w.mints[mintURL] = mint
 			}
+		}
+	}
+
+	// check if input_fee_ppk changed for current active
+	if !activeChanged {
+		if activeInputFeePpk != activeKeyset.InputFeePpk {
+			activeKeyset.InputFeePpk = activeInputFeePpk
+			if err := w.db.SaveKeyset(&activeKeyset); err != nil {
+				return nil, err
+			}
+			mint.activeKeyset = activeKeyset
+			w.mints[mintURL] = mint
 		}
 	}
 

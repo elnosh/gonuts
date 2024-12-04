@@ -1047,7 +1047,6 @@ func (w *Wallet) selectProofsForAmount(
 	mint *walletMint,
 	includeFees bool,
 ) (cashu.Proofs, error) {
-	// TODO: need to check first if 'input_fee_ppk' for keyset has changed
 	var selectedProofs cashu.Proofs
 	var fees uint64 = 0
 
