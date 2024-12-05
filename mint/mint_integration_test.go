@@ -42,36 +42,36 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testMain(m))
+	code, err := testMain(m)
+	if err != nil {
+		log.Println(err)
+	}
+	os.Exit(code)
 }
 
-func testMain(m *testing.M) int {
+func testMain(m *testing.M) (int, error) {
 	flag.Parse()
 
 	ctx = context.Background()
 	var err error
 	bitcoind, err = btcdocker.NewBitcoind(ctx)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
 
 	_, err = bitcoind.Client.CreateWallet("")
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
 
 	lnd1, err = btcdocker.NewLnd(ctx, bitcoind)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
 
 	lnd2, err = btcdocker.NewLnd(ctx, bitcoind)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
 	defer func() {
 		bitcoind.Terminate(ctx)
@@ -81,27 +81,22 @@ func testMain(m *testing.M) int {
 
 	err = testutils.FundLndNode(ctx, bitcoind, lnd1)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
 
 	err = testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 15000000)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
 	testMint, err = testutils.CreateTestMint(lnd1, testMintPath, dbMigrationPath, 0, mint.MintLimits{})
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
-	defer func() {
-		os.RemoveAll(testMintPath)
-	}()
+	defer os.RemoveAll(testMintPath)
 
-	return m.Run()
+	return m.Run(), nil
 }
 
 func TestRequestMintQuote(t *testing.T) {
@@ -329,9 +324,7 @@ func TestSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(mintFeesPath)
-	}()
+	defer os.RemoveAll(mintFeesPath)
 
 	amount = 5000
 	proofs, err = testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
@@ -553,9 +546,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(mintFeesPath)
-	}()
+	defer os.RemoveAll(mintFeesPath)
 
 	amount = 6000
 	underProofs, err = testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
@@ -603,9 +594,8 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		lnd3.Terminate(ctx)
-	}()
+	defer lnd3.Terminate(ctx)
+
 	// create invoice from node for which there is no route so payment fails
 	noRoute := lnrpc.Invoice{Value: 2000}
 	noRouteInvoice, err := lnd3.Client.AddInvoice(ctx, &noRoute)
@@ -950,9 +940,7 @@ func TestMintLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(limitsMintPath)
-	}()
+	defer os.RemoveAll(limitsMintPath)
 
 	keyset := limitsMint.GetActiveKeyset()
 
@@ -1047,9 +1035,7 @@ func TestNUT11P2PK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(p2pkMintPath)
-	}()
+	defer os.RemoveAll(p2pkMintPath)
 
 	keyset := p2pkMint.GetActiveKeyset()
 

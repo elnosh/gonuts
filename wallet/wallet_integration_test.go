@@ -35,54 +35,57 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testMain(m))
+	code, err := testMain(m)
+	if err != nil {
+		log.Println(err)
+	}
+	os.Exit(code)
 }
 
-func testMain(m *testing.M) int {
+func testMain(m *testing.M) (int, error) {
 	flag.Parse()
 	ctx = context.Background()
+
+	errChan := make(chan error)
 
 	testMintPath := filepath.Join(".", "testmint1")
 	fakeBackend := &lightning.FakeBackend{}
 	testMint, err := testutils.CreateTestMintServer(fakeBackend, "3338", 0, testMintPath, dbMigrationPath, 0)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
-	defer func() {
-		os.RemoveAll(testMintPath)
-	}()
 	go func() {
-		log.Fatal(testMint.Start())
+		if err := testMint.Start(); err != nil {
+			errChan <- err
+		}
 	}()
+	defer os.RemoveAll(testMintPath)
 
 	testMintPath2 := filepath.Join(".", "testmint2")
 	fakeBackend2 := &lightning.FakeBackend{}
 	testMint2, err := testutils.CreateTestMintServer(fakeBackend2, "3339", 0, testMintPath2, dbMigrationPath, 0)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
-	defer func() {
-		os.RemoveAll(testMintPath2)
-	}()
 	go func() {
-		log.Fatal(testMint2.Start())
+		if err := testMint2.Start(); err != nil {
+			errChan <- err
+		}
 	}()
+	defer os.RemoveAll(testMintPath2)
 
-	mintPath := filepath.Join(".", "testmintwithfees")
+	mintFeesPath := filepath.Join(".", "testmintwithfees")
 	fakeBackend3 := &lightning.FakeBackend{}
-	mintWithFees, err := testutils.CreateTestMintServer(fakeBackend3, "8080", 0, mintPath, dbMigrationPath, 100)
+	mintWithFees, err := testutils.CreateTestMintServer(fakeBackend3, "8080", 0, mintFeesPath, dbMigrationPath, 100)
 	if err != nil {
-		log.Println(err)
-		return 1
+		return 1, err
 	}
-	defer func() {
-		os.RemoveAll(mintPath)
-	}()
 	go func() {
-		log.Fatal(mintWithFees.Start())
+		if err := mintWithFees.Start(); err != nil {
+			errChan <- err
+		}
 	}()
+	defer os.RemoveAll(mintFeesPath)
 
 	nutshellMint, err = testutils.CreateNutshellMintContainer(ctx, 0)
 	if err != nil {
@@ -90,7 +93,14 @@ func testMain(m *testing.M) int {
 	}
 	defer nutshellMint.Terminate(ctx)
 
-	return m.Run()
+	select {
+	case err := <-errChan:
+		return 1, err
+	case <-time.After(time.Millisecond * 500):
+		break
+	}
+
+	return m.Run(), nil
 }
 
 func TestMintTokens(t *testing.T) {
@@ -99,9 +109,7 @@ func TestMintTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	var mintAmount uint64 = 30000
 	mintRes, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
@@ -135,9 +143,7 @@ func TestSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -170,9 +176,7 @@ func TestSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(feesWalletPath)
-	}()
+	defer os.RemoveAll(feesWalletPath)
 
 	if err := testutils.FundCashuWallet(ctx, feesWallet, nil, 10000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -208,9 +212,7 @@ func TestReceive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -221,9 +223,7 @@ func TestReceive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	if err := testutils.FundCashuWallet(ctx, testWallet2, nil, 15000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -278,9 +278,7 @@ func TestReceiveFees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -291,9 +289,7 @@ func TestReceiveFees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	var sendAmount uint64 = 2000
 	proofsToSend, err := testWallet.Send(sendAmount, testWallet.CurrentMint(), true)
@@ -323,9 +319,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -367,9 +361,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(feesWalletPath)
-	}()
+	defer os.RemoveAll(feesWalletPath)
 
 	if err := testutils.FundCashuWallet(ctx, feesWallet, nil, 10000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -395,9 +387,7 @@ func TestMintSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	var amountToSwap uint64 = 1000
 	_, err = testWallet.MintSwap(amountToSwap, testWallet.CurrentMint(), mintURL2)
@@ -444,9 +434,7 @@ func TestWalletBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	// test balance after mint request
 	var mintAmount uint64 = 20000
@@ -512,9 +500,7 @@ func TestWalletBalanceFees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	err = testutils.FundCashuWallet(ctx, balanceTestWallet, nil, 30000)
 	if err != nil {
@@ -526,9 +512,7 @@ func TestWalletBalanceFees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	sendAmounts := []uint64{1200, 2000, 5000}
 
@@ -588,9 +572,7 @@ func TestPendingProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testMintPath)
-	}()
+	defer os.RemoveAll(testMintPath)
 	go func() {
 		t.Fatal(testMint.Start())
 	}()
@@ -600,9 +582,7 @@ func TestPendingProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	var fundingBalance uint64 = 15000
 	if err := testutils.FundCashuWallet(ctx, testWallet, nil, fundingBalance); err != nil {
@@ -733,9 +713,7 @@ func TestPendingProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	// redeem proofs from other wallet to mark them spent
 	token, _ := cashu.NewTokenV4(proofsToSend2, testWallet.CurrentMint(), cashu.Sat, false)
@@ -788,9 +766,7 @@ func TestKeysetRotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testMintPath)
-	}()
+	defer os.RemoveAll(testMintPath)
 	go func() {
 		if err := testMint.Start(); err != nil {
 			t.Fatal(err)
@@ -812,18 +788,14 @@ func TestKeysetRotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testWalletPath2 := filepath.Join(".", "/testkeysetrotationwallet2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	var mintAmount uint64 = 30000
 	mintRes, err := testWallet.RequestMint(mintAmount, testWallet.CurrentMint())
@@ -879,18 +851,14 @@ func TestWalletRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testWalletPath2 := filepath.Join(".", "/testrestorewallet2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	testWalletRestore(t, testWallet, testWallet2, testWalletPath)
 }
@@ -962,18 +930,14 @@ func TestHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testWalletPath2 := filepath.Join(".", "/testwallethtlc2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, htlcMintURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	if err := testutils.FundCashuWallet(ctx, testWallet, nil, 30000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
@@ -1026,9 +990,7 @@ func TestSendToPubkey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(p2pkMintPath)
-	}()
+	defer os.RemoveAll(p2pkMintPath)
 	go func() {
 		t.Fatal(p2pkMint.Start())
 	}()
@@ -1040,9 +1002,7 @@ func TestSendToPubkey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(p2pkMintPath2)
-	}()
+	defer os.RemoveAll(p2pkMintPath2)
 	go func() {
 		t.Fatal(p2pkMint2.Start())
 	}()
@@ -1053,18 +1013,14 @@ func TestSendToPubkey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testWalletPath2 := filepath.Join(".", "/testwalletp2pk2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, p2pkMintURL2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	testP2PK(t, testWallet, testWallet2)
 }
@@ -1137,9 +1093,7 @@ func TestDLEQProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testDLEQ(t, testWallet)
 }
@@ -1194,9 +1148,7 @@ func TestNutshell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	mintRes, err := testWallet.RequestMint(10000, testWallet.CurrentMint())
 	if err != nil {
@@ -1239,9 +1191,7 @@ func TestOverpaidFeesChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	mintRes, err := testWallet.RequestMint(10000, testWallet.CurrentMint())
 	if err != nil {
@@ -1319,18 +1269,14 @@ func TestSendToPubkeyNutshell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testWalletPath2 := filepath.Join(".", "/testwalletp2pk2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, nutshellMint2.Host)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	testP2PK(t, testWallet, testWallet2)
 }
@@ -1343,9 +1289,7 @@ func TestDLEQProofsNutshell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testDLEQ(t, testWallet)
 }
@@ -1358,18 +1302,14 @@ func TestWalletRestoreNutshell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath)
-	}()
+	defer os.RemoveAll(testWalletPath)
 
 	testWalletPath2 := filepath.Join(".", "/testrestorewalletnutshell2")
 	testWallet2, err := testutils.CreateTestWallet(testWalletPath2, mintURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		os.RemoveAll(testWalletPath2)
-	}()
+	defer os.RemoveAll(testWalletPath2)
 
 	testWalletRestore(t, testWallet, testWallet2, testWalletPath)
 }
