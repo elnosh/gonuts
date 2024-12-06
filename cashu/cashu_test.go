@@ -24,14 +24,12 @@ func TestDecodeTokenV4(t *testing.T) {
 				MintURL: "http://localhost:3338",
 				TokenProofs: []TokenV4Proof{
 					{
-						//Id: []byte("\x00\xad\x26\x8c\x4d\x1f\x58\x26"),
 						Id: keysetIdBytes,
 						Proofs: []ProofV4{
 							{
 								Amount: 1,
 								Secret: "9a6dbb847bd232ba76db0df197216b29d3b8cc14553cd27827fc1cc942fedb4e",
-								//C: []byte("\x03\x86\x18\x54\x3f\xfb\x6b\x86\x95\xdf\x4a\xd4\xba\xbc\xde\x92\xa3\x4a\x96\xbd\xcd\x97\xdc\xee\x0d\x7c\xcf\x98\xd4\x72\x12\x67\x92"),
-								C: Cbytes,
+								C:      Cbytes,
 							},
 						},
 					},
