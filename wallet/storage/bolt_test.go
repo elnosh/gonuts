@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
@@ -167,6 +168,57 @@ func TestPendingProofs(t *testing.T) {
 	}
 }
 
+func TestKeysets(t *testing.T) {
+	keyset1 := generateKeyset("http://localhost:3338")
+	keyset2 := generateKeyset("http://localhost:3338")
+	keyset3 := generateKeyset("http://localhost:8888")
+
+	if err := db.SaveKeyset(&keyset1); err != nil {
+		t.Fatalf("error saving keyset: %v", err)
+	}
+	if err := db.SaveKeyset(&keyset2); err != nil {
+		t.Fatalf("error saving keyset: %v", err)
+	}
+	if err := db.SaveKeyset(&keyset3); err != nil {
+		t.Fatalf("error saving keyset: %v", err)
+	}
+
+	keysetsMap := db.GetKeysets()
+	// length should be 2 because the map keys are the different mints
+	if len(keysetsMap) != 2 {
+		t.Fatalf("expected keyset map of length 2 but got %v", len(keysetsMap))
+	}
+
+	keysetFromDb := db.GetKeyset(keyset1.Id)
+	if !reflect.DeepEqual(keyset1, *keysetFromDb) {
+		t.Fatalf("keyset '%v' from db does not match '%v'", *keysetFromDb, keyset1)
+	}
+
+	var incrementBy uint32 = 5
+	if err := db.IncrementKeysetCounter(keyset2.Id, incrementBy); err != nil {
+		t.Fatalf("error updating keyset counter: %v", err)
+	}
+
+	counter := db.GetKeysetCounter(keyset1.Id)
+	if counter != 0 {
+		t.Fatalf("expected counter for keyset '%v' to 0 but got %v", keyset1.Id, counter)
+	}
+
+	counter = db.GetKeysetCounter(keyset2.Id)
+	if counter != incrementBy {
+		t.Fatalf("expected counter for keyset '%v' to %v but got %v", keyset1.Id, incrementBy, counter)
+	}
+
+	if err := db.IncrementKeysetCounter(keyset2.Id, 3); err != nil {
+		t.Fatalf("error updating keyset counter: %v", err)
+	}
+
+	counter = db.GetKeysetCounter(keyset2.Id)
+	if counter != incrementBy+3 {
+		t.Fatalf("expected counter for keyset '%v' to %v but got %v", keyset1.Id, incrementBy+3, counter)
+	}
+}
+
 func TestMintQuotes(t *testing.T) {
 	quoteId := "quoteId1"
 	mintQuote := generateMintQuote(quoteId)
@@ -286,6 +338,17 @@ func sortDBProofs(proofs []DBProof) {
 	slices.SortFunc(proofs, func(a, b DBProof) int {
 		return strings.Compare(a.Secret, b.Secret)
 	})
+}
+
+func generateKeyset(mint string) crypto.WalletKeyset {
+	return crypto.WalletKeyset{
+		Id:          generateRandomString(32),
+		MintURL:     mint,
+		Unit:        cashu.Sat.String(),
+		Active:      true,
+		PublicKeys:  make(map[uint64]*secp256k1.PublicKey),
+		InputFeePpk: 100,
+	}
 }
 
 func generateMintQuote(id string) MintQuote {
