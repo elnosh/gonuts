@@ -365,7 +365,7 @@ func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
 
 		return keysetsb.ForEach(func(mintURL, v []byte) error {
-			mintKeysets := make(map[string]crypto.WalletKeyset)
+			mintKeysets := []crypto.WalletKeyset{}
 			mintBucket := keysetsb.Bucket(mintURL)
 			c := mintBucket.Cursor()
 
@@ -374,9 +374,8 @@ func (db *BoltDB) GetKeysets() crypto.KeysetsMap {
 				if err := json.Unmarshal(v, &keyset); err != nil {
 					return err
 				}
-				mintKeysets[string(k)] = keyset
+				mintKeysets = append(mintKeysets, keyset)
 			}
-
 			keysets[string(mintURL)] = mintKeysets
 			return nil
 		})

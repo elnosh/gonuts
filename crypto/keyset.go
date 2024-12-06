@@ -221,7 +221,7 @@ func (kp *KeyPair) UnmarshalJSON(data []byte) error {
 }
 
 // KeysetsMap maps a mint url to map of string keyset id to keyset
-type KeysetsMap map[string]map[string]WalletKeyset
+type KeysetsMap map[string][]WalletKeyset
 
 type WalletKeyset struct {
 	Id          string
