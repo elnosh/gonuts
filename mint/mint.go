@@ -532,8 +532,6 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 	}
 	// Fee reserve that is required by the mint
 	fee := m.lightningClient.FeeReserve(satAmount)
-	m.logInfof("got melt quote request for invoice of amount '%v'. Setting fee reserve to %v", satAmount, fee)
-
 	meltQuote := storage.MeltQuote{
 		Id:             quoteId,
 		InvoiceRequest: request,
@@ -556,6 +554,9 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 		meltQuote.PaymentHash = mintQuote.PaymentHash
 		meltQuote.FeeReserve = 0
 	}
+
+	m.logInfof("got melt quote request for invoice of amount '%v'. Setting fee reserve to %v",
+		satAmount, meltQuote.FeeReserve)
 
 	if err := m.db.SaveMeltQuote(meltQuote); err != nil {
 		errmsg := fmt.Sprintf("error saving melt quote to db: %v", err)
