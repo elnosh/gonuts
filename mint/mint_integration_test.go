@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -770,6 +771,145 @@ func TestPendingProofs(t *testing.T) {
 			t.Fatalf("expected spent proof but got '%s' instead", proofState.State)
 		}
 	}
+}
+
+func TestConcurrentMint(t *testing.T) {
+	var mintAmount uint64 = 2100
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
+	mintQuoteResponse, _ := testMint.RequestMintQuote(mintQuoteRequest)
+
+	keyset := testMint.GetActiveKeyset()
+	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	//pay invoice
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: mintQuoteResponse.PaymentRequest,
+	}
+	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	// test 100 concurrent requests to mint tokens for same quote id
+	errCount := 0
+	numRequests := 100
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func() {
+			mintTokensRequest := nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
+			_, err := testMint.MintTokens(mintTokensRequest)
+			if err != nil {
+				mu.Lock()
+				errCount++
+				mu.Unlock()
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	// out of the 100 requests only 1 should have succeeded.
+	// there should be 99 errors
+	if errCount != 99 {
+		t.Fatalf("expected 99 errors but got %v", errCount)
+	}
+
+}
+
+func TestConcurrentSwap(t *testing.T) {
+	var amount uint64 = 2100
+	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	keyset := testMint.GetActiveKeyset()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	// test 100 concurrent swap requests using same proofs
+	errCount := 0
+	numRequests := 100
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func() {
+			blindedMessages, _, _, _ := testutils.CreateBlindedMessages(amount, keyset)
+			_, err := testMint.Swap(proofs, blindedMessages)
+			if err != nil {
+				mu.Lock()
+				errCount++
+				mu.Unlock()
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	// out of the 100 requests only 1 should have succeeded.
+	// there should be 99 errors
+	if errCount != 99 {
+		t.Fatalf("expected 99 errors but got %v", errCount)
+	}
+}
+
+func TestConcurrentMelt(t *testing.T) {
+	var amount uint64 = 210
+	numRequests := 100
+	meltQuotes := make([]string, numRequests)
+
+	var feeReserve uint64 = 0
+	// create 100 melt quotes
+	for i := 0; i < numRequests; i++ {
+		invoice := lnrpc.Invoice{Value: int64(amount)}
+		addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+		if err != nil {
+			t.Fatalf("error creating invoice: %v", err)
+		}
+		paymentRequest := addInvoiceResponse.PaymentRequest
+
+		meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
+		meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
+		if err != nil {
+			t.Fatalf("got unexpected error in melt request: %v", err)
+		}
+		meltQuotes[i] = meltQuote.Id
+		feeReserve = meltQuote.FeeReserve
+	}
+
+	proofs, err := testutils.GetValidProofsForAmount(amount+feeReserve, testMint, lnd2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// for the created melt quotes, do concurrent requests for each one using the same set of proofs
+	// only 1 should succeed
+	errCount := 0
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func() {
+			meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuotes[i], Inputs: proofs}
+			_, err := testMint.MeltTokens(ctx, meltTokensRequest)
+			if err != nil {
+				mu.Lock()
+				errCount++
+				mu.Unlock()
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	// out of the 100 requests only 1 should have succeeded.
+	// there should be 99 errors
+	if errCount != 99 {
+		t.Fatalf("expected 99 errors but got %v", errCount)
+	}
+
 }
 
 func TestProofsStateCheck(t *testing.T) {

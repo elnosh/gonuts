@@ -162,16 +162,27 @@ func TestMintQuotes(t *testing.T) {
 	mintQuotes := generateRandomMintQuotes(150)
 
 	var wg sync.WaitGroup
+	errChan := make(chan error, 150)
+	done := make(chan interface{})
 	for _, quote := range mintQuotes {
 		wg.Add(1)
 		go func() {
 			if err := db.SaveMintQuote(quote); err != nil {
-				t.Fatalf("error saving mint quote: %v", err)
+				errChan <- err
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
+	go func() {
+		done <- struct{}{}
+	}()
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("error saving mint quote: %v", err)
+	case <-done:
+	}
 
 	expectedQuote := mintQuotes[21]
 	quote, err := db.GetMintQuote(expectedQuote.Id)
@@ -223,16 +234,27 @@ func TestMeltQuote(t *testing.T) {
 	meltQuotes := generateRandomMeltQuotes(150)
 
 	var wg sync.WaitGroup
+	errChan := make(chan error, 150)
+	done := make(chan interface{})
 	for _, quote := range meltQuotes {
 		wg.Add(1)
 		go func() {
 			if err := db.SaveMeltQuote(quote); err != nil {
-				t.Fatalf("error saving melt quote: %v", err)
+				errChan <- err
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
+	go func() {
+		done <- struct{}{}
+	}()
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("error saving melt quote: %v", err)
+	case <-done:
+	}
 
 	expectedQuote := meltQuotes[21]
 	quote, err := db.GetMeltQuote(expectedQuote.Id)
@@ -287,16 +309,27 @@ func TestBlindSignatures(t *testing.T) {
 	blindSignatures := generateBlindSignatures(count)
 
 	var wg sync.WaitGroup
+	errChan := make(chan error, count)
+	done := make(chan interface{})
 	for i := 0; i < count; i++ {
 		wg.Add(1)
 		go func() {
 			if err := db.SaveBlindSignature(blindedMessages[i], blindSignatures[i]); err != nil {
-				t.Fatalf("error saving blind signature: %v", err)
+				errChan <- err
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
+	go func() {
+		done <- struct{}{}
+	}()
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("error saving blind signature: %v", err)
+	case <-done:
+	}
 
 	expectedBlindSig := blindSignatures[21]
 	blindSig, err := db.GetBlindSignature(blindedMessages[21])
