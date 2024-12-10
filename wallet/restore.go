@@ -18,34 +18,34 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs, error) {
+func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, error) {
 	// check if wallet db already exists, if there is one, throw error.
 	dbpath := filepath.Join(walletPath, "wallet.db")
 	_, err := os.Stat(dbpath)
 	if err == nil {
-		return nil, errors.New("wallet already exists")
+		return 0, errors.New("wallet already exists")
 	}
 
 	if err := os.MkdirAll(walletPath, 0700); err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	// check mnemonic is valid
 	if !bip39.IsMnemonicValid(mnemonic) {
-		return nil, errors.New("invalid mnemonic")
+		return 0, errors.New("invalid mnemonic")
 	}
 
 	// create wallet db
 	db, err := InitStorage(walletPath)
 	if err != nil {
-		return nil, fmt.Errorf("error restoring wallet: %v", err)
+		return 0, fmt.Errorf("error restoring wallet: %v", err)
 	}
 
 	seed := bip39.NewSeed(mnemonic, "")
 	// get master key from seed
 	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	db.SaveMnemonicSeed(mnemonic, seed)
 
@@ -55,7 +55,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 	for _, mint := range mintsToRestore {
 		mintInfo, err := GetMintInfo(mint)
 		if err != nil {
-			return nil, fmt.Errorf("error getting info from mint: %v", err)
+			return 0, fmt.Errorf("error getting info from mint: %v", err)
 		}
 
 		nut7, ok := mintInfo.Nuts[7].(map[string]interface{})
@@ -68,7 +68,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 		// call to get mint keysets
 		keysetsResponse, err := GetAllKeysets(mint)
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 
 		for _, keyset := range keysetsResponse.Keysets {
@@ -86,7 +86,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 
 			keysetKeys, err := GetKeysetKeys(mint, keyset.Id)
 			if err != nil {
-				return nil, err
+				return 0, err
 			}
 
 			walletKeyset := crypto.WalletKeyset{
@@ -99,12 +99,12 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 			}
 
 			if err := db.SaveKeyset(&walletKeyset); err != nil {
-				return nil, err
+				return 0, err
 			}
 
 			keysetDerivationPath, err := nut13.DeriveKeysetPath(masterKey, keyset.Id)
 			if err != nil {
-				return nil, err
+				return 0, err
 			}
 
 			// stop when it reaches 3 consecutive empty batches
@@ -118,11 +118,11 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 				for i := 0; i < 100; i++ {
 					secret, r, err := generateDeterministicSecret(keysetDerivationPath, counter)
 					if err != nil {
-						return nil, err
+						return 0, err
 					}
 					B_, r, err := crypto.BlindMessage(secret, r)
 					if err != nil {
-						return nil, err
+						return 0, err
 					}
 
 					B_str := hex.EncodeToString(B_.SerializeCompressed())
@@ -136,7 +136,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 				restoreRequest := nut09.PostRestoreRequest{Outputs: blindedMessages}
 				restoreResponse, err := PostRestore(mint, restoreRequest)
 				if err != nil {
-					return nil, fmt.Errorf("error restoring signatures from mint '%v': %v", mint, err)
+					return 0, fmt.Errorf("error restoring signatures from mint '%v': %v", mint, err)
 				}
 
 				if len(restoreResponse.Signatures) == 0 {
@@ -151,17 +151,17 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 				for i, signature := range restoreResponse.Signatures {
 					pubkey, ok := keysetKeys[signature.Amount]
 					if !ok {
-						return nil, errors.New("key not found")
+						return 0, errors.New("key not found")
 					}
 
 					C, err := unblindSignature(signature.C_, rs[i], pubkey)
 					if err != nil {
-						return nil, err
+						return 0, err
 					}
 
 					Y, err := crypto.HashToCurve([]byte(secrets[i]))
 					if err != nil {
-						return nil, err
+						return 0, err
 					}
 					Yhex := hex.EncodeToString(Y.SerializeCompressed())
 					Ys[i] = Yhex
@@ -178,7 +178,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 				proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
 				proofStateResponse, err := PostCheckProofState(mint, proofStateRequest)
 				if err != nil {
-					return nil, err
+					return 0, err
 				}
 
 				for _, proofState := range proofStateResponse.States {
@@ -194,17 +194,17 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (cashu.Proofs
 					}
 				}
 				if err := db.SaveProofs(proofsRestored); err != nil {
-					return nil, fmt.Errorf("error saving restored proofs: %v", err)
+					return 0, fmt.Errorf("error saving restored proofs: %v", err)
 				}
 
 				// save wallet keyset with latest counter moving forward for wallet
 				if err := db.IncrementKeysetCounter(keyset.Id, counter); err != nil {
-					return nil, fmt.Errorf("error incrementing keyset counter: %v", err)
+					return 0, fmt.Errorf("error incrementing keyset counter: %v", err)
 				}
 				emptyBatches = 0
 			}
 		}
 	}
 
-	return proofsRestored, nil
+	return proofsRestored.Amount(), nil
 }

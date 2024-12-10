@@ -677,12 +677,12 @@ func restore(ctx *cli.Context) error {
 	}
 	mnemonic = mnemonic[:len(mnemonic)-1]
 
-	proofs, err := wallet.Restore(config.WalletPath, mnemonic, []string{config.CurrentMintURL})
+	amountRestored, err := wallet.Restore(config.WalletPath, mnemonic, []string{config.CurrentMintURL})
 	if err != nil {
 		printErr(fmt.Errorf("error restoring wallet: %v", err))
 	}
 
-	fmt.Printf("restored proofs for amount of: %v\n", proofs.Amount())
+	fmt.Printf("restored proofs for amount: %v\n", amountRestored)
 	return nil
 }
 

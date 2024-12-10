@@ -911,14 +911,14 @@ func testWalletRestore(
 	// delete wallet db to restore
 	os.RemoveAll(filepath.Join(restorePath, "wallet.db"))
 
-	proofs, err := wallet.Restore(restorePath, mnemonic, []string{mintURL})
+	amountRestored, err := wallet.Restore(restorePath, mnemonic, []string{mintURL})
 	if err != nil {
 		t.Fatalf("error restoring wallet: %v\n", err)
 	}
 
 	expectedAmount := mintAmount - sendAmount1 - sendAmount2
-	if proofs.Amount() != expectedAmount {
-		t.Fatalf("restored proofs amount '%v' does not match to expected amount '%v'", proofs.Amount(), expectedAmount)
+	if amountRestored != expectedAmount {
+		t.Fatalf("restored amount '%v' does not match expected amount '%v'", amountRestored, expectedAmount)
 	}
 }
 
