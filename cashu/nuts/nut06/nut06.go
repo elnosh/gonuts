@@ -17,6 +17,9 @@ type MintInfo struct {
 	LongDescription string        `json:"description_long,omitempty"`
 	Contact         []ContactInfo `json:"contact,omitempty"`
 	Motd            string        `json:"motd,omitempty"`
+	IconURL         string        `json:"icon_url,omitempty"`
+	URLs            []string      `json:"urls,omitempty"`
+	Time            int64         `json:"time,omitempty"`
 	Nuts            NutsMap       `json:"nuts"`
 }
 
@@ -35,6 +38,9 @@ func (mi *MintInfo) UnmarshalJSON(data []byte) error {
 		LongDescription string          `json:"description_long,omitempty"`
 		Contact         json.RawMessage `json:"contact,omitempty"`
 		Motd            string          `json:"motd,omitempty"`
+		IconURL         string          `json:"icon_url,omitempty"`
+		URLs            []string        `json:"urls,omitempty"`
+		Time            int64           `json:"time,omitempty"`
 		Nuts            NutsMap         `json:"nuts"`
 	}
 
@@ -48,6 +54,9 @@ func (mi *MintInfo) UnmarshalJSON(data []byte) error {
 	mi.Description = tempInfo.Description
 	mi.LongDescription = tempInfo.LongDescription
 	mi.Motd = tempInfo.Motd
+	mi.IconURL = tempInfo.IconURL
+	mi.URLs = tempInfo.URLs
+	mi.Time = tempInfo.Time
 	mi.Nuts = tempInfo.Nuts
 	json.Unmarshal(tempInfo.Contact, &mi.Contact)
 
