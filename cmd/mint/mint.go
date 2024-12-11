@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -82,19 +83,17 @@ func configFromEnv() (*mint.Config, error) {
 	}
 
 	mintInfo := mint.MintInfo{
-		Name:        os.Getenv("MINT_NAME"),
-		Description: os.Getenv("MINT_DESCRIPTION"),
+		Name:            os.Getenv("MINT_NAME"),
+		Description:     os.Getenv("MINT_DESCRIPTION"),
+		LongDescription: os.Getenv("MINT_DESCRIPTION_LONG"),
+		Motd:            os.Getenv("MINT_MOTD"),
 	}
-
-	mintInfo.LongDescription = os.Getenv("MINT_DESCRIPTION_LONG")
-	mintInfo.Motd = os.Getenv("MINT_MOTD")
 
 	contact := os.Getenv("MINT_CONTACT_INFO")
 	var mintContactInfo []nut06.ContactInfo
 	if len(contact) > 0 {
 		var infoArr [][]string
-		err := json.Unmarshal([]byte(contact), &infoArr)
-		if err != nil {
+		if err := json.Unmarshal([]byte(contact), &infoArr); err != nil {
 			return nil, fmt.Errorf("error parsing contact info: %v", err)
 		}
 
@@ -105,8 +104,30 @@ func configFromEnv() (*mint.Config, error) {
 	}
 	mintInfo.Contact = mintContactInfo
 
-	var lightningClient lightning.Client
+	if len(os.Getenv("MINT_ICON_URL")) > 0 {
+		iconURL, err := url.Parse(os.Getenv("MINT_ICON_URL"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid icon url: %v", err)
+		}
+		mintInfo.IconURL = iconURL.String()
+	}
 
+	urls := os.Getenv("MINT_URLS")
+	if len(urls) > 0 {
+		urlList := []string{}
+		if err := json.Unmarshal([]byte(urls), &urlList); err != nil {
+			return nil, fmt.Errorf("error parsing list of URLs: %v", err)
+		}
+		for _, urlString := range urlList {
+			mintURL, err := url.Parse(urlString)
+			if err != nil {
+				return nil, fmt.Errorf("invalid url: %v", err)
+			}
+			mintInfo.URLs = append(mintInfo.URLs, mintURL.String())
+		}
+	}
+
+	var lightningClient lightning.Client
 	switch os.Getenv("LIGHTNING_BACKEND") {
 	case "Lnd":
 		// read values for setting up LND

@@ -1415,12 +1415,15 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 		LongDescription: mintInfo.LongDescription,
 		Contact:         mintInfo.Contact,
 		Motd:            mintInfo.Motd,
+		IconURL:         mintInfo.IconURL,
+		URLs:            mintInfo.URLs,
+		Time:            time.Now().Unix(),
 		Nuts:            nuts,
 	}
 	m.mintInfo = info
 }
 
-func (m *Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
+func (m Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
 	seed, err := m.db.GetSeed()
 	if err != nil {
 		return nut06.MintInfo{}, err

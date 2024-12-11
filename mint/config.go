@@ -35,6 +35,8 @@ type MintInfo struct {
 	LongDescription string
 	Contact         []nut06.ContactInfo
 	Motd            string
+	IconURL         string
+	URLs            []string
 }
 
 type MintMethodSettings struct {
