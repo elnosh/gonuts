@@ -187,7 +187,6 @@ func configFromEnv() (*mint.Config, error) {
 		DerivationPathIdx: uint32(derivationPathIdx),
 		Port:              port,
 		MintPath:          mintPath,
-		DBMigrationPath:   dbMigrations,
 		InputFeePpk:       inputFeePpk,
 		MintInfo:          mintInfo,
 		Limits:            mintLimits,

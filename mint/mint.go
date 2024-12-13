@@ -68,7 +68,7 @@ func LoadMint(config Config) (*Mint, error) {
 		return nil, err
 	}
 
-	db, err := sqlite.InitSQLite(path, config.DBMigrationPath)
+	db, err := sqlite.InitSQLite(path)
 	if err != nil {
 		return nil, fmt.Errorf("error setting up sqlite: %v", err)
 	}
