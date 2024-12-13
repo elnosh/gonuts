@@ -37,8 +37,7 @@ func testMain(m *testing.M) (int, error) {
 		return 1, err
 	}
 
-	migrations := "./migrations"
-	db, err = InitSQLite(dbpath, migrations)
+	db, err = InitSQLite(dbpath)
 	if err != nil {
 		return 1, err
 	}

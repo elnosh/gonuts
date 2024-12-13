@@ -19,7 +19,6 @@ type Config struct {
 	DerivationPathIdx uint32
 	Port              string
 	MintPath          string
-	DBMigrationPath   string
 	InputFeePpk       uint
 	MintInfo          MintInfo
 	Limits            MintLimits

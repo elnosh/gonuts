@@ -2,9 +2,12 @@ package sqlite
 
 import (
 	"database/sql"
+	"embed"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -19,11 +22,54 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+//go:embed migrations
+var migrations embed.FS
+
 type SQLiteDB struct {
 	db *sql.DB
 }
 
-func InitSQLite(path, migrationPath string) (*SQLiteDB, error) {
+// create a temporary directory with the migration files.
+// migration files are embedded with go:embed. These are then read
+// and copied to a temporary directory.
+// This is needed to pass the directory to migrate.New
+func migrationsDir() (string, error) {
+	tempDir, err := os.MkdirTemp("", "migrations")
+	if err != nil {
+		return "", err
+	}
+
+	migrationFiles, err := migrations.ReadDir("migrations")
+	if err != nil {
+		return "", err
+	}
+
+	for _, file := range migrationFiles {
+		filePath := filepath.Join(tempDir, file.Name())
+
+		migrationFilePath := filepath.Join("migrations", file.Name())
+		migrationFile, err := migrations.Open(migrationFilePath)
+		if err != nil {
+			return "", err
+		}
+		defer migrationFile.Close()
+
+		destFile, err := os.Create(filePath)
+		if err != nil {
+			return "", err
+		}
+		defer destFile.Close()
+
+		_, err = io.Copy(destFile, migrationFile)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return tempDir, nil
+}
+
+func InitSQLite(path string) (*SQLiteDB, error) {
 	dbpath := filepath.Join(path, "mint.sqlite.db")
 	db, err := sql.Open("sqlite3", dbpath)
 	if err != nil {
@@ -31,7 +77,13 @@ func InitSQLite(path, migrationPath string) (*SQLiteDB, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	m, err := migrate.New(fmt.Sprintf("file://%s", migrationPath), fmt.Sprintf("sqlite3://%s", dbpath))
+	tempMigrationsDir, err := migrationsDir()
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tempMigrationsDir)
+
+	m, err := migrate.New(fmt.Sprintf("file://%s", tempMigrationsDir), fmt.Sprintf("sqlite3://%s", dbpath))
 	if err != nil {
 		return nil, err
 	}

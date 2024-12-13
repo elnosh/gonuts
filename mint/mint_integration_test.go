@@ -34,12 +34,11 @@ import (
 )
 
 var (
-	ctx             context.Context
-	bitcoind        *btcdocker.Bitcoind
-	lnd1            *btcdocker.Lnd
-	lnd2            *btcdocker.Lnd
-	testMint        *mint.Mint
-	dbMigrationPath = "./storage/sqlite/migrations"
+	ctx      context.Context
+	bitcoind *btcdocker.Bitcoind
+	lnd1     *btcdocker.Lnd
+	lnd2     *btcdocker.Lnd
+	testMint *mint.Mint
 )
 
 func TestMain(m *testing.M) {
@@ -91,7 +90,7 @@ func testMain(m *testing.M) (int, error) {
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err = testutils.CreateTestMint(lnd1, testMintPath, dbMigrationPath, 0, mint.MintLimits{})
+	testMint, err = testutils.CreateTestMint(lnd1, testMintPath, 0, mint.MintLimits{})
 	if err != nil {
 		return 1, err
 	}
@@ -321,7 +320,7 @@ func TestSwap(t *testing.T) {
 
 	// mint with fees
 	mintFeesPath := filepath.Join(".", "mintfees")
-	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, dbMigrationPath, 100, mint.MintLimits{})
+	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, 100, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +542,7 @@ func TestMelt(t *testing.T) {
 
 	// mint with fees
 	mintFeesPath := filepath.Join(".", "mintfeesmelt")
-	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, dbMigrationPath, 100, mint.MintLimits{})
+	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, 100, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,7 +1071,6 @@ func TestMintLimits(t *testing.T) {
 	limitsMint, err := testutils.CreateTestMint(
 		lnd1,
 		limitsMintPath,
-		dbMigrationPath,
 		100,
 		mintLimits,
 	)
@@ -1171,7 +1169,7 @@ func TestNUT11P2PK(t *testing.T) {
 	lock, _ := btcec.NewPrivateKey()
 
 	p2pkMintPath := filepath.Join(".", "p2pkmint")
-	p2pkMint, err := testutils.CreateTestMint(lnd1, p2pkMintPath, dbMigrationPath, 0, mint.MintLimits{})
+	p2pkMint, err := testutils.CreateTestMint(lnd1, p2pkMintPath, 0, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}

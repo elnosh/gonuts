@@ -194,7 +194,6 @@ func MintConfig(
 	port string,
 	derivationPathIdx uint32,
 	dbpath string,
-	dbMigrationPath string,
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Config, error) {
@@ -207,7 +206,6 @@ func MintConfig(
 		DerivationPathIdx: derivationPathIdx,
 		Port:              port,
 		MintPath:          dbpath,
-		DBMigrationPath:   dbMigrationPath,
 		InputFeePpk:       inputFeePpk,
 		Limits:            limits,
 		LightningClient:   backend,
@@ -269,7 +267,6 @@ func LndClient(lnd *btcdocker.Lnd, dbpath string) (*lightning.LndClient, error) 
 func CreateTestMint(
 	lnd *btcdocker.Lnd,
 	dbpath string,
-	dbMigrationPath string,
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Mint, error) {
@@ -277,7 +274,7 @@ func CreateTestMint(
 	if err != nil {
 		return nil, err
 	}
-	config, err := MintConfig(lndClient, "", 0, dbpath, dbMigrationPath, inputFeePpk, limits)
+	config, err := MintConfig(lndClient, "", 0, dbpath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -294,10 +291,9 @@ func CreateTestMintServer(
 	port string,
 	derivationPathIdx uint32,
 	dbpath string,
-	dbMigrationPath string,
 	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := MintConfig(backend, port, derivationPathIdx, dbpath, dbMigrationPath, inputFeePpk, mint.MintLimits{})
+	config, err := MintConfig(backend, port, derivationPathIdx, dbpath, inputFeePpk, mint.MintLimits{})
 	if err != nil {
 		return nil, err
 	}
