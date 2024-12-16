@@ -52,11 +52,6 @@ func configFromEnv() (*mint.Config, error) {
 		mintPath = filepath.Join(homedir, ".gonuts", "mint")
 	}
 
-	dbMigrations := os.Getenv("DB_MIGRATIONS")
-	if len(dbMigrations) == 0 {
-		dbMigrations = "../../mint/storage/sqlite/migrations"
-	}
-
 	mintLimits := mint.MintLimits{}
 	if maxBalanceEnv, ok := os.LookupEnv("MAX_BALANCE"); ok {
 		maxBalance, err := strconv.ParseUint(maxBalanceEnv, 10, 64)
