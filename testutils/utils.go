@@ -28,6 +28,7 @@ import (
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/wallet"
+	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/testcontainers/testcontainers-go"
@@ -656,7 +657,7 @@ func AddHTLCWitnessToOutputs(outputs cashu.BlindedMessages, preimage string, sig
 }
 
 func Fees(proofs cashu.Proofs, mint string) (uint, error) {
-	keysetResponse, err := wallet.GetAllKeysets(mint)
+	keysetResponse, err := client.GetAllKeysets(mint)
 	if err != nil {
 		return 0, err
 	}

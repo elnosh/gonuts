@@ -8,11 +8,12 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/wallet/client"
 )
 
 // GetMintActiveKeyset gets the active keyset with the specified unit
 func GetMintActiveKeyset(mintURL string, unit cashu.Unit) (*crypto.WalletKeyset, error) {
-	keysets, err := GetAllKeysets(mintURL)
+	keysets, err := client.GetAllKeysets(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting active keysets from mint: %v", err)
 	}
@@ -41,7 +42,7 @@ func GetMintActiveKeyset(mintURL string, unit cashu.Unit) (*crypto.WalletKeyset,
 }
 
 func GetMintInactiveKeysets(mintURL string, unit cashu.Unit) (map[string]crypto.WalletKeyset, error) {
-	keysetsResponse, err := GetAllKeysets(mintURL)
+	keysetsResponse, err := client.GetAllKeysets(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting keysets from mint: %v", err)
 	}
@@ -64,7 +65,7 @@ func GetMintInactiveKeysets(mintURL string, unit cashu.Unit) (map[string]crypto.
 }
 
 func GetKeysetKeys(mintURL, id string) (map[uint64]*secp256k1.PublicKey, error) {
-	keysetsResponse, err := GetKeysetById(mintURL, id)
+	keysetsResponse, err := client.GetKeysetById(mintURL, id)
 	if err != nil {
 		return nil, fmt.Errorf("error getting keyset from mint: %v", err)
 	}
@@ -99,7 +100,7 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 		return activeKeyset, nil
 	}
 
-	allKeysets, err := GetAllKeysets(mintURL)
+	allKeysets, err := client.GetAllKeysets(mintURL)
 	if err != nil {
 		return nil, err
 	}

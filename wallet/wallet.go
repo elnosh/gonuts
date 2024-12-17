@@ -28,6 +28,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/elnosh/gonuts/wallet/storage"
 	"github.com/tyler-smith/go-bip39"
 
@@ -218,7 +219,7 @@ func (w *Wallet) RequestMint(amount uint64, mint string) (*nut04.PostMintQuoteBo
 	}
 
 	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: w.unit.String()}
-	mintResponse, err := PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
+	mintResponse, err := client.PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Respo
 		}, nil
 	}
 
-	mintQuote, err := GetMintQuoteState(mint, quoteId)
+	mintQuote, err := client.GetMintQuoteState(mint, quoteId)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +327,7 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 
 	// request mint to sign the blinded messages
 	postMintRequest := nut04.PostMintBolt11Request{Quote: quoteId, Outputs: blindedMessages}
-	mintResponse, err := PostMintBolt11(mint, postMintRequest)
+	mintResponse, err := client.PostMintBolt11(mint, postMintRequest)
 	if err != nil {
 		return 0, err
 	}
@@ -389,7 +390,7 @@ func (w *Wallet) SendToPubkey(
 	}
 
 	// check first if mint supports P2PK NUT
-	mintInfo, err := GetMintInfo(mintURL)
+	mintInfo, err := client.GetMintInfo(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
@@ -433,7 +434,7 @@ func (w *Wallet) HTLCLockedProofs(
 	}
 
 	// check first if mint supports HTLC NUT
-	mintInfo, err := GetMintInfo(mintURL)
+	mintInfo, err := client.GetMintInfo(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
@@ -650,7 +651,7 @@ func swap(mint string, swapRequest swapRequestPayload) (cashu.Proofs, error) {
 		Inputs:  swapRequest.inputs,
 		Outputs: swapRequest.outputs,
 	}
-	swapResponse, err := PostSwap(mint, request)
+	swapResponse, err := client.PostSwap(mint, request)
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +717,7 @@ func (w *Wallet) RequestMeltQuote(request, mint string) (*nut05.PostMeltQuoteBol
 	}
 
 	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: request, Unit: w.unit.String()}
-	meltQuoteResponse, err := PostMeltQuoteBolt11(mint, meltRequest)
+	meltQuoteResponse, err := client.PostMeltQuoteBolt11(mint, meltRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -746,7 +747,7 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 		return nil, ErrQuoteNotFound
 	}
 
-	quoteStateResponse, err := GetMeltQuoteState(quote.Mint, quoteId)
+	quoteStateResponse, err := client.GetMeltQuoteState(quote.Mint, quoteId)
 	if err != nil {
 		return nil, err
 	}
@@ -867,7 +868,7 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 		Inputs:  proofs,
 		Outputs: outputs,
 	}
-	meltBolt11Response, err := PostMeltBolt11(mint.mintURL, meltBolt11Request)
+	meltBolt11Response, err := client.PostMeltBolt11(mint.mintURL, meltBolt11Request)
 	if err != nil {
 		// if there was error with melt, remove proofs from pending and save them for use
 		if err := w.db.SaveProofs(proofs); err != nil {
@@ -982,7 +983,7 @@ func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, 
 		// request melt quote from the 'from' mint
 		// this melt will pay the invoice generated from the previous mint quote request
 		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: cashu.Sat.String()}
-		meltQuoteResponse, err = PostMeltQuoteBolt11(from.mintURL, meltRequest)
+		meltQuoteResponse, err = client.PostMeltQuoteBolt11(from.mintURL, meltRequest)
 		if err != nil {
 			return 0, fmt.Errorf("error with melt request: %v", err)
 		}
@@ -999,7 +1000,7 @@ func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, 
 
 	// request from mint to pay invoice from the mint quote request
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
-	meltBolt11Response, err := PostMeltBolt11(from.mintURL, meltBolt11Request)
+	meltBolt11Response, err := client.PostMeltBolt11(from.mintURL, meltBolt11Request)
 	if err != nil {
 		return 0, fmt.Errorf("error melting token: %v", err)
 	}
@@ -1233,7 +1234,7 @@ func (w *Wallet) swapToSend(
 
 	// call swap endpoint
 	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: blindedMessages}
-	swapResponse, err := PostSwap(mint.mintURL, swapRequest)
+	swapResponse, err := client.PostSwap(mint.mintURL, swapRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -1699,7 +1700,7 @@ func (w *Wallet) RemoveSpentProofs() error {
 		}
 
 		proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
-		proofStateResponse, err := PostCheckProofState(mint, proofStateRequest)
+		proofStateResponse, err := client.PostCheckProofState(mint, proofStateRequest)
 		if err != nil {
 			return err
 		}
@@ -1732,7 +1733,7 @@ func (w *Wallet) ReclaimUnspentProofs() (uint64, error) {
 		}
 
 		proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
-		proofStateResponse, err := PostCheckProofState(mintURL, proofStateRequest)
+		proofStateResponse, err := client.PostCheckProofState(mintURL, proofStateRequest)
 		if err != nil {
 			return 0, err
 		}
