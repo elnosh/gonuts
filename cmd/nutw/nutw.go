@@ -478,12 +478,22 @@ func send(ctx *cli.Context) error {
 	return nil
 }
 
+const (
+	multimintFlag = "multimint"
+)
+
 var payCmd = &cli.Command{
 	Name:      "pay",
 	Usage:     "Pay a lightning invoice",
 	ArgsUsage: "[INVOICE]",
-	Before:    setupWallet,
-	Action:    pay,
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  multimintFlag,
+			Usage: "pay invoice using funds from multiple mints",
+		},
+	},
+	Before: setupWallet,
+	Action: pay,
 }
 
 func pay(ctx *cli.Context) error {
@@ -498,25 +508,30 @@ func pay(ctx *cli.Context) error {
 	if err != nil {
 		printErr(fmt.Errorf("invalid invoice: %v", err))
 	}
-	selectedMint := promptMintSelection("pay invoice")
 
-	meltQuote, err := nutw.RequestMeltQuote(invoice, selectedMint)
-	if err != nil {
-		printErr(err)
-	}
+	if ctx.Bool(multimintFlag) {
 
-	meltResult, err := nutw.Melt(meltQuote.Quote)
-	if err != nil {
-		printErr(err)
-	}
+	} else {
+		// do regular single mint payment if multimint not set
+		selectedMint := promptMintSelection("pay invoice")
+		meltQuote, err := nutw.RequestMeltQuote(invoice, selectedMint)
+		if err != nil {
+			printErr(err)
+		}
 
-	switch meltResult.State {
-	case nut05.Paid:
-		fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResult.Preimage)
-	case nut05.Pending:
-		fmt.Println("payment is pending")
-	case nut05.Unpaid:
-		fmt.Println("mint could not pay invoice")
+		meltResult, err := nutw.Melt(meltQuote.Quote)
+		if err != nil {
+			printErr(err)
+		}
+
+		switch meltResult.State {
+		case nut05.Paid:
+			fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResult.Preimage)
+		case nut05.Pending:
+			fmt.Println("payment is pending")
+		case nut05.Unpaid:
+			fmt.Println("mint could not pay invoice")
+		}
 	}
 
 	return nil

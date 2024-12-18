@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -27,6 +28,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
+	"github.com/elnosh/gonuts/cashu/nuts/nut15"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/elnosh/gonuts/wallet/storage"
@@ -137,6 +139,10 @@ func LoadWallet(config Config) (*Wallet, error) {
 	}
 
 	return wallet, nil
+}
+
+func (w *Wallet) Shutdown() error {
+	return w.db.Close()
 }
 
 // AddMint adds the mint to the list of mints trusted by the wallet
@@ -933,6 +939,128 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 		}
 	}
 	return meltBolt11Response, err
+}
+
+func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nut05.PostMeltQuoteBolt11Response, error) {
+	splitLen := len(split)
+	if splitLen < 2 {
+		return nil, nut15.ErrSplitTooShort
+	}
+
+	bolt11, err := decodepay.Decodepay(request)
+	if err != nil {
+		return nil, fmt.Errorf("invalid invoice: %v", err)
+	}
+
+	balanceByMint := w.GetBalanceByMints()
+	var splitSum uint64 = 0
+	// checks:
+	// - mints support MPP
+	// - sufficient funds in each specified mint
+	// - sum of split amounts equals invoice amount
+	for mint, amount := range split {
+		_, ok := w.mints[mint]
+		if !ok {
+			return nil, ErrMintNotExist
+		}
+
+		supported, err := nut15.IsMppSupported(mint, w.unit)
+		if err != nil {
+			return nil, err
+		}
+		if !supported {
+			return nil, fmt.Errorf("mint '%v' does not support multimint payments", mint)
+		}
+
+		mintBalance := balanceByMint[mint]
+		if mintBalance < amount {
+			return nil, fmt.Errorf("not enough funds in mint '%v' for amount '%v'", mint, amount)
+		}
+		splitSum += amount
+	}
+	invoiceAmount := uint64(bolt11.MSatoshi / 1000)
+	if splitSum != invoiceAmount {
+		return nil, fmt.Errorf("sum of split amounts '%v' does not equal invoice amount of '%v'",
+			splitSum, invoiceAmount)
+	}
+
+	type result struct {
+		response *nut05.PostMeltQuoteBolt11Response
+		err      error
+	}
+	requestMeltQuotes := func(invoice string, split map[string]uint64) []result {
+		results := make([]result, splitLen)
+		var wg sync.WaitGroup
+		i := 0
+		for mint, amount := range split {
+			j := i
+			wg.Add(1)
+			go func(mint string, amount uint64) {
+				defer wg.Done()
+				meltRequest := nut05.PostMeltQuoteBolt11Request{
+					Request: invoice,
+					Unit:    w.unit.String(),
+					Options: map[string]nut05.MppOption{"mpp": {Amount: amount}},
+				}
+				meltQuoteResponse, err := client.PostMeltQuoteBolt11(mint, meltRequest)
+				if err != nil {
+					results[j] = result{response: nil, err: err}
+					return
+				}
+
+				quote := storage.MeltQuote{
+					QuoteId:        meltQuoteResponse.Quote,
+					Mint:           mint,
+					Method:         cashu.BOLT11_METHOD,
+					Unit:           w.unit.String(),
+					State:          meltQuoteResponse.State,
+					PaymentRequest: invoice,
+					Amount:         meltQuoteResponse.Amount,
+					FeeReserve:     meltQuoteResponse.FeeReserve,
+					CreatedAt:      time.Now().Unix(),
+					QuoteExpiry:    meltQuoteResponse.Expiry,
+				}
+				if err := w.db.SaveMeltQuote(quote); err != nil {
+					results[j] = result{response: nil, err: fmt.Errorf("unable to save melt quote: %v", err)}
+					return
+				}
+				results[j] = result{response: meltQuoteResponse, err: nil}
+			}(mint, amount)
+			i++
+		}
+		wg.Wait()
+		return results
+	}
+
+	meltQuotes := make([]string, splitLen)
+	for i, result := range requestMeltQuotes(request, split) {
+		if result.err != nil {
+			return nil, result.err
+		}
+		meltQuotes[i] = result.response.Quote
+	}
+
+	meltResponses := make([]result, len(meltQuotes))
+	var wg sync.WaitGroup
+	for i, meltQuote := range meltQuotes {
+		wg.Add(1)
+		go func(quote string) {
+			defer wg.Done()
+			meltResponse, err := w.Melt(quote)
+			meltResponses[i] = result{response: meltResponse, err: err}
+		}(meltQuote)
+	}
+	wg.Wait()
+
+	meltQuoteResponses := make([]nut05.PostMeltQuoteBolt11Response, len(split))
+	for i, result := range meltResponses {
+		if result.err != nil {
+			return nil, result.err
+		}
+		meltQuoteResponses[i] = *result.response
+	}
+
+	return meltQuoteResponses, nil
 }
 
 // MintSwap will swap the amount from to the specified mint
