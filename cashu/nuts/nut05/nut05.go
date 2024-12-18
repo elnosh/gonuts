@@ -44,8 +44,13 @@ func StringToState(state string) State {
 }
 
 type PostMeltQuoteBolt11Request struct {
-	Request string `json:"request"`
-	Unit    string `json:"unit"`
+	Request string               `json:"request"`
+	Unit    string               `json:"unit"`
+	Options map[string]MppOption `json:"options,omitempty"`
+}
+
+type MppOption struct {
+	Amount uint64 `json:"amount"`
 }
 
 type PostMeltQuoteBolt11Response struct {

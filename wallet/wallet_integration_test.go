@@ -1,4 +1,4 @@
-//go:build integration
+////go:build integration
 
 package wallet_test
 
@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
@@ -22,6 +24,7 @@ import (
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/elnosh/gonuts/wallet"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 var (
@@ -86,7 +89,7 @@ func testMain(m *testing.M) (int, error) {
 	}()
 	defer os.RemoveAll(mintFeesPath)
 
-	nutshellMint, err = testutils.CreateNutshellMintContainer(ctx, 0)
+	nutshellMint, err = testutils.CreateNutshellMintContainer(ctx, 0, nil)
 	if err != nil {
 		log.Fatalf("error starting nutshell mint: %v", err)
 	}
@@ -1130,11 +1133,166 @@ func testDLEQ(t *testing.T, testWallet *wallet.Wallet) {
 	}
 }
 
+func TestMultimintPayment(t *testing.T) {
+	// setup bitcoind and lnd nodes
+	bitcoind, err := btcdocker.NewBitcoind(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = bitcoind.Client.CreateWallet("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lnd1, err := btcdocker.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lnd2, err := btcdocker.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lnd3, err := btcdocker.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		bitcoind.Terminate(ctx)
+		lnd1.Terminate(ctx)
+		lnd2.Terminate(ctx)
+		lnd3.Terminate(ctx)
+	}()
+
+	if err := testutils.FundLndNode(ctx, bitcoind, lnd1); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutils.FundLndNode(ctx, bitcoind, lnd2); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutils.FundLndNode(ctx, bitcoind, lnd3); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 1500000); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutils.OpenChannel(ctx, bitcoind, lnd2, lnd3, 1500000); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutils.OpenChannel(ctx, bitcoind, lnd3, lnd1, 1500000); err != nil {
+		t.Fatal(err)
+	}
+
+	// create mints backed by lnd1 and lnd2 respectively
+	nutshellMint1, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd1)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint1.Terminate(ctx)
+	nutshellURL := nutshellMint1.Host
+
+	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd2)
+	if err != nil {
+		t.Fatalf("error starting nutshell mint: %v", err)
+	}
+	defer nutshellMint2.Terminate(ctx)
+	nutshellURL2 := nutshellMint2.Host
+
+	// add both mints to wallet
+	testWalletPath := filepath.Join(".", "/testwalletmultimintpayment")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(testWalletPath)
+
+	_, err = testWallet.AddMint(nutshellURL2)
+	if err != nil {
+		t.Fatalf("error adding mint to wallet: %v", err)
+	}
+
+	// fund wallet from both mints
+	fundWallet := func(
+		ctx context.Context,
+		lnd *btcdocker.Lnd,
+		wallet *wallet.Wallet,
+		mint string,
+		amount uint64,
+	) error {
+		mintRes, err := wallet.RequestMint(amount, mint)
+		if err != nil {
+			return fmt.Errorf("error requesting mint: %v", err)
+		}
+		//pay invoice
+		sendPaymentRequest := lnrpc.SendRequest{
+			PaymentRequest: mintRes.Request,
+		}
+		response, err := lnd.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+		if err != nil {
+			return fmt.Errorf("error paying invoice: %v", err)
+		}
+		if len(response.PaymentError) > 0 {
+			return fmt.Errorf("error paying invoice: %v", response.PaymentError)
+		}
+
+		_, err = wallet.MintTokens(mintRes.Quote)
+		if err != nil {
+			return fmt.Errorf("got unexpected error: %v", err)
+		}
+		return nil
+	}
+
+	if err := fundWallet(ctx, lnd3, testWallet, nutshellURL, 21000); err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+	if err := fundWallet(ctx, lnd3, testWallet, nutshellURL2, 21000); err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	// create invoice from lnd3
+	invoice := lnrpc.Invoice{Value: 10000}
+	addInvoiceResponse, err := lnd3.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	balanceBeforeMultiPayment := testWallet.GetBalanceByMints()
+	// try multimint from wallet using funds from 2 mints
+	multimintPaymentSplit := map[string]uint64{
+		nutshellURL:  5000,
+		nutshellURL2: 5000,
+	}
+	meltResponses, err := testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
+	if err != nil {
+		t.Fatalf("error doing multimint payment: %v", err)
+	}
+
+	for _, melt := range meltResponses {
+		if melt.State != nut05.Paid {
+			t.Fatalf("quote '%v' does not have PAID state", melt.Quote)
+		}
+	}
+
+	balanceAfterMultiPayment := testWallet.GetBalanceByMints()
+	if balanceAfterMultiPayment[nutshellURL]+5000 > balanceBeforeMultiPayment[nutshellURL] {
+		t.Fatalf(`balance not affected after successful multimint payment.
+		Balance before payment for mint '%v' was '%v'. Balance after payment '%v'.`,
+			nutshellURL, balanceBeforeMultiPayment[nutshellURL], balanceAfterMultiPayment[nutshellURL])
+	}
+	if balanceAfterMultiPayment[nutshellURL2]+5000 > balanceBeforeMultiPayment[nutshellURL2] {
+		t.Fatalf(`balance not affected after successful multimint payment.
+		Balance before payment for mint '%v' was '%v'. Balance after payment '%v'.`,
+			nutshellURL2, balanceBeforeMultiPayment[nutshellURL2], balanceAfterMultiPayment[nutshellURL2])
+	}
+}
+
 // TESTS AGAINST NUTSHELL MINT
 
 // test regular wallet ops against Nutshell
 func TestNutshell(t *testing.T) {
-	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 100)
+	nutshellMint, err := testutils.CreateNutshellMintContainer(ctx, 100, nil)
 	if err != nil {
 		t.Fatalf("error starting nutshell mint: %v", err)
 	}
@@ -1257,7 +1415,7 @@ func TestOverpaidFeesChange(t *testing.T) {
 func TestSendToPubkeyNutshell(t *testing.T) {
 	nutshellURL := nutshellMint.Host
 
-	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 0)
+	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 0, nil)
 	if err != nil {
 		t.Fatalf("error starting nutshell mint: %v", err)
 	}

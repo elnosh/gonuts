@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	mathrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -223,22 +224,12 @@ func LndClient(lnd *btcdocker.Lnd, dbpath string) (*lightning.LndClient, error) 
 	}
 	nodeDir := lnd.LndDir
 
-	macaroonPath := filepath.Join(dbpath, "/admin.macaroon")
-	file, err := os.Create(macaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("error creating macaroon file: %v", err)
-	}
-
-	_, err = file.Write(lnd.AdminMacaroon)
-	if err != nil {
-		return nil, fmt.Errorf("error writing to macaroon file: %v", err)
-	}
-
 	creds, err := credentials.NewClientTLSFromFile(filepath.Join(nodeDir, "/tls.cert"), "")
 	if err != nil {
 		return nil, err
 	}
 
+	macaroonPath := filepath.Join(nodeDir, "/data/chain/bitcoin/regtest/admin.macaroon")
 	macaroonBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
@@ -675,7 +666,31 @@ type NutshellMintContainer struct {
 	Host string
 }
 
-func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int) (*NutshellMintContainer, error) {
+func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int, lnd *btcdocker.Lnd) (*NutshellMintContainer, error) {
+	envMap := map[string]string{
+		"MINT_LISTEN_HOST":   "0.0.0.0",
+		"MINT_LISTEN_PORT":   "3338",
+		"MINT_INPUT_FEE_PPK": strconv.Itoa(inputFeePpk),
+		"MINT_PRIVATE_KEY":   generateRandomString(32),
+	}
+
+	started := true
+	containerMacaroonPath := "/admin.macaroon"
+	containerTLSCert := "/tls.cert"
+
+	var macaroonPath, tlsCert string
+	if lnd != nil {
+		macaroonPath = filepath.Join(lnd.LndDir, "data/chain/bitcoin/regtest/admin.macaroon")
+		tlsCert = filepath.Join(lnd.LndDir, "tls.cert")
+		envMap["MINT_BACKEND_BOLT11_SAT"] = "LndRPCWallet"
+		envMap["MINT_LND_RPC_ENDPOINT"] = lnd.ContainerIP + ":" + "10009"
+		envMap["MINT_LND_RPC_CERT"] = containerTLSCert
+		envMap["MINT_LND_RPC_MACAROON"] = containerMacaroonPath
+		started = false
+	} else {
+		envMap["MINT_BACKEND_BOLT11_SAT"] = "FakeWallet"
+	}
+
 	req := testcontainers.ContainerRequest{
 		Image:        "cashubtc/nutshell:latest",
 		ExposedPorts: []string{"3338"},
@@ -684,22 +699,32 @@ func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int) (*Nutshel
 			"run",
 			"mint",
 		},
-		Env: map[string]string{
-			"MINT_LISTEN_HOST":        "0.0.0.0",
-			"MINT_LISTEN_PORT":        "3338",
-			"MINT_BACKEND_BOLT11_SAT": "FakeWallet",
-			"MINT_PRIVATE_KEY":        "secretkey",
-			"MINT_INPUT_FEE_PPK":      strconv.Itoa(inputFeePpk),
-		},
+		Env:        envMap,
 		WaitingFor: wait.ForListeningPort("3338"),
+	}
+
+	if lnd != nil {
+		req.Networks = []string{lnd.Network}
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
-		Started:          true,
+		Started:          started,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if !started {
+		if err := container.CopyFileToContainer(ctx, macaroonPath, containerMacaroonPath, 0777); err != nil {
+			return nil, err
+		}
+		if err := container.CopyFileToContainer(ctx, tlsCert, containerTLSCert, 0777); err != nil {
+			return nil, err
+		}
+		if err := container.Start(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	ip, err := container.Host(ctx)
@@ -719,6 +744,15 @@ func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int) (*Nutshel
 	}
 
 	return nutshellContainer, nil
+}
+
+func generateRandomString(length int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = letters[mathrand.IntN(len(letters))]
+	}
+	return string(b)
 }
 
 func GenerateRandomBytes() ([]byte, error) {
