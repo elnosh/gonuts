@@ -15,6 +15,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut09"
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/tyler-smith/go-bip39"
 )
 
@@ -53,7 +54,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 
 	// for each mint get the keysets and do restore process for each keyset
 	for _, mint := range mintsToRestore {
-		mintInfo, err := GetMintInfo(mint)
+		mintInfo, err := client.GetMintInfo(mint)
 		if err != nil {
 			return 0, fmt.Errorf("error getting info from mint: %v", err)
 		}
@@ -66,7 +67,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 		}
 
 		// call to get mint keysets
-		keysetsResponse, err := GetAllKeysets(mint)
+		keysetsResponse, err := client.GetAllKeysets(mint)
 		if err != nil {
 			return 0, err
 		}
@@ -134,7 +135,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 
 				// if response has signatures, unblind them and check proof states
 				restoreRequest := nut09.PostRestoreRequest{Outputs: blindedMessages}
-				restoreResponse, err := PostRestore(mint, restoreRequest)
+				restoreResponse, err := client.PostRestore(mint, restoreRequest)
 				if err != nil {
 					return 0, fmt.Errorf("error restoring signatures from mint '%v': %v", mint, err)
 				}
@@ -176,7 +177,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 				}
 
 				proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
-				proofStateResponse, err := PostCheckProofState(mint, proofStateRequest)
+				proofStateResponse, err := client.PostCheckProofState(mint, proofStateRequest)
 				if err != nil {
 					return 0, err
 				}

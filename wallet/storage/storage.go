@@ -55,6 +55,8 @@ type WalletDB interface {
 	SaveMeltQuote(MeltQuote) error
 	GetMeltQuotes() []MeltQuote
 	GetMeltQuoteById(string) *MeltQuote
+
+	Close() error
 }
 
 type DBProof struct {

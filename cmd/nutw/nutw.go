@@ -478,12 +478,22 @@ func send(ctx *cli.Context) error {
 	return nil
 }
 
+const (
+	multimintFlag = "multimint"
+)
+
 var payCmd = &cli.Command{
 	Name:      "pay",
 	Usage:     "Pay a lightning invoice",
 	ArgsUsage: "[INVOICE]",
-	Before:    setupWallet,
-	Action:    pay,
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  multimintFlag,
+			Usage: "pay invoice using funds from multiple mints",
+		},
+	},
+	Before: setupWallet,
+	Action: pay,
 }
 
 func pay(ctx *cli.Context) error {
@@ -494,29 +504,107 @@ func pay(ctx *cli.Context) error {
 	invoice := args.First()
 
 	// check invoice passed is valid
-	_, err := decodepay.Decodepay(invoice)
+	bolt11, err := decodepay.Decodepay(invoice)
 	if err != nil {
 		printErr(fmt.Errorf("invalid invoice: %v", err))
 	}
-	selectedMint := promptMintSelection("pay invoice")
 
-	meltQuote, err := nutw.RequestMeltQuote(invoice, selectedMint)
-	if err != nil {
-		printErr(err)
-	}
+	if ctx.Bool(multimintFlag) {
+		balanceByMints := nutw.GetBalanceByMints()
+		mints := nutw.TrustedMints()
+		slices.Sort(mints)
+		split := make(map[string]uint64)
 
-	meltResult, err := nutw.Melt(meltQuote.Quote)
-	if err != nil {
-		printErr(err)
-	}
+		for i, mint := range mints {
+			balance := balanceByMints[mint]
+			fmt.Printf("Mint %v: %v ---- balance: %v sats\n", i+1, mint, balance)
+		}
 
-	switch meltResult.State {
-	case nut05.Paid:
-		fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResult.Preimage)
-	case nut05.Pending:
-		fmt.Println("payment is pending")
-	case nut05.Unpaid:
-		fmt.Println("mint could not pay invoice")
+		invoiceAmount := bolt11.MSatoshi / 1000
+		fmt.Printf("\nAmount of invoice to pay: %v", invoiceAmount)
+
+		var currentSelectedAmount uint64
+		var amountStillToPay uint64 = uint64(invoiceAmount)
+		for {
+			fmt.Printf("\nSelect a mint (1-%v) from which to partially pay the invoice: ", len(mints))
+			reader := bufio.NewReader(os.Stdin)
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				log.Fatal("error reading input, please try again")
+			}
+			num, err := strconv.Atoi(input[:len(input)-1])
+			if err != nil {
+				printErr(errors.New("invalid number provided"))
+			}
+			if num <= 0 || num > len(mints) {
+				printErr(errors.New("invalid mint selected"))
+			}
+
+			selectedMint := mints[num-1]
+			mintBalance := balanceByMints[selectedMint]
+			fmt.Printf("\nSelect the amount to use from the mint's balance (%v): ", mintBalance)
+			input, err = reader.ReadString('\n')
+			if err != nil {
+				log.Fatal("error reading input, please try again")
+			}
+
+			amountToUse, err := strconv.ParseInt(input[:len(input)-1], 10, 64)
+			if err != nil {
+				printErr(errors.New("invalid number provided"))
+			}
+
+			if amountToUse < 0 {
+				printErr(errors.New("amount has to be greater than 0"))
+			}
+			if uint64(amountToUse) > mintBalance {
+				errmsg := fmt.Errorf(`amount specified '%v' is greater than balance '%v' 
+					for that mint`, amountToUse, mintBalance)
+				printErr(errmsg)
+			}
+
+			split[selectedMint] = uint64(amountToUse)
+			currentSelectedAmount += uint64(amountToUse)
+			amountStillToPay -= uint64(amountToUse)
+
+			if amountStillToPay > 0 {
+				fmt.Printf("\nStill need to select amount %v", amountStillToPay)
+			} else {
+				meltResponses, err := nutw.MultiMintPayment(invoice, split)
+				if err != nil {
+					printErr(fmt.Errorf("could not do multimint payment: %v", err))
+				}
+
+				if meltResponses[0].State == nut05.Paid {
+					fmt.Printf("Multimint payment successful! Preimage: %v\n", meltResponses[0].Preimage)
+					return nil
+				} else {
+					fmt.Println("could not do multimint payment")
+					return nil
+				}
+			}
+		}
+
+	} else {
+		// do regular single mint payment if multimint not set
+		selectedMint := promptMintSelection("pay invoice")
+		meltQuote, err := nutw.RequestMeltQuote(invoice, selectedMint)
+		if err != nil {
+			printErr(err)
+		}
+
+		meltResult, err := nutw.Melt(meltQuote.Quote)
+		if err != nil {
+			printErr(err)
+		}
+
+		switch meltResult.State {
+		case nut05.Paid:
+			fmt.Printf("Invoice paid sucessfully. Preimage: %v\n", meltResult.Preimage)
+		case nut05.Pending:
+			fmt.Println("payment is pending")
+		case nut05.Unpaid:
+			fmt.Println("mint could not pay invoice")
+		}
 	}
 
 	return nil

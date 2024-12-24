@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -27,7 +28,9 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
+	"github.com/elnosh/gonuts/cashu/nuts/nut15"
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/elnosh/gonuts/wallet/storage"
 	"github.com/tyler-smith/go-bip39"
 
@@ -138,6 +141,10 @@ func LoadWallet(config Config) (*Wallet, error) {
 	return wallet, nil
 }
 
+func (w *Wallet) Shutdown() error {
+	return w.db.Close()
+}
+
 // AddMint adds the mint to the list of mints trusted by the wallet
 func (w *Wallet) AddMint(mint string) (*walletMint, error) {
 	url, err := url.Parse(mint)
@@ -218,7 +225,7 @@ func (w *Wallet) RequestMint(amount uint64, mint string) (*nut04.PostMintQuoteBo
 	}
 
 	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: w.unit.String()}
-	mintResponse, err := PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
+	mintResponse, err := client.PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +274,7 @@ func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Respo
 		}, nil
 	}
 
-	mintQuote, err := GetMintQuoteState(mint, quoteId)
+	mintQuote, err := client.GetMintQuoteState(mint, quoteId)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +333,7 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 
 	// request mint to sign the blinded messages
 	postMintRequest := nut04.PostMintBolt11Request{Quote: quoteId, Outputs: blindedMessages}
-	mintResponse, err := PostMintBolt11(mint, postMintRequest)
+	mintResponse, err := client.PostMintBolt11(mint, postMintRequest)
 	if err != nil {
 		return 0, err
 	}
@@ -389,7 +396,7 @@ func (w *Wallet) SendToPubkey(
 	}
 
 	// check first if mint supports P2PK NUT
-	mintInfo, err := GetMintInfo(mintURL)
+	mintInfo, err := client.GetMintInfo(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
@@ -433,7 +440,7 @@ func (w *Wallet) HTLCLockedProofs(
 	}
 
 	// check first if mint supports HTLC NUT
-	mintInfo, err := GetMintInfo(mintURL)
+	mintInfo, err := client.GetMintInfo(mintURL)
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
@@ -650,7 +657,7 @@ func swap(mint string, swapRequest swapRequestPayload) (cashu.Proofs, error) {
 		Inputs:  swapRequest.inputs,
 		Outputs: swapRequest.outputs,
 	}
-	swapResponse, err := PostSwap(mint, request)
+	swapResponse, err := client.PostSwap(mint, request)
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +723,7 @@ func (w *Wallet) RequestMeltQuote(request, mint string) (*nut05.PostMeltQuoteBol
 	}
 
 	meltRequest := nut05.PostMeltQuoteBolt11Request{Request: request, Unit: w.unit.String()}
-	meltQuoteResponse, err := PostMeltQuoteBolt11(mint, meltRequest)
+	meltQuoteResponse, err := client.PostMeltQuoteBolt11(mint, meltRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -746,7 +753,7 @@ func (w *Wallet) CheckMeltQuoteState(quoteId string) (*nut05.PostMeltQuoteBolt11
 		return nil, ErrQuoteNotFound
 	}
 
-	quoteStateResponse, err := GetMeltQuoteState(quote.Mint, quoteId)
+	quoteStateResponse, err := client.GetMeltQuoteState(quote.Mint, quoteId)
 	if err != nil {
 		return nil, err
 	}
@@ -867,7 +874,7 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 		Inputs:  proofs,
 		Outputs: outputs,
 	}
-	meltBolt11Response, err := PostMeltBolt11(mint.mintURL, meltBolt11Request)
+	meltBolt11Response, err := client.PostMeltBolt11(mint.mintURL, meltBolt11Request)
 	if err != nil {
 		// if there was error with melt, remove proofs from pending and save them for use
 		if err := w.db.SaveProofs(proofs); err != nil {
@@ -934,6 +941,128 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 	return meltBolt11Response, err
 }
 
+func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nut05.PostMeltQuoteBolt11Response, error) {
+	splitLen := len(split)
+	if splitLen < 2 {
+		return nil, nut15.ErrSplitTooShort
+	}
+
+	bolt11, err := decodepay.Decodepay(request)
+	if err != nil {
+		return nil, fmt.Errorf("invalid invoice: %v", err)
+	}
+
+	balanceByMint := w.GetBalanceByMints()
+	var splitSum uint64 = 0
+	// checks:
+	// - mints support MPP
+	// - sufficient funds in each specified mint
+	// - sum of split amounts equals invoice amount
+	for mint, amount := range split {
+		_, ok := w.mints[mint]
+		if !ok {
+			return nil, ErrMintNotExist
+		}
+
+		supported, err := nut15.IsMppSupported(mint, w.unit)
+		if err != nil {
+			return nil, err
+		}
+		if !supported {
+			return nil, fmt.Errorf("mint '%v' does not support multimint payments", mint)
+		}
+
+		mintBalance := balanceByMint[mint]
+		if mintBalance < amount {
+			return nil, fmt.Errorf("not enough funds in mint '%v' for amount '%v'", mint, amount)
+		}
+		splitSum += amount
+	}
+	invoiceAmount := uint64(bolt11.MSatoshi / 1000)
+	if splitSum != invoiceAmount {
+		return nil, fmt.Errorf("sum of split amounts '%v' does not equal invoice amount of '%v'",
+			splitSum, invoiceAmount)
+	}
+
+	type result struct {
+		response *nut05.PostMeltQuoteBolt11Response
+		err      error
+	}
+	requestMeltQuotes := func(invoice string, split map[string]uint64) []result {
+		results := make([]result, splitLen)
+		var wg sync.WaitGroup
+		i := 0
+		for mint, amount := range split {
+			j := i
+			wg.Add(1)
+			go func(mint string, amount uint64) {
+				defer wg.Done()
+				meltRequest := nut05.PostMeltQuoteBolt11Request{
+					Request: invoice,
+					Unit:    w.unit.String(),
+					Options: map[string]nut05.MppOption{"mpp": {Amount: amount}},
+				}
+				meltQuoteResponse, err := client.PostMeltQuoteBolt11(mint, meltRequest)
+				if err != nil {
+					results[j] = result{response: nil, err: err}
+					return
+				}
+
+				quote := storage.MeltQuote{
+					QuoteId:        meltQuoteResponse.Quote,
+					Mint:           mint,
+					Method:         cashu.BOLT11_METHOD,
+					Unit:           w.unit.String(),
+					State:          meltQuoteResponse.State,
+					PaymentRequest: invoice,
+					Amount:         meltQuoteResponse.Amount,
+					FeeReserve:     meltQuoteResponse.FeeReserve,
+					CreatedAt:      time.Now().Unix(),
+					QuoteExpiry:    meltQuoteResponse.Expiry,
+				}
+				if err := w.db.SaveMeltQuote(quote); err != nil {
+					results[j] = result{response: nil, err: fmt.Errorf("unable to save melt quote: %v", err)}
+					return
+				}
+				results[j] = result{response: meltQuoteResponse, err: nil}
+			}(mint, amount)
+			i++
+		}
+		wg.Wait()
+		return results
+	}
+
+	meltQuotes := make([]string, splitLen)
+	for i, result := range requestMeltQuotes(request, split) {
+		if result.err != nil {
+			return nil, result.err
+		}
+		meltQuotes[i] = result.response.Quote
+	}
+
+	meltResponses := make([]result, len(meltQuotes))
+	var wg sync.WaitGroup
+	for i, meltQuote := range meltQuotes {
+		wg.Add(1)
+		go func(quote string) {
+			defer wg.Done()
+			meltResponse, err := w.Melt(quote)
+			meltResponses[i] = result{response: meltResponse, err: err}
+		}(meltQuote)
+	}
+	wg.Wait()
+
+	meltQuoteResponses := make([]nut05.PostMeltQuoteBolt11Response, len(split))
+	for i, result := range meltResponses {
+		if result.err != nil {
+			return nil, result.err
+		}
+		meltQuoteResponses[i] = *result.response
+	}
+
+	return meltQuoteResponses, nil
+}
+
 // MintSwap will swap the amount from to the specified mint
 func (w *Wallet) MintSwap(amount uint64, from, to string) (uint64, error) {
 	// check both mints are in list of trusted mints
@@ -982,7 +1111,7 @@ func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, 
 		// request melt quote from the 'from' mint
 		// this melt will pay the invoice generated from the previous mint quote request
 		meltRequest := nut05.PostMeltQuoteBolt11Request{Request: mintResponse.Request, Unit: cashu.Sat.String()}
-		meltQuoteResponse, err = PostMeltQuoteBolt11(from.mintURL, meltRequest)
+		meltQuoteResponse, err = client.PostMeltQuoteBolt11(from.mintURL, meltRequest)
 		if err != nil {
 			return 0, fmt.Errorf("error with melt request: %v", err)
 		}
@@ -999,7 +1128,7 @@ func (w *Wallet) swapProofs(proofs cashu.Proofs, from, to *walletMint) (uint64, 
 
 	// request from mint to pay invoice from the mint quote request
 	meltBolt11Request := nut05.PostMeltBolt11Request{Quote: meltQuoteResponse.Quote, Inputs: proofs}
-	meltBolt11Response, err := PostMeltBolt11(from.mintURL, meltBolt11Request)
+	meltBolt11Response, err := client.PostMeltBolt11(from.mintURL, meltBolt11Request)
 	if err != nil {
 		return 0, fmt.Errorf("error melting token: %v", err)
 	}
@@ -1233,7 +1362,7 @@ func (w *Wallet) swapToSend(
 
 	// call swap endpoint
 	swapRequest := nut03.PostSwapRequest{Inputs: proofsToSwap, Outputs: blindedMessages}
-	swapResponse, err := PostSwap(mint.mintURL, swapRequest)
+	swapResponse, err := client.PostSwap(mint.mintURL, swapRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -1699,7 +1828,7 @@ func (w *Wallet) RemoveSpentProofs() error {
 		}
 
 		proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
-		proofStateResponse, err := PostCheckProofState(mint, proofStateRequest)
+		proofStateResponse, err := client.PostCheckProofState(mint, proofStateRequest)
 		if err != nil {
 			return err
 		}
@@ -1732,7 +1861,7 @@ func (w *Wallet) ReclaimUnspentProofs() (uint64, error) {
 		}
 
 		proofStateRequest := nut07.PostCheckStateRequest{Ys: Ys}
-		proofStateResponse, err := PostCheckProofState(mintURL, proofStateRequest)
+		proofStateResponse, err := client.PostCheckProofState(mintURL, proofStateRequest)
 		if err != nil {
 			return 0, err
 		}

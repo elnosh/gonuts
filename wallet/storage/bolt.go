@@ -52,6 +52,10 @@ func InitBolt(path string) (*BoltDB, error) {
 	return boltdb, nil
 }
 
+func (db *BoltDB) Close() error {
+	return db.bolt.Close()
+}
+
 func (db *BoltDB) initWalletBuckets() error {
 	return db.bolt.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(KEYSETS_BUCKET))
