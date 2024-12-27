@@ -211,6 +211,7 @@ func MintConfig(
 		InputFeePpk:       inputFeePpk,
 		Limits:            limits,
 		LightningClient:   backend,
+		EnableMPP:         true,
 		LogLevel:          mint.Disable,
 		MeltTimeout:       &timeout,
 	}

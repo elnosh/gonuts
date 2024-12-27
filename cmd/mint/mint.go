@@ -173,6 +173,11 @@ func configFromEnv() (*mint.Config, error) {
 		return nil, errors.New("invalid lightning backend")
 	}
 
+	enableMPP := false
+	if strings.ToLower(os.Getenv("ENABLE_MPP")) == "true" {
+		enableMPP = true
+	}
+
 	logLevel := mint.Info
 	if strings.ToLower(os.Getenv("LOG")) == "debug" {
 		logLevel = mint.Debug
@@ -186,6 +191,7 @@ func configFromEnv() (*mint.Config, error) {
 		MintInfo:          mintInfo,
 		Limits:            mintLimits,
 		LightningClient:   lightningClient,
+		EnableMPP:         enableMPP,
 		LogLevel:          logLevel,
 	}, nil
 }

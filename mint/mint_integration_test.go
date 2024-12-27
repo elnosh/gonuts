@@ -28,6 +28,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
+	"github.com/elnosh/gonuts/mint/storage"
 	"github.com/elnosh/gonuts/testutils"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -663,6 +664,235 @@ func TestMelt(t *testing.T) {
 	_, err = testMint.MintTokens(mintTokensRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in mint: %v", err)
+	}
+}
+
+func TestMPPMelt(t *testing.T) {
+	lnd3, err := btcdocker.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lnd4, err := btcdocker.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		lnd3.Terminate(ctx)
+		lnd4.Terminate(ctx)
+	}()
+	if err := testutils.FundLndNode(ctx, bitcoind, lnd2); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutils.OpenChannel(ctx, bitcoind, lnd1, lnd3, 1500000); err != nil {
+		t.Fatal(err)
+	}
+	if err := testutils.OpenChannel(ctx, bitcoind, lnd2, lnd3, 1500000); err != nil {
+		t.Fatal(err)
+	}
+
+	testMppMintPath := filepath.Join(".", "testmppmint2")
+	testMppMint, err := testutils.CreateTestMint(lnd2, testMppMintPath, 0, mint.MintLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(testMppMintPath)
+
+	invoice := lnrpc.Invoice{Value: 10000}
+	addInvoiceResponse, err := lnd3.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{
+		Request: addInvoiceResponse.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 6000}},
+	}
+	meltQuote1, err := testMint.RequestMeltQuote(meltQuoteRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: addInvoiceResponse.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 4000}},
+	}
+	meltQuote2, err := testMppMint.RequestMeltQuote(meltQuoteRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	// get valid proofs to use in melts
+	validProofsFromMint1, _ := testutils.GetValidProofsForAmount(6100, testMint, lnd3)
+	validProofsFromMint2, _ := testutils.GetValidProofsForAmount(4100, testMppMint, lnd3)
+
+	// do melt tokens request concurrently
+	type result struct {
+		meltResult storage.MeltQuote
+		err        error
+	}
+	meltResults := make([]result, 2)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote1.Id, Inputs: validProofsFromMint1}
+		melt, err := testMint.MeltTokens(ctx, meltTokensRequest)
+		meltResults[0] = result{meltResult: melt, err: err}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote2.Id, Inputs: validProofsFromMint2}
+		melt, err := testMppMint.MeltTokens(ctx, meltTokensRequest)
+		meltResults[1] = result{meltResult: melt, err: err}
+	}()
+	wg.Wait()
+
+	for i, result := range meltResults {
+		if result.err != nil {
+			t.Fatalf("got unexpected error in melt '%v': %v", i, err)
+		}
+		if result.meltResult.State != nut05.Paid {
+			t.Fatalf("got unexpected UNPAID state in melt quote '%v'", i)
+		}
+	}
+
+	// MPP will fail because there is no route
+	invoice = lnrpc.Invoice{Value: 10000}
+	addInvoiceResponse, err = lnd4.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: addInvoiceResponse.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 6000}},
+	}
+	meltQuote1, err = testMint.RequestMeltQuote(meltQuoteRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: addInvoiceResponse.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 4000}},
+	}
+	meltQuote2, err = testMppMint.RequestMeltQuote(meltQuoteRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+
+	// get valid proofs to use in melts
+	validProofsFromMint1, _ = testutils.GetValidProofsForAmount(6100, testMint, lnd3)
+	validProofsFromMint2, _ = testutils.GetValidProofsForAmount(4100, testMppMint, lnd3)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote1.Id, Inputs: validProofsFromMint1}
+		melt, err := testMint.MeltTokens(ctx, meltTokensRequest)
+		meltResults[0] = result{meltResult: melt, err: err}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote2.Id, Inputs: validProofsFromMint2}
+		melt, err := testMppMint.MeltTokens(ctx, meltTokensRequest)
+		meltResults[1] = result{meltResult: melt, err: err}
+	}()
+	wg.Wait()
+
+	for i, result := range meltResults {
+		if result.err != nil {
+			t.Fatalf("got unexpected error in melt '%v': %v", i, err)
+		}
+		if result.meltResult.State != nut05.Unpaid {
+			t.Fatalf("expected melt in UNPAID state but got it in '%s' state", result.meltResult.State)
+		}
+	}
+
+	// test err on mpp amount over invoice amount
+	invoice = lnrpc.Invoice{Value: 10000}
+	addInvoiceResponse, err = lnd4.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		t.Fatalf("error creating invoice: %v", err)
+	}
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: addInvoiceResponse.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 10100}},
+	}
+	meltQuote1, err = testMint.RequestMeltQuote(meltQuoteRequest)
+	if err == nil {
+		t.Fatal("expected error but got nil")
+	}
+	expectedErrMsg := "mpp amount is not less than amount in invoice"
+	if err.Error() != expectedErrMsg {
+		t.Fatalf("expected error '%v' but got '%v'", expectedErrMsg, err.Error())
+	}
+
+	// test pending in-flight payments
+	preimage, _ := testutils.GenerateRandomBytes()
+	hash := sha256.Sum256(preimage)
+	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
+	addHodlInvoiceRes, err := lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
+	if err != nil {
+		t.Fatalf("error creating hodl invoice: %v", err)
+	}
+
+	meltContext, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: addHodlInvoiceRes.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 2000}},
+	}
+	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt request: %v", err)
+	}
+	validProofsFromMint, _ := testutils.GetValidProofsForAmount(2100, testMint, lnd3)
+	meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote.Id, Inputs: validProofsFromMint}
+	melt, err := testMint.MeltTokens(meltContext, meltTokensRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error in melt: %v", err)
+	}
+	if melt.State != nut05.Pending {
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Pending, melt.State)
+	}
+
+	meltQuote, err = testMint.GetMeltQuoteState(meltContext, meltQuote.Id)
+	if err != nil {
+		t.Fatalf("unexpected error getting melt quote state: %v", err)
+	}
+	if meltQuote.State != nut05.Pending {
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Pending, melt.State)
+	}
+
+	Ys := make([]string, len(validProofsFromMint))
+	for i, proof := range validProofsFromMint {
+		Y, _ := crypto.HashToCurve([]byte(proof.Secret))
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+		Ys[i] = Yhex
+	}
+
+	states, err := testMint.ProofsStateCheck(Ys)
+	if err != nil {
+		t.Fatalf("unexpected error checking states of proofs: %v", err)
+	}
+	for _, proofState := range states {
+		if proofState.State != nut07.Pending {
+			t.Fatalf("expected pending proof but got '%s' instead", proofState.State)
+		}
 	}
 }
 
