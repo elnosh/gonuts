@@ -523,8 +523,7 @@ func pay(ctx *cli.Context) error {
 		invoiceAmount := bolt11.MSatoshi / 1000
 		fmt.Printf("\nAmount of invoice to pay: %v", invoiceAmount)
 
-		var currentSelectedAmount uint64
-		var amountStillToPay uint64 = uint64(invoiceAmount)
+		amountStillToPay := invoiceAmount
 		for {
 			fmt.Printf("\nSelect a mint (1-%v) from which to partially pay the invoice: ", len(mints))
 			reader := bufio.NewReader(os.Stdin)
@@ -542,7 +541,7 @@ func pay(ctx *cli.Context) error {
 
 			selectedMint := mints[num-1]
 			mintBalance := balanceByMints[selectedMint]
-			fmt.Printf("\nSelect the amount to use from the mint's balance (%v): ", mintBalance)
+			fmt.Printf("Select the amount to use from the mint's balance (%v): ", mintBalance)
 			input, err = reader.ReadString('\n')
 			if err != nil {
 				log.Fatal("error reading input, please try again")
@@ -563,12 +562,11 @@ func pay(ctx *cli.Context) error {
 			}
 
 			split[selectedMint] = uint64(amountToUse)
-			currentSelectedAmount += uint64(amountToUse)
-			amountStillToPay -= uint64(amountToUse)
+			amountStillToPay -= amountToUse
 
 			if amountStillToPay > 0 {
 				fmt.Printf("\nStill need to select amount %v", amountStillToPay)
-			} else {
+			} else if amountStillToPay == 0 {
 				meltResponses, err := nutw.MultiMintPayment(invoice, split)
 				if err != nil {
 					printErr(fmt.Errorf("could not do multimint payment: %v", err))
@@ -581,6 +579,8 @@ func pay(ctx *cli.Context) error {
 					fmt.Println("could not do multimint payment")
 					return nil
 				}
+			} else {
+				printErr(errors.New("aggregate amount selected cannot be higher than invoice amount"))
 			}
 		}
 
