@@ -104,12 +104,24 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 }
 
 func (lnd *LndClient) SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error) {
-	feeLimit := lnd.FeeReserve(amount)
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: request,
-		FeeLimit:       &lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(feeLimit)}},
+	feeReserve := lnd.FeeReserve(amount)
+	feeLimit := lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(feeReserve)}}
+
+	// if amount is less than amount in invoice, pay partially if supported by backend.
+	// not checking err because invoice has already been validated by the mint
+	req := lnrpc.PayReqString{PayReq: request}
+	payReq, err := lnd.grpcClient.DecodePayReq(ctx, &req)
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, err
+	}
+	if amount < uint64(payReq.NumMsat) {
+		return lnd.payPartialInvoice(ctx, payReq, amount, &feeLimit)
 	}
 
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: request,
+		FeeLimit:       &feeLimit,
+	}
 	sendPaymentResponse, err := lnd.grpcClient.SendPaymentSync(ctx, &sendPaymentRequest)
 	if err != nil {
 		// if context deadline is exceeded (1 min), mark payment as pending
@@ -128,6 +140,63 @@ func (lnd *LndClient) SendPayment(ctx context.Context, request string, amount ui
 	preimage := hex.EncodeToString(sendPaymentResponse.PaymentPreimage)
 	paymentResponse := PaymentStatus{Preimage: preimage, PaymentStatus: Succeeded}
 	return paymentResponse, nil
+}
+
+func (lnd *LndClient) payPartialInvoice(
+	ctx context.Context,
+	req *lnrpc.PayReq,
+	partialAmountToPay uint64,
+	feeLimit *lnrpc.FeeLimit,
+) (PaymentStatus, error) {
+	queryRoutesRequest := lnrpc.QueryRoutesRequest{
+		PubKey:   req.Destination,
+		Amt:      int64(partialAmountToPay),
+		FeeLimit: feeLimit,
+	}
+
+	queryRoutesResponse, err := lnd.grpcClient.QueryRoutes(ctx, &queryRoutesRequest)
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, err
+	}
+	if len(queryRoutesResponse.Routes) < 1 {
+		return PaymentStatus{PaymentStatus: Failed}, errors.New("no routes found")
+	}
+
+	route := queryRoutesResponse.Routes[0]
+	mppRecord := lnrpc.MPPRecord{PaymentAddr: req.PaymentAddr, TotalAmtMsat: req.NumMsat}
+	route.Hops[len(route.Hops)-1].MppRecord = &mppRecord
+
+	paymentHashBytes, err := hex.DecodeString(req.PaymentHash)
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, err
+	}
+	sendToRouteRequest := routerrpc.SendToRouteRequest{
+		PaymentHash: paymentHashBytes,
+		Route:       route,
+		SkipTempErr: true,
+	}
+
+	htlcAttempt, err := lnd.routerClient.SendToRouteV2(ctx, &sendToRouteRequest)
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, err
+	}
+
+	switch htlcAttempt.Status {
+	case lnrpc.HTLCAttempt_SUCCEEDED:
+		preimage := hex.EncodeToString(htlcAttempt.Preimage)
+		paymentResponse := PaymentStatus{Preimage: preimage, PaymentStatus: Succeeded}
+		return paymentResponse, nil
+	case lnrpc.HTLCAttempt_FAILED:
+		err := "payment failed"
+		if htlcAttempt.Failure != nil {
+			err = htlcAttempt.Failure.String()
+		}
+		return PaymentStatus{PaymentStatus: Failed}, errors.New(err)
+	case lnrpc.HTLCAttempt_IN_FLIGHT:
+		return PaymentStatus{PaymentStatus: Pending}, nil
+	}
+
+	return PaymentStatus{PaymentStatus: Failed}, errors.New("payment failed")
 }
 
 func (lnd *LndClient) OutgoingPaymentStatus(ctx context.Context, hash string) (PaymentStatus, error) {

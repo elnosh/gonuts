@@ -1190,7 +1190,66 @@ func TestMultimintPayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// create mints backed by lnd1 and lnd2 respectively
+	testMintPath := filepath.Join(".", "testmppmint1")
+	lndClient1, err := testutils.LndClient(lnd1, testMintPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testMint, err := testutils.CreateTestMintServer(lndClient1, "8998", 0, testMintPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		log.Fatal(testMint.Start())
+	}()
+
+	testMintPath2 := filepath.Join(".", "testmppmint2")
+	lndClient2, err := testutils.LndClient(lnd2, testMintPath2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testMint2, err := testutils.CreateTestMintServer(lndClient2, "8999", 0, testMintPath2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.RemoveAll(testMintPath)
+		os.RemoveAll(testMintPath2)
+	}()
+	go func() {
+		log.Fatal(testMint2.Start())
+	}()
+	mint1URL := "http://127.0.0.1:8998"
+	mint2URL := "http://127.0.0.1:8999"
+
+	// add both mints to wallet
+	testWalletPath := filepath.Join(".", "/testwalletmultimintpayment")
+	testWallet, err := testutils.CreateTestWallet(testWalletPath, mint1URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(testWalletPath)
+
+	// fund wallet from both mints
+	if err := testutils.FundCashuWallet(ctx, testWallet, lnd3, 21000); err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+	testWallet.Shutdown()
+
+	walletConfig := wallet.Config{WalletPath: testWalletPath, CurrentMintURL: mint2URL}
+	testWallet, err = wallet.LoadWallet(walletConfig)
+	if err != nil {
+		t.Fatalf("error loading wallet: %v", err)
+	}
+
+	if err := testutils.FundCashuWallet(ctx, testWallet, lnd3, 21000); err != nil {
+		t.Fatalf("error funding wallet: %v", err)
+	}
+
+	// test MPP with gonuts mint
+	testMultimintPayment(t, testWallet, lnd3, lnd4)
+
+	// setup to test MPP with nutshell mint
 	nutshellMint1, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd1)
 	if err != nil {
 		t.Fatalf("error starting nutshell mint: %v", err)
@@ -1205,42 +1264,53 @@ func TestMultimintPayment(t *testing.T) {
 	defer nutshellMint2.Terminate(ctx)
 	nutshellURL2 := nutshellMint2.Host
 
-	// add both mints to wallet
-	testWalletPath := filepath.Join(".", "/testwalletmultimintpayment")
-	testWallet, err := testutils.CreateTestWallet(testWalletPath, nutshellURL)
+	testNutshellWalletPath := filepath.Join(".", "/nutshellwalletmultimint")
+	testNutshellWallet, err := testutils.CreateTestWallet(testNutshellWalletPath, nutshellURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(testWalletPath)
+	defer os.RemoveAll(testNutshellWalletPath)
 
-	// fund wallet from both mints
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd3, 21000); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testNutshellWallet, lnd3, 21000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
-	testWallet.Shutdown()
+	testNutshellWallet.Shutdown()
 
-	walletConfig := wallet.Config{WalletPath: testWalletPath, CurrentMintURL: nutshellURL2}
-	testWallet, err = wallet.LoadWallet(walletConfig)
+	walletConfig = wallet.Config{WalletPath: testNutshellWalletPath, CurrentMintURL: nutshellURL2}
+	testNutshellWallet, err = wallet.LoadWallet(walletConfig)
 	if err != nil {
 		t.Fatalf("error loading wallet: %v", err)
 	}
-
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd3, 21000); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testNutshellWallet, lnd3, 21000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
+	// test MPP with nutshell mint
+	testMultimintPayment(t, testNutshellWallet, lnd3, lnd4)
+}
+
+func testMultimintPayment(
+	t *testing.T,
+	testWallet *wallet.Wallet,
+	routeNode *btcdocker.Lnd,
+	noRouteNode *btcdocker.Lnd,
+) {
 	// create invoice from lnd3
 	invoice := lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err := lnd3.Client.AddInvoice(ctx, &invoice)
+	addInvoiceResponse, err := routeNode.Client.AddInvoice(ctx, &invoice)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
+	mints := testWallet.TrustedMints()
+	mint1 := mints[0]
+	mint2 := mints[1]
+
 	balanceBeforeMultiPayment := testWallet.GetBalanceByMints()
 	// try multimint from wallet using funds from 2 mints
 	multimintPaymentSplit := map[string]uint64{
-		nutshellURL:  5000,
-		nutshellURL2: 5000,
+		mint1: 5000,
+		mint2: 5000,
 	}
 	meltResponses, err := testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
 	if err != nil {
@@ -1254,26 +1324,26 @@ func TestMultimintPayment(t *testing.T) {
 	}
 
 	balanceAfterMultiPayment := testWallet.GetBalanceByMints()
-	if balanceAfterMultiPayment[nutshellURL]+5000 > balanceBeforeMultiPayment[nutshellURL] {
+	if balanceAfterMultiPayment[mint1]+5000 > balanceBeforeMultiPayment[mint1] {
 		t.Fatalf(`balance not affected after successful multimint payment.
 		Balance before payment for mint '%v' was '%v'. Balance after payment '%v'.`,
-			nutshellURL, balanceBeforeMultiPayment[nutshellURL], balanceAfterMultiPayment[nutshellURL])
+			mint1, balanceBeforeMultiPayment[mint1], balanceAfterMultiPayment[mint1])
 	}
-	if balanceAfterMultiPayment[nutshellURL2]+5000 > balanceBeforeMultiPayment[nutshellURL2] {
+	if balanceAfterMultiPayment[mint2]+5000 > balanceBeforeMultiPayment[mint2] {
 		t.Fatalf(`balance not affected after successful multimint payment.
 		Balance before payment for mint '%v' was '%v'. Balance after payment '%v'.`,
-			nutshellURL2, balanceBeforeMultiPayment[nutshellURL2], balanceAfterMultiPayment[nutshellURL2])
+			mint2, balanceBeforeMultiPayment[mint2], balanceAfterMultiPayment[mint2])
 	}
 
 	// this should fail as there is no route for the payment
 	invoice = lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err = lnd4.Client.AddInvoice(ctx, &invoice)
+	addInvoiceResponse, err = noRouteNode.Client.AddInvoice(ctx, &invoice)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
 	// test split with only one mint
-	multimintPaymentSplit = map[string]uint64{nutshellURL: 5000}
+	multimintPaymentSplit = map[string]uint64{mint1: 5000}
 	meltResponses, err = testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
 	if !errors.Is(err, nut15.ErrSplitTooShort) {
 		t.Fatalf("expected err '%v' but got '%v'", nut15.ErrSplitTooShort, err)
@@ -1281,8 +1351,8 @@ func TestMultimintPayment(t *testing.T) {
 
 	// test split does not add up to invoice amount
 	multimintPaymentSplit = map[string]uint64{
-		nutshellURL:  5000,
-		nutshellURL2: 3000,
+		mint1: 5000,
+		mint2: 3000,
 	}
 	meltResponses, err = testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
 	splitSumErrString := "sum of split amounts '8000' does not equal invoice amount of '10000'"
@@ -1307,16 +1377,16 @@ func TestMultimintPayment(t *testing.T) {
 	// test with split where there aren't enough funds in
 	// one of the selected mints in the split
 	invoice = lnrpc.Invoice{Value: 21000}
-	addInvoiceResponse, err = lnd3.Client.AddInvoice(ctx, &invoice)
+	addInvoiceResponse, err = routeNode.Client.AddInvoice(ctx, &invoice)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
 	// split with not enough funds in one mint
 	split := map[string]uint64{
-		nutshellURL: 4000,
+		mint1: 4000,
 		// this mint has balance of 16000
-		nutshellURL2: 17000,
+		mint2: 17000,
 	}
 	previousBalance = testWallet.GetBalance()
 	meltResponses, err = testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, split)

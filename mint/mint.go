@@ -55,6 +55,7 @@ type Mint struct {
 	mintInfo        nut06.MintInfo
 	limits          MintLimits
 	logger          *slog.Logger
+	mppEnabled      bool
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -108,6 +109,7 @@ func LoadMint(config Config) (*Mint, error) {
 		activeKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
 		limits:        config.Limits,
 		logger:        logger,
+		mppEnabled:    config.EnableMPP,
 	}
 
 	dbKeysets, err := mint.db.GetKeysets()
@@ -510,11 +512,33 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 	if bolt11.MSatoshi == 0 {
 		return storage.MeltQuote{}, cashu.BuildCashuError("invoice has no amount", cashu.MeltQuoteErrCode)
 	}
-	satAmount := uint64(bolt11.MSatoshi) / 1000
+	invoiceSatAmount := uint64(bolt11.MSatoshi) / 1000
+	quoteAmount := invoiceSatAmount
+
+	// check mpp option
+	if len(meltQuoteRequest.Options) > 0 {
+		mpp, ok := meltQuoteRequest.Options["mpp"]
+		if ok {
+			if m.mppEnabled {
+				// check mpp amount is less than invoice amount
+				if mpp.Amount >= invoiceSatAmount {
+					return storage.MeltQuote{},
+						cashu.BuildCashuError("mpp amount is not less than amount in invoice",
+							cashu.MeltQuoteErrCode)
+				}
+				quoteAmount = mpp.Amount
+				m.logInfof("got melt quote request to pay partial amount '%v' of invoice with amount '%v'",
+					quoteAmount, invoiceSatAmount)
+			} else {
+				return storage.MeltQuote{},
+					cashu.BuildCashuError("MPP is not supported", cashu.MeltQuoteErrCode)
+			}
+		}
+	}
 
 	// check melt limit
 	if m.limits.MeltingSettings.MaxAmount > 0 {
-		if satAmount > m.limits.MeltingSettings.MaxAmount {
+		if quoteAmount > m.limits.MeltingSettings.MaxAmount {
 			return storage.MeltQuote{}, cashu.MeltAmountExceededErr
 		}
 	}
@@ -531,12 +555,12 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 		return storage.MeltQuote{}, cashu.StandardErr
 	}
 	// Fee reserve that is required by the mint
-	fee := m.lightningClient.FeeReserve(satAmount)
+	fee := m.lightningClient.FeeReserve(quoteAmount)
 	meltQuote := storage.MeltQuote{
 		Id:             quoteId,
 		InvoiceRequest: request,
 		PaymentHash:    bolt11.PaymentHash,
-		Amount:         satAmount,
+		Amount:         quoteAmount,
 		FeeReserve:     fee,
 		State:          nut05.Unpaid,
 		Expiry:         uint64(time.Now().Add(time.Minute * QuoteExpiryMins).Unix()),
@@ -556,7 +580,7 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 	}
 
 	m.logInfof("got melt quote request for invoice of amount '%v'. Setting fee reserve to %v",
-		satAmount, meltQuote.FeeReserve)
+		invoiceSatAmount, meltQuote.FeeReserve)
 
 	if err := m.db.SaveMeltQuote(meltQuote); err != nil {
 		errmsg := fmt.Sprintf("error saving melt quote to db: %v", err)
@@ -1406,6 +1430,14 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 		11: map[string]bool{"supported": true},
 		12: map[string]bool{"supported": true},
 		14: map[string]bool{"supported": true},
+	}
+
+	if m.mppEnabled {
+		nuts[15] = map[string][]nut06.MethodSetting{
+			"methods": {
+				{Method: cashu.BOLT11_METHOD, Unit: cashu.Sat.String()},
+			},
+		}
 	}
 
 	info := nut06.MintInfo{
