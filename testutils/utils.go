@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	mathrand "math/rand/v2"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -193,7 +194,7 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.
 
 func MintConfig(
 	backend lightning.Client,
-	port string,
+	port int,
 	derivationPathIdx uint32,
 	dbpath string,
 	inputFeePpk uint,
@@ -276,7 +277,7 @@ func CreateTestMint(
 	if err != nil {
 		return nil, err
 	}
-	config, err := MintConfig(lndClient, "", 0, dbpath, inputFeePpk, limits)
+	config, err := MintConfig(lndClient, 0, 0, dbpath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +291,7 @@ func CreateTestMint(
 
 func CreateTestMintServer(
 	backend lightning.Client,
-	port string,
+	port int,
 	derivationPathIdx uint32,
 	dbpath string,
 	inputFeePpk uint,
@@ -751,6 +752,15 @@ func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int, lnd *btcd
 	}
 
 	return nutshellContainer, nil
+}
+
+func GetAvailablePort() (int, error) {
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 func generateRandomString(length int) string {

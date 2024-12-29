@@ -17,7 +17,7 @@ const (
 
 type Config struct {
 	DerivationPathIdx uint32
-	Port              string
+	Port              int
 	MintPath          string
 	InputFeePpk       uint
 	MintInfo          MintInfo

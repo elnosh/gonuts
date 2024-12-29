@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,7 +63,7 @@ func (ms *MintServer) Shutdown() {
 	ms.httpServer.Shutdown(context.Background())
 }
 
-func (ms *MintServer) setupHttpServer(port string) error {
+func (ms *MintServer) setupHttpServer(port int) error {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet, http.MethodOptions)
@@ -81,11 +82,8 @@ func (ms *MintServer) setupHttpServer(port string) error {
 
 	r.Use(setupHeaders)
 
-	if len(port) == 0 {
-		return errors.New("port cannot be empty")
-	}
 	server := &http.Server{
-		Addr:    ":" + port,
+		Addr:    ":" + strconv.Itoa(port),
 		Handler: r,
 	}
 

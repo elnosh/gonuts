@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func testMain(m *testing.M) (int, error) {
 
 	testMintPath := filepath.Join(".", "testmint1")
 	fakeBackend := &lightning.FakeBackend{}
-	testMint, err := testutils.CreateTestMintServer(fakeBackend, "3338", 0, testMintPath, 0)
+	testMint, err := testutils.CreateTestMintServer(fakeBackend, 3338, 0, testMintPath, 0)
 	if err != nil {
 		return 1, err
 	}
@@ -65,7 +66,7 @@ func testMain(m *testing.M) (int, error) {
 
 	testMintPath2 := filepath.Join(".", "testmint2")
 	fakeBackend2 := &lightning.FakeBackend{}
-	testMint2, err := testutils.CreateTestMintServer(fakeBackend2, "3339", 0, testMintPath2, 0)
+	testMint2, err := testutils.CreateTestMintServer(fakeBackend2, 3339, 0, testMintPath2, 0)
 	if err != nil {
 		return 1, err
 	}
@@ -78,7 +79,7 @@ func testMain(m *testing.M) (int, error) {
 
 	mintFeesPath := filepath.Join(".", "testmintwithfees")
 	fakeBackend3 := &lightning.FakeBackend{}
-	mintWithFees, err := testutils.CreateTestMintServer(fakeBackend3, "8080", 0, mintFeesPath, 100)
+	mintWithFees, err := testutils.CreateTestMintServer(fakeBackend3, 8080, 0, mintFeesPath, 100)
 	if err != nil {
 		return 1, err
 	}
@@ -566,11 +567,13 @@ func TestWalletBalanceFees(t *testing.T) {
 }
 
 func TestPendingProofs(t *testing.T) {
-	mintURL := "http://127.0.0.1:8081"
+	port, _ := testutils.GetAvailablePort()
+	mintURL := "http://127.0.0.1:" + strconv.Itoa(port)
+
 	testMintPath := filepath.Join(".", "testmint2")
 	// Setting delay so that it marks payments as pending
 	fakeBackend := &lightning.FakeBackend{PaymentDelay: int64(time.Minute) * 2}
-	testMint, err := testutils.CreateTestMintServer(fakeBackend, "8081", 0, testMintPath, 0)
+	testMint, err := testutils.CreateTestMintServer(fakeBackend, port, 0, testMintPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,11 +763,13 @@ func TestPendingProofs(t *testing.T) {
 
 // Test wallet operations work after mint rotates to new keyset
 func TestKeysetRotations(t *testing.T) {
-	mintURL := "http://127.0.0.1:8082"
+	port, _ := testutils.GetAvailablePort()
+	mintURL := "http://127.0.0.1:" + strconv.Itoa(port)
+
 	testMintPath := filepath.Join(".", "testmintkeysetrotation")
 	var keysetDerivationIdx uint32 = 0
 	fakeBackend := &lightning.FakeBackend{}
-	testMint, err := testutils.CreateTestMintServer(fakeBackend, "8082", keysetDerivationIdx, testMintPath, 0)
+	testMint, err := testutils.CreateTestMintServer(fakeBackend, port, keysetDerivationIdx, testMintPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -778,7 +783,7 @@ func TestKeysetRotations(t *testing.T) {
 	var bumpKeyset = func(mint *mint.MintServer) *mint.MintServer {
 		testMint.Shutdown()
 		keysetDerivationIdx++
-		testMint, err := testutils.CreateTestMintServer(fakeBackend, "8082", keysetDerivationIdx, testMintPath, 0)
+		testMint, err := testutils.CreateTestMintServer(fakeBackend, port, keysetDerivationIdx, testMintPath, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -986,9 +991,12 @@ func TestHTLC(t *testing.T) {
 }
 
 func TestSendToPubkey(t *testing.T) {
+	port, _ := testutils.GetAvailablePort()
+	p2pkMintURL := "http://127.0.0.1:" + strconv.Itoa(port)
+
 	p2pkMintPath := filepath.Join(".", "p2pkmint1")
 	fakeBackend := &lightning.FakeBackend{}
-	p2pkMint, err := testutils.CreateTestMintServer(fakeBackend, "8889", 0, p2pkMintPath, 0)
+	p2pkMint, err := testutils.CreateTestMintServer(fakeBackend, port, 0, p2pkMintPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,11 +1004,12 @@ func TestSendToPubkey(t *testing.T) {
 	go func() {
 		t.Fatal(p2pkMint.Start())
 	}()
-	p2pkMintURL := "http://127.0.0.1:8889"
 
+	port2, _ := testutils.GetAvailablePort()
+	p2pkMintURL2 := "http://127.0.0.1:" + strconv.Itoa(port2)
 	p2pkMintPath2 := filepath.Join(".", "p2pkmint2")
 	fakeBackend2 := &lightning.FakeBackend{}
-	p2pkMint2, err := testutils.CreateTestMintServer(fakeBackend2, "8890", 0, p2pkMintPath2, 0)
+	p2pkMint2, err := testutils.CreateTestMintServer(fakeBackend2, port2, 0, p2pkMintPath2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1008,7 +1017,6 @@ func TestSendToPubkey(t *testing.T) {
 	go func() {
 		t.Fatal(p2pkMint2.Start())
 	}()
-	p2pkMintURL2 := "http://127.0.0.1:8890"
 
 	testWalletPath := filepath.Join(".", "/testwalletp2pk")
 	testWallet, err := testutils.CreateTestWallet(testWalletPath, p2pkMintURL)
@@ -1190,12 +1198,14 @@ func TestMultimintPayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	port, _ := testutils.GetAvailablePort()
+	mint1URL := "http://127.0.0.1:" + strconv.Itoa(port)
 	testMintPath := filepath.Join(".", "testmppmint1")
 	lndClient1, err := testutils.LndClient(lnd1, testMintPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	testMint, err := testutils.CreateTestMintServer(lndClient1, "8998", 0, testMintPath, 0)
+	testMint, err := testutils.CreateTestMintServer(lndClient1, port, 0, testMintPath, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1203,12 +1213,14 @@ func TestMultimintPayment(t *testing.T) {
 		log.Fatal(testMint.Start())
 	}()
 
+	port2, _ := testutils.GetAvailablePort()
+	mint2URL := "http://127.0.0.1:" + strconv.Itoa(port2)
 	testMintPath2 := filepath.Join(".", "testmppmint2")
 	lndClient2, err := testutils.LndClient(lnd2, testMintPath2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	testMint2, err := testutils.CreateTestMintServer(lndClient2, "8999", 0, testMintPath2, 0)
+	testMint2, err := testutils.CreateTestMintServer(lndClient2, port2, 0, testMintPath2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1219,8 +1231,6 @@ func TestMultimintPayment(t *testing.T) {
 	go func() {
 		log.Fatal(testMint2.Start())
 	}()
-	mint1URL := "http://127.0.0.1:8998"
-	mint2URL := "http://127.0.0.1:8999"
 
 	// add both mints to wallet
 	testWalletPath := filepath.Join(".", "/testwalletmultimintpayment")

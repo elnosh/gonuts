@@ -37,9 +37,9 @@ func configFromEnv() (*mint.Config, error) {
 		return nil, fmt.Errorf("invalid DERIVATION_PATH_IDX: %v", err)
 	}
 
-	port := os.Getenv("MINT_PORT")
-	if len(port) == 0 {
-		port = "3338"
+	port, err := strconv.Atoi(os.Getenv("MINT_PORT"))
+	if err != nil {
+		port = 3338
 	}
 
 	mintPath := os.Getenv("MINT_DB_PATH")
