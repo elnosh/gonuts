@@ -572,13 +572,21 @@ func pay(ctx *cli.Context) error {
 					printErr(fmt.Errorf("could not do multimint payment: %v", err))
 				}
 
+				for _, response := range meltResponses {
+					if response.State == nut05.Pending {
+						fmt.Println("payment is pending")
+						return nil
+					} else if response.State == nut05.Unpaid {
+						fmt.Println("could not do multimint payment")
+						return nil
+					}
+				}
+
 				if meltResponses[0].State == nut05.Paid {
 					fmt.Printf("Multimint payment successful! Preimage: %v\n", meltResponses[0].Preimage)
 					return nil
-				} else {
-					fmt.Println("could not do multimint payment")
-					return nil
 				}
+
 			} else {
 				printErr(errors.New("aggregate amount selected cannot be higher than invoice amount"))
 			}
