@@ -59,9 +59,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 			return 0, fmt.Errorf("error getting info from mint: %v", err)
 		}
 
-		nut7, ok := mintInfo.Nuts[7].(map[string]interface{})
-		nut9, ok2 := mintInfo.Nuts[9].(map[string]interface{})
-		if !ok || !ok2 || nut7["supported"] != true || nut9["supported"] != true {
+		if !mintInfo.Nuts.Nut07.Supported || !mintInfo.Nuts.Nut09.Supported {
 			fmt.Println("mint does not support the necessary operations to restore wallet")
 			continue
 		}

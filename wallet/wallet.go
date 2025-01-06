@@ -400,8 +400,7 @@ func (w *Wallet) SendToPubkey(
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
-	nut11Info, ok := mintInfo.Nuts[11].(map[string]interface{})
-	if !ok || nut11Info["supported"] != true {
+	if !mintInfo.Nuts.Nut11.Supported {
 		return nil, errors.New("mint does not support Pay to Public Key")
 	}
 
@@ -444,8 +443,7 @@ func (w *Wallet) HTLCLockedProofs(
 	if err != nil {
 		return nil, fmt.Errorf("error getting info from mint: %v", err)
 	}
-	nut14, ok := mintInfo.Nuts[14].(map[string]interface{})
-	if !ok || nut14["supported"] != true {
+	if !mintInfo.Nuts.Nut14.Supported {
 		return nil, errors.New("mint does not support HTLCs")
 	}
 
