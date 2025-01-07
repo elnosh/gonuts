@@ -4,9 +4,7 @@
 package nut06
 
 import (
-	"bytes"
 	"encoding/json"
-	"slices"
 )
 
 type MintInfo struct {
@@ -20,7 +18,7 @@ type MintInfo struct {
 	IconURL         string        `json:"icon_url,omitempty"`
 	URLs            []string      `json:"urls,omitempty"`
 	Time            int64         `json:"time,omitempty"`
-	Nuts            NutsMap       `json:"nuts"`
+	Nuts            Nuts          `json:"nuts"`
 }
 
 type ContactInfo struct {
@@ -41,7 +39,7 @@ func (mi *MintInfo) UnmarshalJSON(data []byte) error {
 		IconURL         string          `json:"icon_url,omitempty"`
 		URLs            []string        `json:"urls,omitempty"`
 		Time            int64           `json:"time,omitempty"`
-		Nuts            NutsMap         `json:"nuts"`
+		Nuts            Nuts            `json:"nuts"`
 	}
 
 	if err := json.Unmarshal(data, &tempInfo); err != nil {
@@ -75,44 +73,61 @@ type MethodSetting struct {
 	MaxAmount uint64 `json:"max_amount,omitempty"`
 }
 
-type NutsMap map[int]any
+type Supported struct {
+	Supported bool `json:"supported"`
+}
 
-// Custom marshaller to display supported nuts in order
-func (nm NutsMap) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte('{')
+type Nuts struct {
+	Nut04 NutSetting  `json:"4"`
+	Nut05 NutSetting  `json:"5"`
+	Nut07 Supported   `json:"7"`
+	Nut08 Supported   `json:"8"`
+	Nut09 Supported   `json:"9"`
+	Nut10 Supported   `json:"10"`
+	Nut11 Supported   `json:"11"`
+	Nut12 Supported   `json:"12"`
+	Nut14 Supported   `json:"14"`
+	Nut15 *NutSetting `json:"15,omitempty"`
+}
 
-	nuts := make([]int, len(nm))
-	i := 0
-	for k := range nm {
-		nuts[i] = k
-		i++
-	}
-	slices.Sort(nuts)
-
-	for j, num := range nuts {
-		if j != 0 {
-			buf.WriteByte(',')
-		}
-
-		// marshal key
-		key, err := json.Marshal(num)
-		if err != nil {
-			return nil, err
-		}
-		buf.WriteByte('"')
-		buf.Write(key)
-		buf.WriteByte('"')
-		buf.WriteByte(':')
-		// marshal value
-		nutVal := nm[num]
-		val, err := json.Marshal(nutVal)
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(val)
+// custom unmarshaller because format to signal support for nut-15 changed.
+// So it will first try to Unmarshal to new format and if there is an error
+// it will try old format
+func (nuts *Nuts) UnmarshalJSON(data []byte) error {
+	var tempNuts struct {
+		Nut04 NutSetting      `json:"4"`
+		Nut05 NutSetting      `json:"5"`
+		Nut07 Supported       `json:"7"`
+		Nut08 Supported       `json:"8"`
+		Nut09 Supported       `json:"9"`
+		Nut10 Supported       `json:"10"`
+		Nut11 Supported       `json:"11"`
+		Nut12 Supported       `json:"12"`
+		Nut14 Supported       `json:"14"`
+		Nut15 json.RawMessage `json:"15,omitempty"`
 	}
 
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
+	if err := json.Unmarshal(data, &tempNuts); err != nil {
+		return err
+	}
+
+	nuts.Nut04 = tempNuts.Nut04
+	nuts.Nut05 = tempNuts.Nut05
+	nuts.Nut07 = tempNuts.Nut07
+	nuts.Nut08 = tempNuts.Nut08
+	nuts.Nut09 = tempNuts.Nut09
+	nuts.Nut10 = tempNuts.Nut10
+	nuts.Nut11 = tempNuts.Nut11
+	nuts.Nut12 = tempNuts.Nut12
+	nuts.Nut14 = tempNuts.Nut14
+
+	if err := json.Unmarshal(tempNuts.Nut15, &nuts.Nut15); err != nil {
+		var nut15Methods []MethodSetting
+		if err := json.Unmarshal(tempNuts.Nut15, &nut15Methods); err != nil {
+			nuts.Nut15 = &NutSetting{Methods: []MethodSetting{}}
+		}
+		nuts.Nut15 = &NutSetting{Methods: nut15Methods}
+	}
+
+	return nil
 }

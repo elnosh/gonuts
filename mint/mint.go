@@ -1400,8 +1400,8 @@ func (m *Mint) GetActiveKeyset() crypto.MintKeyset {
 }
 
 func (m *Mint) SetMintInfo(mintInfo MintInfo) {
-	nuts := nut06.NutsMap{
-		4: nut06.NutSetting{
+	nuts := nut06.Nuts{
+		Nut04: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
 				{
 					Method:    cashu.BOLT11_METHOD,
@@ -1412,7 +1412,7 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 			},
 			Disabled: false,
 		},
-		5: nut06.NutSetting{
+		Nut05: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
 				{
 					Method:    cashu.BOLT11_METHOD,
@@ -1423,18 +1423,18 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 			},
 			Disabled: false,
 		},
-		7:  map[string]bool{"supported": true},
-		8:  map[string]bool{"supported": false},
-		9:  map[string]bool{"supported": true},
-		10: map[string]bool{"supported": true},
-		11: map[string]bool{"supported": true},
-		12: map[string]bool{"supported": true},
-		14: map[string]bool{"supported": true},
+		Nut07: nut06.Supported{Supported: true},
+		Nut08: nut06.Supported{Supported: false},
+		Nut09: nut06.Supported{Supported: true},
+		Nut10: nut06.Supported{Supported: true},
+		Nut11: nut06.Supported{Supported: true},
+		Nut12: nut06.Supported{Supported: true},
+		Nut14: nut06.Supported{Supported: true},
 	}
 
 	if m.mppEnabled {
-		nuts[15] = map[string][]nut06.MethodSetting{
-			"methods": {
+		nuts.Nut15 = &nut06.NutSetting{
+			Methods: []nut06.MethodSetting{
 				{Method: cashu.BOLT11_METHOD, Unit: cashu.Sat.String()},
 			},
 		}
@@ -1481,9 +1481,9 @@ func (m Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
 			mintingDisabled = true
 		}
 	}
-	nut04 := m.mintInfo.Nuts[4].(nut06.NutSetting)
+	nut04 := m.mintInfo.Nuts.Nut04
 	nut04.Disabled = mintingDisabled
-	m.mintInfo.Nuts[4] = nut04
+	m.mintInfo.Nuts.Nut04 = nut04
 	m.mintInfo.Pubkey = hex.EncodeToString(publicKey.SerializeCompressed())
 
 	return m.mintInfo, nil
