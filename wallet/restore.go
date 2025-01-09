@@ -205,5 +205,9 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 		}
 	}
 
+	if err := db.Close(); err != nil {
+		return proofsRestored.Amount(), fmt.Errorf("could not close db: %v", err)
+	}
+
 	return proofsRestored.Amount(), nil
 }
