@@ -5,6 +5,8 @@ package nut06
 
 import (
 	"encoding/json"
+
+	"github.com/elnosh/gonuts/cashu/nuts/nut17"
 )
 
 type MintInfo struct {
@@ -78,16 +80,17 @@ type Supported struct {
 }
 
 type Nuts struct {
-	Nut04 NutSetting  `json:"4"`
-	Nut05 NutSetting  `json:"5"`
-	Nut07 Supported   `json:"7"`
-	Nut08 Supported   `json:"8"`
-	Nut09 Supported   `json:"9"`
-	Nut10 Supported   `json:"10"`
-	Nut11 Supported   `json:"11"`
-	Nut12 Supported   `json:"12"`
-	Nut14 Supported   `json:"14"`
-	Nut15 *NutSetting `json:"15,omitempty"`
+	Nut04 NutSetting        `json:"4"`
+	Nut05 NutSetting        `json:"5"`
+	Nut07 Supported         `json:"7"`
+	Nut08 Supported         `json:"8"`
+	Nut09 Supported         `json:"9"`
+	Nut10 Supported         `json:"10"`
+	Nut11 Supported         `json:"11"`
+	Nut12 Supported         `json:"12"`
+	Nut14 Supported         `json:"14"`
+	Nut15 *NutSetting       `json:"15,omitempty"`
+	Nut17 nut17.InfoSetting `json:"17"`
 }
 
 // custom unmarshaller because format to signal support for nut-15 changed.
@@ -95,16 +98,17 @@ type Nuts struct {
 // it will try old format
 func (nuts *Nuts) UnmarshalJSON(data []byte) error {
 	var tempNuts struct {
-		Nut04 NutSetting      `json:"4"`
-		Nut05 NutSetting      `json:"5"`
-		Nut07 Supported       `json:"7"`
-		Nut08 Supported       `json:"8"`
-		Nut09 Supported       `json:"9"`
-		Nut10 Supported       `json:"10"`
-		Nut11 Supported       `json:"11"`
-		Nut12 Supported       `json:"12"`
-		Nut14 Supported       `json:"14"`
-		Nut15 json.RawMessage `json:"15,omitempty"`
+		Nut04 NutSetting        `json:"4"`
+		Nut05 NutSetting        `json:"5"`
+		Nut07 Supported         `json:"7"`
+		Nut08 Supported         `json:"8"`
+		Nut09 Supported         `json:"9"`
+		Nut10 Supported         `json:"10"`
+		Nut11 Supported         `json:"11"`
+		Nut12 Supported         `json:"12"`
+		Nut14 Supported         `json:"14"`
+		Nut15 json.RawMessage   `json:"15,omitempty"`
+		Nut17 nut17.InfoSetting `json:"17"`
 	}
 
 	if err := json.Unmarshal(data, &tempNuts); err != nil {
@@ -120,6 +124,7 @@ func (nuts *Nuts) UnmarshalJSON(data []byte) error {
 	nuts.Nut11 = tempNuts.Nut11
 	nuts.Nut12 = tempNuts.Nut12
 	nuts.Nut14 = tempNuts.Nut14
+	nuts.Nut17 = tempNuts.Nut17
 
 	if err := json.Unmarshal(tempNuts.Nut15, &nuts.Nut15); err != nil {
 		var nut15Methods []MethodSetting
