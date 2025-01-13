@@ -9,16 +9,21 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
+	"github.com/elnosh/gonuts/cashu/nuts/nut17"
 	"github.com/elnosh/gonuts/wallet"
+	"github.com/elnosh/gonuts/wallet/submanager"
 	"github.com/joho/godotenv"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 	"github.com/urfave/cli/v2"
@@ -285,8 +290,63 @@ func requestMint(amountStr string) error {
 	}
 
 	fmt.Printf("invoice: %v\n\n", mintResponse.Request)
-	fmt.Println("after paying the invoice you can redeem the ecash using the --invoice flag")
-	return nil
+
+	subMananger, err := submanager.NewSubscriptionManager(nutw.CurrentMint())
+	if err != nil {
+		return err
+	}
+	defer subMananger.Close()
+
+	errChan := make(chan error)
+	go subMananger.Run(errChan)
+
+	subscription, err := subMananger.Subscribe(nut17.Bolt11MintQuote, []string{mintResponse.Quote})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("checking if invoice gets paid...")
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, os.Kill, syscall.SIGTERM)
+
+	go func() {
+		select {
+		case err := <-errChan:
+			fmt.Printf("error reading from websocket connection: %v\n\n", err)
+			fmt.Println("after paying the invoice you can redeem the ecash by doing 'nutw mint --invoice [invoice]'")
+			os.Exit(1)
+		case <-sigChan:
+			fmt.Println("\nterminating... after paying the invoice you can also redeem the ecash by doing 'nutw mint --invoice [invoice]'")
+			os.Exit(0)
+		}
+	}()
+
+	for {
+		notification, err := subscription.Read()
+		if err != nil {
+			return err
+		}
+
+		var mintQuote nut04.PostMintQuoteBolt11Response
+		if err := json.Unmarshal(notification.Params.Payload, &mintQuote); err != nil {
+			return err
+		}
+
+		if mintQuote.State == nut04.Paid {
+			mintedAmount, err := nutw.MintTokens(mintResponse.Quote)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("%v sats successfully minted\n", mintedAmount)
+
+			if err := subMananger.CloseSubscripton(subscription.SubId()); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
 }
 
 func mintTokens(paymentRequest string) error {

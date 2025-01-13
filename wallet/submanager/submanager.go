@@ -27,6 +27,7 @@ type SubscriptionManager struct {
 	subs             map[string]*Subscription
 	idCounter        int
 	supportedMethods []nut17.SupportedMethod
+	quit             chan struct{}
 }
 
 func NewSubscriptionManager(mint string) (*SubscriptionManager, error) {
@@ -58,6 +59,7 @@ func NewSubscriptionManager(mint string) (*SubscriptionManager, error) {
 		subs:             make(map[string]*Subscription),
 		idCounter:        0,
 		supportedMethods: mintInfo.Nuts.Nut17.Supported,
+		quit:             make(chan struct{}),
 	}
 
 	return subManager, nil
@@ -73,6 +75,7 @@ func (sm *SubscriptionManager) Run(errChannel chan error) {
 }
 
 func (sm *SubscriptionManager) Close() error {
+	sm.quit <- struct{}{}
 	if err := sm.wsConn.Close(); err != nil {
 		return err
 	}
@@ -81,44 +84,49 @@ func (sm *SubscriptionManager) Close() error {
 
 func (sm *SubscriptionManager) handleWsMessages() error {
 	for {
-		_, msg, err := sm.wsConn.ReadMessage()
-		if err != nil {
-			return err
-		}
-
-		go func() {
-			var notification nut17.WsNotification
-			if err := json.Unmarshal(msg, &notification); err == nil {
-				subId := notification.Params.SubId
-				// if subscription exists, send notification on that channel
-				sub, ok := sm.subs[subId]
-				if ok {
-					sub.notificationChannel <- notification
-				}
+		select {
+		case <-sm.quit:
+			return nil
+		default:
+			_, msg, err := sm.wsConn.ReadMessage()
+			if err != nil {
+				return err
 			}
 
-			// if could not parse as WsNotification, try parsing as WsResponse
-			var response nut17.WsResponse
-			if err := json.Unmarshal(msg, &response); err != nil {
-				// if could not parse as WsResponse, try parsing as WsError
-				var wsError nut17.WsError
-				if err := json.Unmarshal(msg, &wsError); err == nil {
-					// if WsError, check if there is subscription with that id and send on err channel
-					for _, subscription := range sm.subs {
-						if subscription.id == wsError.Id {
-							subscription.errChannel <- wsError
+			go func() {
+				var notification nut17.WsNotification
+				if err := json.Unmarshal(msg, &notification); err == nil {
+					subId := notification.Params.SubId
+					// if subscription exists, send notification on that channel
+					sub, ok := sm.subs[subId]
+					if ok {
+						sub.notificationChannel <- notification
+					}
+				}
+
+				// if could not parse as WsNotification, try parsing as WsResponse
+				var response nut17.WsResponse
+				if err := json.Unmarshal(msg, &response); err != nil {
+					// if could not parse as WsResponse, try parsing as WsError
+					var wsError nut17.WsError
+					if err := json.Unmarshal(msg, &wsError); err == nil {
+						// if WsError, check if there is subscription with that id and send on err channel
+						for _, subscription := range sm.subs {
+							if subscription.id == wsError.Id {
+								subscription.errChannel <- wsError
+							}
 						}
 					}
 				}
-			}
 
-			// if WsResponse, check if there is subscription with that id and send on response channel
-			for _, subscription := range sm.subs {
-				if subscription.id == response.Id {
-					subscription.responseChannel <- response
+				// if WsResponse, check if there is subscription with that id and send on response channel
+				for _, subscription := range sm.subs {
+					if subscription.id == response.Id {
+						subscription.responseChannel <- response
+					}
 				}
-			}
-		}()
+			}()
+		}
 	}
 }
 
