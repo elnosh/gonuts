@@ -83,6 +83,14 @@ func LoadWallet(config Config) (*Wallet, error) {
 		return nil, fmt.Errorf("InitStorage: %v", err)
 	}
 
+	isErr := true
+	defer func() {
+		// close db if an error happened
+		if isErr {
+			db.Close()
+		}
+	}()
+
 	seed := db.GetSeed()
 	if len(seed) == 0 {
 		// create and save new seed if none existed previously
@@ -138,6 +146,7 @@ func LoadWallet(config Config) (*Wallet, error) {
 		}
 	}
 
+	isErr = false
 	return wallet, nil
 }
 
