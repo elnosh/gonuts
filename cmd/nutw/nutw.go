@@ -239,7 +239,10 @@ func receive(ctx *cli.Context) error {
 	return nil
 }
 
-const invoiceFlag = "invoice"
+const (
+	invoiceFlag = "invoice"
+	mintFlag    = "mint"
+)
 
 var mintCmd = &cli.Command{
 	Name:      "mint",
@@ -250,6 +253,10 @@ var mintCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:  invoiceFlag,
 			Usage: "Specify paid invoice to mint tokens",
+		},
+		&cli.StringFlag{
+			Name:  mintFlag,
+			Usage: "Specify mint from which to request mint quote",
 		},
 	},
 	Action: mint,
@@ -269,8 +276,17 @@ func mint(ctx *cli.Context) error {
 	if args.Len() < 1 {
 		printErr(errors.New("specify an amount to mint"))
 	}
-	amountStr := args.First()
-	err := requestMint(amountStr)
+	amount, err := strconv.ParseUint(args.First(), 10, 64)
+	if err != nil {
+		return errors.New("invalid amount")
+	}
+
+	mint := nutw.CurrentMint()
+	if ctx.IsSet(mintFlag) {
+		mint = ctx.String(mintFlag)
+	}
+
+	err = requestMint(amount, mint)
 	if err != nil {
 		printErr(err)
 	}
@@ -278,22 +294,18 @@ func mint(ctx *cli.Context) error {
 	return nil
 }
 
-func requestMint(amountStr string) error {
-	amount, err := strconv.ParseUint(amountStr, 10, 64)
-	if err != nil {
-		return errors.New("invalid amount")
-	}
-
-	mintResponse, err := nutw.RequestMint(amount, nutw.CurrentMint())
+func requestMint(amount uint64, mintURL string) error {
+	mintResponse, err := nutw.RequestMint(amount, mintURL)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("invoice: %v\n\n", mintResponse.Request)
 
-	subMananger, err := submanager.NewSubscriptionManager(nutw.CurrentMint())
+	subMananger, err := submanager.NewSubscriptionManager(mintURL)
 	if err != nil {
-		return err
+		fmt.Println("after paying the invoice you can redeem the ecash by doing 'nutw mint --invoice [invoice]'")
+		return nil
 	}
 	defer subMananger.Close()
 
@@ -302,7 +314,8 @@ func requestMint(amountStr string) error {
 
 	subscription, err := subMananger.Subscribe(nut17.Bolt11MintQuote, []string{mintResponse.Quote})
 	if err != nil {
-		return err
+		fmt.Println("after paying the invoice you can redeem the ecash by doing 'nutw mint --invoice [invoice]'")
+		return nil
 	}
 
 	fmt.Println("checking if invoice gets paid...")
