@@ -140,7 +140,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 
 				if len(restoreResponse.Signatures) == 0 {
 					emptyBatches++
-					break
+					continue
 				}
 
 				Ys := make([]string, len(restoreResponse.Signatures))
@@ -153,12 +153,20 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 						return 0, errors.New("key not found")
 					}
 
-					C, err := unblindSignature(signature.C_, rs[i], pubkey)
+					blindMessageIdx := 0
+					for j, bm := range blindedMessages {
+						if bm.B_ == restoreResponse.Outputs[i].B_ {
+							blindMessageIdx = j
+							break
+						}
+					}
+
+					C, err := unblindSignature(signature.C_, rs[blindMessageIdx], pubkey)
 					if err != nil {
 						return 0, err
 					}
 
-					Y, err := crypto.HashToCurve([]byte(secrets[i]))
+					Y, err := crypto.HashToCurve([]byte(secrets[blindMessageIdx]))
 					if err != nil {
 						return 0, err
 					}
@@ -167,7 +175,7 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 
 					proof := cashu.Proof{
 						Amount: signature.Amount,
-						Secret: secrets[i],
+						Secret: secrets[blindMessageIdx],
 						C:      C,
 						Id:     signature.Id,
 					}
