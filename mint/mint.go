@@ -291,7 +291,7 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 		PaymentRequest: invoice.PaymentRequest,
 		PaymentHash:    invoice.PaymentHash,
 		State:          nut04.Unpaid,
-		Expiry:         invoice.Expiry,
+		Expiry:         uint64(time.Now().Add(time.Second * time.Duration(invoice.Expiry)).Unix()),
 	}
 
 	err = m.db.SaveMintQuote(mintQuote)
@@ -299,6 +299,9 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 		errmsg := fmt.Sprintf("error saving mint quote to db: %v", err)
 		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
+
+	// goroutine to check in the background when invoice gets paid and update db if so
+	go m.checkInvoicePaid(quoteId)
 
 	return mintQuote, nil
 }
