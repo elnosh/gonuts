@@ -10,6 +10,7 @@ type Client interface {
 	SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error)
 	OutgoingPaymentStatus(ctx context.Context, hash string) (PaymentStatus, error)
 	FeeReserve(amount uint64) uint64
+	SubscribeInvoice(paymentHash string) (InvoiceSubscriptionClient, error)
 }
 
 type Invoice struct {
@@ -33,4 +34,10 @@ type PaymentStatus struct {
 	Preimage             string
 	PaymentStatus        State
 	PaymentFailureReason string
+}
+
+// InvoiceSubscriptionClient subscribes to get updates on the status of an invoice
+type InvoiceSubscriptionClient interface {
+	// This blocks until there is an update
+	Recv() (Invoice, error)
 }

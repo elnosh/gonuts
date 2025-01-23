@@ -124,6 +124,29 @@ func (fb *FakeBackend) FeeReserve(amount uint64) uint64 {
 	return 0
 }
 
+func (fb *FakeBackend) SubscribeInvoice(paymentHash string) (InvoiceSubscriptionClient, error) {
+	return &FakeInvoiceSub{
+		paymentHash: paymentHash,
+		fb:          fb,
+	}, nil
+}
+
+type FakeInvoiceSub struct {
+	paymentHash string
+	fb          *FakeBackend
+}
+
+func (fakeSub *FakeInvoiceSub) Recv() (Invoice, error) {
+	invoiceIdx := slices.IndexFunc(fakeSub.fb.Invoices, func(i FakeBackendInvoice) bool {
+		return i.PaymentHash == fakeSub.paymentHash
+	})
+	if invoiceIdx == -1 {
+		return Invoice{}, errors.New("invoice does not exist")
+	}
+
+	return fakeSub.fb.Invoices[invoiceIdx].ToInvoice(), nil
+}
+
 func (fb *FakeBackend) SetInvoiceStatus(hash string, status State) {
 	invoiceIdx := slices.IndexFunc(fb.Invoices, func(i FakeBackendInvoice) bool {
 		return i.PaymentHash == hash

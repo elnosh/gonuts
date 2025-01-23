@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	InvoiceExpiryMins         = 10
+	// 1 hour
+	InvoiceExpiryTime         = 3600
 	FeePercent        float64 = 0.01
 )
 
@@ -28,8 +29,9 @@ type LndConfig struct {
 }
 
 type LndClient struct {
-	grpcClient   lnrpc.LightningClient
-	routerClient routerrpc.RouterClient
+	grpcClient     lnrpc.LightningClient
+	routerClient   routerrpc.RouterClient
+	invoicesClient invoicesrpc.InvoicesClient
 }
 
 func SetupLndClient(config LndConfig) (*LndClient, error) {
@@ -45,7 +47,13 @@ func SetupLndClient(config LndConfig) (*LndClient, error) {
 
 	grpcClient := lnrpc.NewLightningClient(conn)
 	routerClient := routerrpc.NewRouterClient(conn)
-	return &LndClient{grpcClient: grpcClient, routerClient: routerClient}, nil
+	invoicesClient := invoicesrpc.NewInvoicesClient(conn)
+
+	return &LndClient{
+		grpcClient:     grpcClient,
+		routerClient:   routerClient,
+		invoicesClient: invoicesClient,
+	}, nil
 }
 
 func (lnd *LndClient) ConnectionStatus() error {
@@ -61,7 +69,7 @@ func (lnd *LndClient) ConnectionStatus() error {
 func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 	invoiceRequest := lnrpc.Invoice{
 		Value:  int64(amount),
-		Expiry: InvoiceExpiryMins * 60,
+		Expiry: InvoiceExpiryTime,
 	}
 
 	addInvoiceResponse, err := lnd.grpcClient.AddInvoice(context.Background(), &invoiceRequest)
@@ -74,7 +82,7 @@ func (lnd *LndClient) CreateInvoice(amount uint64) (Invoice, error) {
 		PaymentRequest: addInvoiceResponse.PaymentRequest,
 		PaymentHash:    hash,
 		Amount:         amount,
-		Expiry:         uint64(time.Now().Add(time.Minute * InvoiceExpiryMins).Unix()),
+		Expiry:         InvoiceExpiryTime,
 	}
 	return invoice, nil
 }
@@ -98,6 +106,7 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 		Preimage:       hex.EncodeToString(lookupInvoiceResponse.RPreimage),
 		Settled:        invoiceSettled,
 		Amount:         uint64(lookupInvoiceResponse.Value),
+		Expiry:         uint64(lookupInvoiceResponse.Expiry),
 	}
 
 	return invoice, nil
@@ -245,4 +254,44 @@ func (lnd *LndClient) OutgoingPaymentStatus(ctx context.Context, hash string) (P
 func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
 	fee := math.Ceil(float64(amount) * FeePercent)
 	return uint64(fee)
+}
+
+func (lnd *LndClient) SubscribeInvoice(paymentHash string) (InvoiceSubscriptionClient, error) {
+	hash, err := hex.DecodeString(paymentHash)
+	if err != nil {
+		return nil, err
+	}
+	invoiceSubRequest := &invoicesrpc.SubscribeSingleInvoiceRequest{
+		RHash: hash,
+	}
+	lndInvoiceClient, err := lnd.invoicesClient.SubscribeSingleInvoice(context.Background(), invoiceSubRequest)
+	if err != nil {
+		return nil, err
+	}
+	invoiceSub := &LndInvoiceSub{
+		paymentHash:      paymentHash,
+		invoiceSubClient: lndInvoiceClient,
+	}
+	return invoiceSub, nil
+}
+
+type LndInvoiceSub struct {
+	paymentHash      string
+	invoiceSubClient invoicesrpc.Invoices_SubscribeSingleInvoiceClient
+}
+
+func (lndSub *LndInvoiceSub) Recv() (Invoice, error) {
+	invoiceRes, err := lndSub.invoiceSubClient.Recv()
+	if err != nil {
+		return Invoice{}, err
+	}
+	invoiceSettled := invoiceRes.State == lnrpc.Invoice_SETTLED
+	invoice := Invoice{
+		PaymentRequest: invoiceRes.PaymentRequest,
+		PaymentHash:    lndSub.paymentHash,
+		Preimage:       hex.EncodeToString(invoiceRes.RPreimage),
+		Settled:        invoiceSettled,
+		Amount:         uint64(invoiceRes.Value),
+	}
+	return invoice, nil
 }
