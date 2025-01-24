@@ -14,6 +14,13 @@ const (
 	Unknown
 )
 
+const (
+	JSONRPC_2   = "2.0"
+	OK          = "OK"
+	SUBSCRIBE   = "subscribe"
+	UNSUBSCRIBE = "unsubscribe"
+)
+
 func (kind SubscriptionKind) String() string {
 	switch kind {
 	case Bolt11MintQuote:
@@ -122,6 +129,17 @@ type WsError struct {
 	JsonRPC     string        `json:"jsonrpc"`
 	ErrResponse ErrorResponse `json:"error"`
 	Id          int           `json:"id"`
+}
+
+func NewWsError(code int, message string, id int) WsError {
+	return WsError{
+		JsonRPC: JSONRPC_2,
+		ErrResponse: ErrorResponse{
+			Code:    code,
+			Message: message,
+		},
+		Id: id,
+	}
 }
 
 func (e *WsError) UnmarshalJSON(data []byte) error {
