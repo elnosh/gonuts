@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
+	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/cashu/nuts/nut17"
 	"github.com/elnosh/gonuts/mint/pubsub"
 	"github.com/elnosh/gonuts/mint/storage"
@@ -133,13 +134,17 @@ func (c *Client) readMessages() {
 			c.manager.mint.logErrorf("Got invalid websocket request. Sending error message: %v", wsErr)
 			jsonErrMsg, _ := json.Marshal(wsErr)
 			c.send <- jsonErrMsg
+			continue
 		}
+
+		c.manager.mint.logDebugf("received websocket message: %s", msg)
 
 		wsResponse, wsError := c.processRequest(wsRequest)
 		if wsError != nil {
 			jsonErrMsg, _ := json.Marshal(wsError)
 			c.manager.mint.logErrorf("Error processing websocket request. Sending error message: %v", wsError)
 			c.send <- jsonErrMsg
+			continue
 		}
 
 		// if successful request, send WsNotification with initial state
@@ -219,6 +224,7 @@ func (c *Client) subscriptionRequest(req nut17.WsRequest) (*nut17.WsResponse, *n
 			return nil, &wsErr
 		}
 
+		// check all quotes are valid before accepting subscription
 		quotes := make([]storage.MintQuote, len(quoteIds))
 		for i, quoteId := range quoteIds {
 			quote, err := c.manager.mint.db.GetMintQuote(quoteId)
@@ -230,11 +236,10 @@ func (c *Client) subscriptionRequest(req nut17.WsRequest) (*nut17.WsResponse, *n
 		}
 
 		mintQuotesClient := NewMintQuotesSubClient(req.Params.SubId, quotes, c.manager.mint.publisher)
-		c.manager.mint.logDebugf("adding new subscription of kind '%s' with sub id '%v'", req.Params.Kind, req.Params.SubId)
 		c.addSubscriptionClient(req.Params.SubId, mintQuotesClient)
 
+		// send initial quote state
 		go func() {
-			// send initial quote state
 			for _, quote := range quotes {
 				firstQuoteState := nut04.PostMintQuoteBolt11Response{
 					Quote:   quote.Id,
@@ -251,20 +256,64 @@ func (c *Client) subscriptionRequest(req nut17.WsRequest) (*nut17.WsResponse, *n
 						Payload: jsonPayload,
 					},
 				}
-				jsonNotification, _ := json.Marshal(wsNotif)
+				jsonNotification, _ := json.Marshal(&wsNotif)
 				c.send <- jsonNotification
 			}
 		}()
 
 		go listenForSubscriptionUpdates(mintQuotesClient, c.send)
 
-	case nut17.Bolt11MeltQuote:
-	case nut17.ProofState:
+	// case nut17.ProofState:
+	// NOTE: DO NOT SUPPORT FOR NOW UNTIL SOME CLARIFICATION ON: https://github.com/cashubtc/nuts/pull/213
+
+	// Ys := req.Params.Filters
+	// if len(Ys) > 100 {
+	// 	wsErr := nut17.NewWsError(1000, "too many filters", req.Id)
+	// 	return nil, &wsErr
+	// }
+	//
+	// // if any of the proofs are already spent, return errors since there can't be any
+	// // other updates
+	// usedProofs, _ := c.manager.mint.db.GetProofsUsed(Ys)
+	// if len(usedProofs) > 0 {
+	// 	wsErr := nut17.NewWsError(1000, "proofs in request are already spent", req.Id)
+	// 	return nil, &wsErr
+	// }
+	// proofStatesClient := NewProofStatesSubClient(req.Params.SubId, Ys, c.manager.mint.publisher)
+	// c.addSubscriptionClient(req.Params.SubId, proofStatesClient)
+	//
+	// // send initial proof state
+	// go func() {
+	// 	proofStates := make([]nut07.ProofState, len(Ys))
+	// 	for i, y := range Ys {
+	// 		proofStates[i] = nut07.ProofState{Y: y, State: nut07.Unspent}
+	// 	}
+	// 	proofStateResponse := nut07.PostCheckStateResponse{
+	// 		States: proofStates,
+	// 	}
+	//
+	// 	jsonPayload, _ := json.Marshal(&proofStateResponse)
+	// 	wsNotif := nut17.WsNotification{
+	// 		JsonRPC: nut17.JSONRPC_2,
+	// 		Method:  nut17.SUBSCRIBE,
+	// 		Params: nut17.NotificationParams{
+	// 			SubId:   req.Params.SubId,
+	// 			Payload: jsonPayload,
+	// 		},
+	// 	}
+	// 	jsonNotification, _ := json.Marshal(&wsNotif)
+	// 	c.send <- jsonNotification
+	// }()
+	//
+	// go listenForSubscriptionUpdates(proofStatesClient, c.send)
+
+	// case nut17.Bolt11MeltQuote:
 	default:
 		wsErr := nut17.NewWsError(1000, "invalid request method", req.Id)
 		return nil, &wsErr
 	}
 
+	c.manager.mint.logDebugf("adding new subscription of kind '%s' with sub id '%v'", req.Params.Kind, req.Params.SubId)
 	return &nut17.WsResponse{
 		JsonRPC: nut17.JSONRPC_2,
 		Result: nut17.Result{
@@ -320,6 +369,9 @@ func (c *Client) close() error {
 	return nil
 }
 
+// listenForSubscriptionUpdates should be called in a goroutine to run in the background.
+// It will listen on the notification channel for any updates on the subscription
+// and send those to be written on the websocket connection
 func listenForSubscriptionUpdates(subClient SubscriptionClient, send chan json.RawMessage) {
 	notifChan := subClient.Read()
 	for {
@@ -333,7 +385,12 @@ func listenForSubscriptionUpdates(subClient SubscriptionClient, send chan json.R
 	}
 }
 
+// SubscriptionClient interface for the different subscription kinds:
+// - mint quotes
+// - melt quotes
+// - proof states
 type SubscriptionClient interface {
+	// returns a channel to receive notifications for this subscription
 	Read() <-chan nut17.WsNotification
 	Context() context.Context
 	Close()
@@ -368,12 +425,16 @@ func NewMintQuotesSubClient(subId string, mintQuotes []storage.MintQuote, pubsub
 	}
 }
 
-func (quotesClient *MintQuotesSubClient) Read() <-chan nut17.WsNotification {
+func (subClient *MintQuotesSubClient) Read() <-chan nut17.WsNotification {
 	notifChan := make(chan nut17.WsNotification)
 
 	// channel on which to receive db udpate events
-	messagesChan := quotesClient.subscriber.GetMessages()
+	messagesChan := subClient.subscriber.GetMessages()
 
+	// goroutine to listen for mint quote updates
+	// check if the update is related to a mint quote id this subscription is
+	// interested in and if it the state is different from the previous one recorded.
+	// if it is, it will send a notification on the channel
 	go func() {
 		for {
 			select {
@@ -385,11 +446,11 @@ func (quotesClient *MintQuotesSubClient) Read() <-chan nut17.WsNotification {
 				var mintQuote storage.MintQuote
 				json.Unmarshal(msg.Payload(), &mintQuote)
 
-				previousState, ok := quotesClient.quotes[mintQuote.Id]
+				previousState, ok := subClient.quotes[mintQuote.Id]
 				if ok {
 					// send notification if there was a state change
 					if previousState != mintQuote.State {
-						quotesClient.quotes[mintQuote.Id] = mintQuote.State
+						subClient.quotes[mintQuote.Id] = mintQuote.State
 
 						newQuoteState := nut04.PostMintQuoteBolt11Response{
 							Quote:   mintQuote.Id,
@@ -403,7 +464,7 @@ func (quotesClient *MintQuotesSubClient) Read() <-chan nut17.WsNotification {
 							JsonRPC: nut17.JSONRPC_2,
 							Method:  nut17.SUBSCRIBE,
 							Params: nut17.NotificationParams{
-								SubId:   quotesClient.subId,
+								SubId:   subClient.subId,
 								Payload: notificationPayload,
 							},
 						}
@@ -411,7 +472,7 @@ func (quotesClient *MintQuotesSubClient) Read() <-chan nut17.WsNotification {
 					}
 				}
 
-			case <-quotesClient.ctx.Done():
+			case <-subClient.ctx.Done():
 				return
 			}
 		}
@@ -420,12 +481,109 @@ func (quotesClient *MintQuotesSubClient) Read() <-chan nut17.WsNotification {
 	return notifChan
 }
 
-func (quotesClient *MintQuotesSubClient) Context() context.Context {
-	return quotesClient.ctx
+func (subClient *MintQuotesSubClient) Context() context.Context {
+	return subClient.ctx
 }
 
-func (quotesClient *MintQuotesSubClient) Close() {
-	quotesClient.pubsub.Unsubscribe(quotesClient.subscriber, BOLT11_MINT_QUOTE_TOPIC)
-	quotesClient.subscriber.Close()
-	quotesClient.cancel()
+func (subClient *MintQuotesSubClient) Close() {
+	subClient.pubsub.Unsubscribe(subClient.subscriber, BOLT11_MINT_QUOTE_TOPIC)
+	subClient.subscriber.Close()
+	subClient.cancel()
+}
+
+type ProofStatesSubClient struct {
+	subId  string
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	pubsub     *pubsub.PubSub
+	subscriber *pubsub.Subscriber
+
+	proofs map[string]nut07.State
+}
+
+func NewProofStatesSubClient(subId string, Ys []string, pubsub *pubsub.PubSub) *ProofStatesSubClient {
+	ctx, cancel := context.WithCancel(context.Background())
+	subscriber := pubsub.Subscribe(PROOF_STATE_TOPIC)
+
+	proofs := make(map[string]nut07.State)
+	for _, y := range Ys {
+		proofs[y] = nut07.Unspent
+	}
+
+	return &ProofStatesSubClient{
+		pubsub:     pubsub,
+		subId:      subId,
+		ctx:        ctx,
+		cancel:     cancel,
+		proofs:     proofs,
+		subscriber: subscriber,
+	}
+}
+
+func (subClient *ProofStatesSubClient) Read() <-chan nut17.WsNotification {
+	notifChan := make(chan nut17.WsNotification)
+
+	// channel on which to receive db udpate events
+	messagesChan := subClient.subscriber.GetMessages()
+
+	// check for updates on proofs related to this
+	// subscription
+	go func() {
+		for {
+			select {
+			case msg, ok := <-messagesChan:
+				if !ok {
+					return
+				}
+
+				var proofStates nut07.PostCheckStateResponse
+				json.Unmarshal(msg.Payload(), &proofStates)
+
+				newProofStates := make([]nut07.ProofState, 0, len(subClient.proofs))
+				for _, proofState := range proofStates.States {
+					previousState, ok := subClient.proofs[proofState.Y]
+					if ok {
+						if previousState != proofState.State {
+							subClient.proofs[proofState.Y] = proofState.State
+							newProofStates = append(newProofStates, proofState)
+						}
+					}
+				}
+
+				// send notification if there was a state change
+				if len(newProofStates) > 0 {
+					proofStatesResponse := nut07.PostCheckStateResponse{
+						States: newProofStates,
+					}
+
+					notificationPayload, _ := json.Marshal(&proofStatesResponse)
+					wsNotif := nut17.WsNotification{
+						JsonRPC: nut17.JSONRPC_2,
+						Method:  nut17.SUBSCRIBE,
+						Params: nut17.NotificationParams{
+							SubId:   subClient.subId,
+							Payload: notificationPayload,
+						},
+					}
+					notifChan <- wsNotif
+				}
+
+			case <-subClient.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return notifChan
+}
+
+func (subClient *ProofStatesSubClient) Context() context.Context {
+	return subClient.ctx
+}
+
+func (subClient *ProofStatesSubClient) Close() {
+	subClient.pubsub.Unsubscribe(subClient.subscriber, BOLT11_MELT_QUOTE_TOPIC)
+	subClient.subscriber.Close()
+	subClient.cancel()
 }
