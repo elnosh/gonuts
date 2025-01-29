@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -39,7 +40,6 @@ func (m *Mint) checkInvoicePaid(quoteId string) {
 				return
 			}
 		}
-
 	}()
 
 	timeUntilExpiry := int64(mintQuote.Expiry) - time.Now().Unix()
@@ -48,9 +48,12 @@ func (m *Mint) checkInvoicePaid(quoteId string) {
 	case invoice := <-updateChan:
 		if invoice.Settled {
 			m.logInfof("received update from invoice sub. Invoice for mint quote '%v' is PAID", mintQuote.Id)
-			if err := m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Paid); err != nil {
+			mintQuote.State = nut04.Paid
+			if err := m.db.UpdateMintQuoteState(mintQuote.Id, mintQuote.State); err != nil {
 				m.logErrorf("could not mark mint quote '%v' as PAID in db: %v", mintQuote.Id, err)
 			}
+			jsonQuote, _ := json.Marshal(mintQuote)
+			m.publisher.Publish(BOLT11_MINT_QUOTE_TOPIC, jsonQuote)
 		}
 	case err := <-errChan:
 		m.logErrorf("error reading from invoice subscription: %v", err)

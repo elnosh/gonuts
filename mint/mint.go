@@ -29,8 +29,10 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
+	"github.com/elnosh/gonuts/cashu/nuts/nut17"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
+	"github.com/elnosh/gonuts/mint/pubsub"
 	"github.com/elnosh/gonuts/mint/storage"
 	"github.com/elnosh/gonuts/mint/storage/sqlite"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -56,6 +58,8 @@ type Mint struct {
 	limits          MintLimits
 	logger          *slog.Logger
 	mppEnabled      bool
+
+	publisher *pubsub.PubSub
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -110,6 +114,7 @@ func LoadMint(config Config) (*Mint, error) {
 		limits:        config.Limits,
 		logger:        logger,
 		mppEnabled:    config.EnableMPP,
+		publisher:     pubsub.NewPubSub(),
 	}
 
 	dbKeysets, err := mint.db.GetKeysets()
@@ -330,6 +335,9 @@ func (m *Mint) GetMintQuoteState(quoteId string) (storage.MintQuote, error) {
 				errmsg := fmt.Sprintf("error updating mint quote in db: %v", err)
 				return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
+
+			jsonQuote, _ := json.Marshal(mintQuote)
+			m.publisher.Publish(BOLT11_MINT_QUOTE_TOPIC, jsonQuote)
 		}
 	}
 
@@ -400,11 +408,14 @@ func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.
 			}
 
 			// mark quote as issued after signing the blinded messages
+			mintQuote.State = nut04.Issued
 			err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued)
 			if err != nil {
 				errmsg := fmt.Sprintf("error mint quote state: %v", err)
 				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
+			jsonQuote, _ := json.Marshal(mintQuote)
+			m.publisher.Publish(BOLT11_MINT_QUOTE_TOPIC, jsonQuote)
 			return nil
 		}()
 
@@ -493,6 +504,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
 		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
+	m.publishProofsStateChanges(proofs, nut07.Spent)
 
 	return blindedSignatures, nil
 }
@@ -638,6 +650,7 @@ func (m *Mint) GetMeltQuoteState(ctx context.Context, quoteId string) (storage.M
 				errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
 				return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
+			m.publishProofsStateChanges(proofs, nut07.Spent)
 
 		case lightning.Failed:
 			m.logInfof("payment %v failed with error: %v. Setting melt quote '%v' to unpaid and removing proofs from pending",
@@ -649,7 +662,6 @@ func (m *Mint) GetMeltQuoteState(ctx context.Context, quoteId string) (storage.M
 				errmsg := fmt.Sprintf("error updating melt quote state: %v", err)
 				return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
-
 			_, err = m.removePendingProofsForQuote(meltQuote.Id)
 			if err != nil {
 				errmsg := fmt.Sprintf("error removing pending proofs for quote: %v", err)
@@ -767,6 +779,7 @@ func (m *Mint) MeltTokens(ctx context.Context, meltTokensRequest nut05.PostMeltB
 			errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
 			return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 		}
+		m.publishProofsStateChanges(proofs, nut07.Spent)
 	} else {
 		m.logInfof("attempting to pay invoice: %v", meltQuote.InvoiceRequest)
 		// if quote can't be settled internally, ask backend to make payment
@@ -894,6 +907,8 @@ func (m *Mint) settleQuotesInternally(
 		errmsg := fmt.Sprintf("error updating mint quote state: %v", err)
 		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
+	jsonQuote, _ := json.Marshal(mintQuote)
+	m.publisher.Publish(BOLT11_MINT_QUOTE_TOPIC, jsonQuote)
 
 	return meltQuote, nil
 }
@@ -911,6 +926,7 @@ func (m *Mint) settleProofs(Ys []string, proofs cashu.Proofs) error {
 		errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
 		return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
+	m.publishProofsStateChanges(proofs, nut07.Spent)
 
 	return nil
 }
@@ -1433,6 +1449,17 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 		Nut11: nut06.Supported{Supported: true},
 		Nut12: nut06.Supported{Supported: true},
 		Nut14: nut06.Supported{Supported: true},
+		Nut17: nut17.InfoSetting{
+			Supported: []nut17.SupportedMethod{
+				{
+					Method: cashu.BOLT11_METHOD,
+					Unit:   cashu.Sat.String(),
+					Commands: []string{
+						nut17.Bolt11MintQuote.String(),
+					},
+				},
+			},
+		},
 	}
 
 	if m.mppEnabled {
@@ -1490,4 +1517,21 @@ func (m Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
 	m.mintInfo.Pubkey = hex.EncodeToString(publicKey.SerializeCompressed())
 
 	return m.mintInfo, nil
+}
+
+func (m *Mint) publishProofsStateChanges(proofs cashu.Proofs, state nut07.State) {
+	proofStates := make([]nut07.ProofState, len(proofs))
+
+	for i, proof := range proofs {
+		Y, _ := crypto.HashToCurve([]byte(proof.Secret))
+		Yhex := hex.EncodeToString(Y.SerializeCompressed())
+		proofStates[i] = nut07.ProofState{Y: Yhex, State: state, Witness: proof.Witness}
+	}
+
+	stateResponse := nut07.PostCheckStateResponse{
+		States: proofStates,
+	}
+
+	proofStatesJson, _ := json.Marshal(&stateResponse)
+	m.publisher.Publish(PROOF_STATE_TOPIC, proofStatesJson)
 }

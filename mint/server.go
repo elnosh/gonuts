@@ -26,8 +26,9 @@ import (
 )
 
 type MintServer struct {
-	httpServer *http.Server
-	mint       *Mint
+	httpServer       *http.Server
+	mint             *Mint
+	websocketManager *WebsocketManager
 	// NOTE: using this value for testing
 	meltTimeout *time.Duration
 }
@@ -49,7 +50,13 @@ func SetupMintServer(config Config) (*MintServer, error) {
 		return nil, err
 	}
 
-	mintServer := &MintServer{mint: mint, meltTimeout: config.MeltTimeout}
+	websocketManager := NewWebSocketManager(mint)
+
+	mintServer := &MintServer{
+		mint:             mint,
+		websocketManager: websocketManager,
+		meltTimeout:      config.MeltTimeout,
+	}
 	err = mintServer.setupHttpServer(config.Port)
 	if err != nil {
 		return nil, err
@@ -79,6 +86,7 @@ func (ms *MintServer) setupHttpServer(port int) error {
 	r.HandleFunc("/v1/checkstate", ms.tokenStateCheck).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/v1/restore", ms.restoreSignatures).Methods(http.MethodPost, http.MethodOptions)
 	r.HandleFunc("/v1/info", ms.mintInfo).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/v1/ws", ms.websocketManager.serveWS).Methods(http.MethodGet, http.MethodOptions)
 
 	r.Use(setupHeaders)
 
