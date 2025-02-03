@@ -53,14 +53,14 @@ type ProofState struct {
 	Witness string `json:"witness,omitempty"`
 }
 
-type TempProofState struct {
+type tempProofState struct {
 	Y       string `json:"Y"`
 	State   string `json:"state"`
 	Witness string `json:"witness,omitempty"`
 }
 
 func (state *ProofState) MarshalJSON() ([]byte, error) {
-	tempProof := TempProofState{
+	tempProof := tempProofState{
 		Y:       state.Y,
 		State:   state.State.String(),
 		Witness: state.Witness,
@@ -69,7 +69,7 @@ func (state *ProofState) MarshalJSON() ([]byte, error) {
 }
 
 func (state *ProofState) UnmarshalJSON(data []byte) error {
-	var tempProof TempProofState
+	var tempProof tempProofState
 
 	if err := json.Unmarshal(data, &tempProof); err != nil {
 		return err

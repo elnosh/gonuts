@@ -134,7 +134,7 @@ func (ks *MintKeyset) DerivePublic() map[uint64]string {
 	return pubkeys
 }
 
-type KeysetTemp struct {
+type keysetTemp struct {
 	Id          string
 	Unit        string
 	Active      bool
@@ -143,7 +143,7 @@ type KeysetTemp struct {
 }
 
 func (ks *MintKeyset) MarshalJSON() ([]byte, error) {
-	temp := &KeysetTemp{
+	temp := &keysetTemp{
 		Id:     ks.Id,
 		Unit:   ks.Unit,
 		Active: ks.Active,
@@ -162,7 +162,7 @@ func (ks *MintKeyset) MarshalJSON() ([]byte, error) {
 }
 
 func (ks *MintKeyset) UnmarshalJSON(data []byte) error {
-	temp := &KeysetTemp{}
+	temp := &keysetTemp{}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
 		return err
@@ -185,7 +185,7 @@ func (ks *MintKeyset) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type KeyPairTemp struct {
+type keyPairTemp struct {
 	PrivateKey []byte `json:"private_key"`
 	PublicKey  []byte `json:"public_key"`
 }
@@ -196,7 +196,7 @@ func (kp *KeyPair) MarshalJSON() ([]byte, error) {
 	if kp.PrivateKey != nil {
 		privKey = append(privKey, kp.PrivateKey.Serialize()...)
 	}
-	res := KeyPairTemp{
+	res := keyPairTemp{
 		PrivateKey: privKey,
 		PublicKey:  kp.PublicKey.SerializeCompressed(),
 	}
@@ -204,7 +204,7 @@ func (kp *KeyPair) MarshalJSON() ([]byte, error) {
 }
 
 func (kp *KeyPair) UnmarshalJSON(data []byte) error {
-	aux := &KeyPairTemp{}
+	aux := &keyPairTemp{}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ type WalletKeyset struct {
 	InputFeePpk uint
 }
 
-type WalletKeysetTemp struct {
+type walletKeysetTemp struct {
 	Id          string
 	MintURL     string
 	Unit        string
@@ -244,7 +244,7 @@ type WalletKeysetTemp struct {
 }
 
 func (wk *WalletKeyset) MarshalJSON() ([]byte, error) {
-	temp := &WalletKeysetTemp{
+	temp := &walletKeysetTemp{
 		Id:      wk.Id,
 		MintURL: wk.MintURL,
 		Unit:    wk.Unit,
@@ -264,7 +264,7 @@ func (wk *WalletKeyset) MarshalJSON() ([]byte, error) {
 }
 
 func (wk *WalletKeyset) UnmarshalJSON(data []byte) error {
-	temp := &WalletKeysetTemp{}
+	temp := &walletKeysetTemp{}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
 		return err

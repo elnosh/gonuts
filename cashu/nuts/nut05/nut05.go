@@ -69,7 +69,7 @@ type PostMeltBolt11Request struct {
 	Outputs cashu.BlindedMessages `json:"outputs,omitempty"`
 }
 
-type TempQuote struct {
+type tempQuote struct {
 	Quote      string                  `json:"quote"`
 	Amount     uint64                  `json:"amount"`
 	FeeReserve uint64                  `json:"fee_reserve"`
@@ -80,7 +80,7 @@ type TempQuote struct {
 }
 
 func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) {
-	var tempQuote = TempQuote{
+	var tempQuote = tempQuote{
 		Quote:      quoteResponse.Quote,
 		Amount:     quoteResponse.Amount,
 		FeeReserve: quoteResponse.FeeReserve,
@@ -93,7 +93,7 @@ func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) 
 }
 
 func (quoteResponse *PostMeltQuoteBolt11Response) UnmarshalJSON(data []byte) error {
-	tempQuote := &TempQuote{}
+	tempQuote := &tempQuote{}
 
 	if err := json.Unmarshal(data, tempQuote); err != nil {
 		return err

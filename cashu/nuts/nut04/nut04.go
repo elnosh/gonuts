@@ -69,7 +69,7 @@ type PostMintBolt11Response struct {
 	Signatures cashu.BlindedSignatures `json:"signatures"`
 }
 
-type TempQuote struct {
+type tempQuote struct {
 	Quote   string `json:"quote"`
 	Request string `json:"request"`
 	State   string `json:"state"`
@@ -77,7 +77,7 @@ type TempQuote struct {
 }
 
 func (quoteResponse *PostMintQuoteBolt11Response) MarshalJSON() ([]byte, error) {
-	var tempQuote = TempQuote{
+	var tempQuote = tempQuote{
 		Quote:   quoteResponse.Quote,
 		Request: quoteResponse.Request,
 		State:   quoteResponse.State.String(),
@@ -87,7 +87,7 @@ func (quoteResponse *PostMintQuoteBolt11Response) MarshalJSON() ([]byte, error) 
 }
 
 func (quoteResponse *PostMintQuoteBolt11Response) UnmarshalJSON(data []byte) error {
-	tempQuote := &TempQuote{}
+	tempQuote := &tempQuote{}
 
 	if err := json.Unmarshal(data, tempQuote); err != nil {
 		return err
