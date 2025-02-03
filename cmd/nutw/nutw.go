@@ -322,6 +322,7 @@ func requestMint(amount uint64, mintURL string) error {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, os.Kill, syscall.SIGTERM)
+	done := make(chan struct{})
 
 	go func() {
 		select {
@@ -332,6 +333,8 @@ func requestMint(amount uint64, mintURL string) error {
 		case <-sigChan:
 			fmt.Println("\nterminating... after paying the invoice you can also redeem the ecash by doing 'nutw mint --invoice [invoice]'")
 			os.Exit(0)
+		case <-done:
+			return
 		}
 	}()
 
@@ -357,6 +360,7 @@ func requestMint(amount uint64, mintURL string) error {
 			if err := subMananger.CloseSubscripton(subscription.SubId()); err != nil {
 				return err
 			}
+			done <- struct{}{}
 			return nil
 		}
 	}
