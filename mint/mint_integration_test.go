@@ -894,6 +894,24 @@ func TestMPPMelt(t *testing.T) {
 			t.Fatalf("expected pending proof but got '%s' instead", proofState.State)
 		}
 	}
+
+	// test reject MPP for internal quotes
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: 10000, Unit: cashu.Sat.String()}
+	mintQuote, err := testMint.RequestMintQuote(mintQuoteRequest)
+	if err != nil {
+		t.Fatalf("error requesting mint quote: %v", err)
+	}
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: mintQuote.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {Amount: 6000}},
+	}
+	meltQuote1, err = testMint.RequestMeltQuote(meltQuoteRequest)
+	expectedErrMsg = "mpp for internal invoice is not allowed"
+	if err.Error() != expectedErrMsg {
+		t.Fatalf("expected error '%v' but got '%v'", expectedErrMsg, err.Error())
+	}
 }
 
 func TestPendingProofs(t *testing.T) {
