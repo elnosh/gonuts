@@ -638,7 +638,8 @@ func pay(ctx *cli.Context) error {
 				printErr(errmsg)
 			}
 
-			split[selectedMint] = uint64(amountToUse)
+			// amount needs to be in msat
+			split[selectedMint] = uint64(amountToUse * 1000)
 			amountStillToPay -= amountToUse
 
 			if amountStillToPay > 0 {

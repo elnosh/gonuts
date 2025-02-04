@@ -478,8 +478,8 @@ func (sqlite *SQLiteDB) UpdateMintQuoteState(quoteId string, state nut04.State) 
 func (sqlite *SQLiteDB) SaveMeltQuote(meltQuote storage.MeltQuote) error {
 	_, err := sqlite.db.Exec(`
 		INSERT INTO melt_quotes 
-		(id, request, payment_hash, amount, fee_reserve, state, expiry, preimage) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, request, payment_hash, amount, fee_reserve, state, expiry, preimage, is_mpp, amount_msat) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		meltQuote.Id,
 		meltQuote.InvoiceRequest,
 		meltQuote.PaymentHash,
@@ -488,6 +488,8 @@ func (sqlite *SQLiteDB) SaveMeltQuote(meltQuote storage.MeltQuote) error {
 		meltQuote.State.String(),
 		meltQuote.Expiry,
 		meltQuote.Preimage,
+		meltQuote.IsMpp,
+		meltQuote.AmountMsat,
 	)
 
 	return err
@@ -498,6 +500,8 @@ func (sqlite *SQLiteDB) GetMeltQuote(quoteId string) (storage.MeltQuote, error) 
 
 	var meltQuote storage.MeltQuote
 	var state string
+	var isMpp sql.NullBool
+	var amountMsat sql.NullInt64
 
 	err := row.Scan(
 		&meltQuote.Id,
@@ -508,11 +512,19 @@ func (sqlite *SQLiteDB) GetMeltQuote(quoteId string) (storage.MeltQuote, error) 
 		&state,
 		&meltQuote.Expiry,
 		&meltQuote.Preimage,
+		&isMpp,
+		&amountMsat,
 	)
 	if err != nil {
 		return storage.MeltQuote{}, err
 	}
 	meltQuote.State = nut05.StringToState(state)
+	if isMpp.Valid {
+		meltQuote.IsMpp = isMpp.Bool
+	}
+	if amountMsat.Valid {
+		meltQuote.AmountMsat = uint64(amountMsat.Int64)
+	}
 
 	return meltQuote, nil
 }
@@ -522,6 +534,8 @@ func (sqlite *SQLiteDB) GetMeltQuoteByPaymentRequest(invoice string) (*storage.M
 
 	var meltQuote storage.MeltQuote
 	var state string
+	var isMpp sql.NullBool
+	var amountMsat sql.NullInt64
 
 	err := row.Scan(
 		&meltQuote.Id,
@@ -532,11 +546,19 @@ func (sqlite *SQLiteDB) GetMeltQuoteByPaymentRequest(invoice string) (*storage.M
 		&state,
 		&meltQuote.Expiry,
 		&meltQuote.Preimage,
+		&isMpp,
+		&amountMsat,
 	)
 	if err != nil {
 		return nil, err
 	}
 	meltQuote.State = nut05.StringToState(state)
+	if isMpp.Valid {
+		meltQuote.IsMpp = isMpp.Bool
+	}
+	if amountMsat.Valid {
+		meltQuote.AmountMsat = uint64(amountMsat.Int64)
+	}
 
 	return &meltQuote, nil
 }

@@ -79,4 +79,7 @@ type MeltQuote struct {
 	State          nut05.State
 	Expiry         uint64
 	Preimage       string
+	IsMpp          bool
+	// used when the melt quote is MPP
+	AmountMsat uint64
 }
