@@ -1497,7 +1497,7 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 
 	info := nut06.MintInfo{
 		Name:            mintInfo.Name,
-		Version:         "gonuts/0.3.0",
+		Version:         "gonuts/0.4.0",
 		Description:     mintInfo.Description,
 		LongDescription: mintInfo.LongDescription,
 		Contact:         mintInfo.Contact,

@@ -633,8 +633,8 @@ func pay(ctx *cli.Context) error {
 				printErr(errors.New("amount has to be greater than 0"))
 			}
 			if uint64(amountToUse) > mintBalance {
-				errmsg := fmt.Errorf(`amount specified '%v' is greater than balance '%v' 
-					for that mint`, amountToUse, mintBalance)
+				errmsg := fmt.Errorf(`amount specified '%v' is greater than balance '%v' for that mint`,
+					amountToUse, mintBalance)
 				printErr(errmsg)
 			}
 
