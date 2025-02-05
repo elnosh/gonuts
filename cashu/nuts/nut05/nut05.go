@@ -50,7 +50,7 @@ type PostMeltQuoteBolt11Request struct {
 }
 
 type MppOption struct {
-	Amount uint64 `json:"amount"`
+	AmountMsat uint64 `json:"amount"`
 }
 
 type PostMeltQuoteBolt11Response struct {

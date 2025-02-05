@@ -1259,44 +1259,47 @@ func TestMultimintPayment(t *testing.T) {
 	// test MPP with gonuts mint
 	testMultimintPayment(t, testWallet, lnd3, lnd4)
 
+	// NOTE: comment out tests with nutshell for now until it updates
+	// to use msat for MPP
+
 	// setup to test MPP with nutshell mint
-	nutshellMint1, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd1)
-	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
-	}
-	defer nutshellMint1.Terminate(ctx)
-	nutshellURL := nutshellMint1.Host
-
-	nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd2)
-	if err != nil {
-		t.Fatalf("error starting nutshell mint: %v", err)
-	}
-	defer nutshellMint2.Terminate(ctx)
-	nutshellURL2 := nutshellMint2.Host
-
-	testNutshellWalletPath := filepath.Join(".", "/nutshellwalletmultimint")
-	testNutshellWallet, err := testutils.CreateTestWallet(testNutshellWalletPath, nutshellURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(testNutshellWalletPath)
-
-	if err := testutils.FundCashuWallet(ctx, testNutshellWallet, lnd3, 21000); err != nil {
-		t.Fatalf("error funding wallet: %v", err)
-	}
-	testNutshellWallet.Shutdown()
-
-	walletConfig = wallet.Config{WalletPath: testNutshellWalletPath, CurrentMintURL: nutshellURL2}
-	testNutshellWallet, err = wallet.LoadWallet(walletConfig)
-	if err != nil {
-		t.Fatalf("error loading wallet: %v", err)
-	}
-	if err := testutils.FundCashuWallet(ctx, testNutshellWallet, lnd3, 21000); err != nil {
-		t.Fatalf("error funding wallet: %v", err)
-	}
-
-	// test MPP with nutshell mint
-	testMultimintPayment(t, testNutshellWallet, lnd3, lnd4)
+	// nutshellMint1, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd1)
+	// if err != nil {
+	// 	t.Fatalf("error starting nutshell mint: %v", err)
+	// }
+	// defer nutshellMint1.Terminate(ctx)
+	// nutshellURL := nutshellMint1.Host
+	//
+	// nutshellMint2, err := testutils.CreateNutshellMintContainer(ctx, 100, lnd2)
+	// if err != nil {
+	// 	t.Fatalf("error starting nutshell mint: %v", err)
+	// }
+	// defer nutshellMint2.Terminate(ctx)
+	// nutshellURL2 := nutshellMint2.Host
+	//
+	// testNutshellWalletPath := filepath.Join(".", "/nutshellwalletmultimint")
+	// testNutshellWallet, err := testutils.CreateTestWallet(testNutshellWalletPath, nutshellURL)
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+	// defer os.RemoveAll(testNutshellWalletPath)
+	//
+	// if err := testutils.FundCashuWallet(ctx, testNutshellWallet, lnd3, 21000); err != nil {
+	// 	t.Fatalf("error funding wallet: %v", err)
+	// }
+	// testNutshellWallet.Shutdown()
+	//
+	// walletConfig = wallet.Config{WalletPath: testNutshellWalletPath, CurrentMintURL: nutshellURL2}
+	// testNutshellWallet, err = wallet.LoadWallet(walletConfig)
+	// if err != nil {
+	// 	t.Fatalf("error loading wallet: %v", err)
+	// }
+	// if err := testutils.FundCashuWallet(ctx, testNutshellWallet, lnd3, 21000); err != nil {
+	// 	t.Fatalf("error funding wallet: %v", err)
+	// }
+	//
+	// // test MPP with nutshell mint
+	// testMultimintPayment(t, testNutshellWallet, lnd3, lnd4)
 }
 
 func testMultimintPayment(
@@ -1319,8 +1322,8 @@ func testMultimintPayment(
 	balanceBeforeMultiPayment := testWallet.GetBalanceByMints()
 	// try multimint from wallet using funds from 2 mints
 	multimintPaymentSplit := map[string]uint64{
-		mint1: 5000,
-		mint2: 5000,
+		mint1: 5000 * 1000,
+		mint2: 5000 * 1000,
 	}
 	meltResponses, err := testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
 	if err != nil {
@@ -1353,7 +1356,7 @@ func testMultimintPayment(
 	}
 
 	// test split with only one mint
-	multimintPaymentSplit = map[string]uint64{mint1: 5000}
+	multimintPaymentSplit = map[string]uint64{mint1: 5000 * 1000}
 	meltResponses, err = testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
 	if !errors.Is(err, nut15.ErrSplitTooShort) {
 		t.Fatalf("expected err '%v' but got '%v'", nut15.ErrSplitTooShort, err)
@@ -1361,8 +1364,8 @@ func testMultimintPayment(
 
 	// test split does not add up to invoice amount
 	multimintPaymentSplit = map[string]uint64{
-		mint1: 5000,
-		mint2: 3000,
+		mint1: 5000 * 1000,
+		mint2: 3000 * 1000,
 	}
 	meltResponses, err = testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, multimintPaymentSplit)
 	splitSumErrString := "sum of split amounts '8000' does not equal invoice amount of '10000'"
@@ -1394,9 +1397,9 @@ func testMultimintPayment(
 
 	// split with not enough funds in one mint
 	split := map[string]uint64{
-		mint1: 4000,
+		mint1: 4000 * 1000,
 		// this mint has balance of 16000
-		mint2: 17000,
+		mint2: 17000 * 1000,
 	}
 	previousBalance = testWallet.GetBalance()
 	meltResponses, err = testWallet.MultiMintPayment(addInvoiceResponse.PaymentRequest, split)

@@ -77,7 +77,36 @@ func (fb *FakeBackend) InvoiceStatus(hash string) (Invoice, error) {
 	return fb.Invoices[invoiceIdx].ToInvoice(), nil
 }
 
-func (fb *FakeBackend) SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error) {
+func (fb *FakeBackend) SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error) {
+	invoice, err := decodepay.Decodepay(request)
+	if err != nil {
+		return PaymentStatus{}, fmt.Errorf("error decoding invoice: %v", err)
+	}
+
+	status := Succeeded
+	if invoice.Description == FailPaymentDescription {
+		status = Failed
+	} else if fb.PaymentDelay > 0 {
+		if time.Now().Unix() < int64(invoice.CreatedAt)+fb.PaymentDelay {
+			status = Pending
+		}
+	}
+
+	outgoingPayment := FakeBackendInvoice{
+		PaymentHash: invoice.PaymentHash,
+		Preimage:    FakePreimage,
+		Status:      status,
+		Amount:      uint64(invoice.MSatoshi) * 1000,
+	}
+	fb.Invoices = append(fb.Invoices, outgoingPayment)
+
+	return PaymentStatus{
+		Preimage:      FakePreimage,
+		PaymentStatus: status,
+	}, nil
+}
+
+func (fb *FakeBackend) PayPartialAmount(ctx context.Context, request string, amountMsat, maxFee uint64) (PaymentStatus, error) {
 	invoice, err := decodepay.Decodepay(request)
 	if err != nil {
 		return PaymentStatus{}, fmt.Errorf("error decoding invoice: %v", err)

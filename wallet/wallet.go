@@ -948,6 +948,8 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 	return meltBolt11Response, err
 }
 
+// MultiMintPayment tries an MPP according to NUT-15. The split is a map where the
+// key is the mint and the uint64 is the amount in msat.
 func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nut05.PostMeltQuoteBolt11Response, error) {
 	splitLen := len(split)
 	if splitLen < 2 {
@@ -965,7 +967,7 @@ func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nu
 	// - mints support MPP
 	// - sufficient funds in each specified mint
 	// - sum of split amounts equals invoice amount
-	for mint, amount := range split {
+	for mint, amountMsat := range split {
 		_, ok := w.mints[mint]
 		if !ok {
 			return nil, ErrMintNotExist
@@ -980,10 +982,11 @@ func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nu
 		}
 
 		mintBalance := balanceByMint[mint]
-		if mintBalance < amount {
-			return nil, fmt.Errorf("not enough funds in mint '%v' for amount '%v'", mint, amount)
+		amountSat := amountMsat / 1000
+		if mintBalance < amountSat {
+			return nil, fmt.Errorf("not enough funds in mint '%v' for amount '%v'", mint, amountSat)
 		}
-		splitSum += amount
+		splitSum += amountSat
 	}
 	invoiceAmount := uint64(bolt11.MSatoshi / 1000)
 	if splitSum != invoiceAmount {
@@ -1007,7 +1010,7 @@ func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nu
 				meltRequest := nut05.PostMeltQuoteBolt11Request{
 					Request: invoice,
 					Unit:    w.unit.String(),
-					Options: map[string]nut05.MppOption{"mpp": {Amount: amount}},
+					Options: map[string]nut05.MppOption{"mpp": {AmountMsat: amount}},
 				}
 				meltQuoteResponse, err := client.PostMeltQuoteBolt11(mint, meltRequest)
 				if err != nil {

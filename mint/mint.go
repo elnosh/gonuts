@@ -530,18 +530,35 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 	invoiceSatAmount := uint64(bolt11.MSatoshi) / 1000
 	quoteAmount := invoiceSatAmount
 
+	// check if a mint quote exists with the same invoice.
+	_, err = m.db.GetMintQuoteByPaymentHash(bolt11.PaymentHash)
+	isInternal := false
+	if err == nil {
+		isInternal = true
+	}
+
+	isMpp := false
+	var amountMsat uint64 = 0
 	// check mpp option
 	if len(meltQuoteRequest.Options) > 0 {
 		mpp, ok := meltQuoteRequest.Options["mpp"]
 		if ok {
 			if m.mppEnabled {
-				// check mpp amount is less than invoice amount
-				if mpp.Amount >= invoiceSatAmount {
+				// if this is an internal invoice, reject MPP request
+				if isInternal {
+					return storage.MeltQuote{},
+						cashu.BuildCashuError("mpp for internal invoice is not allowed", cashu.MeltQuoteErrCode)
+				}
+
+				// check mpp msat amount is less than invoice amount
+				if mpp.AmountMsat >= uint64(bolt11.MSatoshi) {
 					return storage.MeltQuote{},
 						cashu.BuildCashuError("mpp amount is not less than amount in invoice",
 							cashu.MeltQuoteErrCode)
 				}
-				quoteAmount = mpp.Amount
+				isMpp = true
+				amountMsat = mpp.AmountMsat
+				quoteAmount = amountMsat / 1000
 				m.logInfof("got melt quote request to pay partial amount '%v' of invoice with amount '%v'",
 					quoteAmount, invoiceSatAmount)
 			} else {
@@ -571,6 +588,13 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 	}
 	// Fee reserve that is required by the mint
 	fee := m.lightningClient.FeeReserve(quoteAmount)
+	// if mint quote exists with same invoice, it can be
+	// settled internally so set the fee to 0
+	if isInternal {
+		m.logDebugf(`in melt quote request found mint quote with same invoice. 
+		Setting fee reserve to 0 because quotes can be settled internally.`)
+		fee = 0
+	}
 	meltQuote := storage.MeltQuote{
 		Id:             quoteId,
 		InvoiceRequest: request,
@@ -579,19 +603,8 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 		FeeReserve:     fee,
 		State:          nut05.Unpaid,
 		Expiry:         uint64(time.Now().Add(time.Minute * QuoteExpiryMins).Unix()),
-	}
-
-	// check if a mint quote exists with the same invoice.
-	// if mint quote exists with same invoice, it can be
-	// settled internally so set the fee to 0
-	mintQuote, err := m.db.GetMintQuoteByPaymentHash(bolt11.PaymentHash)
-	if err == nil {
-		m.logDebugf(`in melt quote request found mint quote with same invoice. 
-		Setting fee reserve to 0 because quotes can be settled internally.`)
-
-		meltQuote.InvoiceRequest = mintQuote.PaymentRequest
-		meltQuote.PaymentHash = mintQuote.PaymentHash
-		meltQuote.FeeReserve = 0
+		IsMpp:          isMpp,
+		AmountMsat:     amountMsat,
 	}
 
 	m.logInfof("got melt quote request for invoice of amount '%v'. Setting fee reserve to %v",
@@ -781,13 +794,25 @@ func (m *Mint) MeltTokens(ctx context.Context, meltTokensRequest nut05.PostMeltB
 		}
 		m.publishProofsStateChanges(proofs, nut07.Spent)
 	} else {
-		m.logInfof("attempting to pay invoice: %v", meltQuote.InvoiceRequest)
-		// if quote can't be settled internally, ask backend to make payment
-		sendPaymentResponse, err := m.lightningClient.SendPayment(ctx, meltQuote.InvoiceRequest, meltQuote.Amount)
+		var sendPaymentResponse lightning.PaymentStatus
+		// if melt is MPP, pay partial amount. If not, send full payment
+		if meltQuote.IsMpp {
+			m.logInfof("attempting MPP payment of amount '%v' for invoice '%v'",
+				meltQuote.Amount, meltQuote.InvoiceRequest)
+			sendPaymentResponse, err = m.lightningClient.PayPartialAmount(
+				ctx,
+				meltQuote.InvoiceRequest,
+				meltQuote.AmountMsat,
+				m.lightningClient.FeeReserve(meltQuote.AmountMsat/1000),
+			)
+		} else {
+			m.logInfof("attempting to pay invoice: %v", meltQuote.InvoiceRequest)
+			sendPaymentResponse, err = m.lightningClient.SendPayment(ctx, meltQuote.InvoiceRequest, meltQuote.Amount)
+		}
 		if err != nil {
 			// if SendPayment failed do not return yet, an extra check will be done
 			sendPaymentResponse.PaymentStatus = lightning.Failed
-			m.logDebugf("SendPayment failed with error: %v. Will do extra check", err)
+			m.logDebugf("Payment failed with error: %v. Will do extra check", err)
 		}
 
 		switch sendPaymentResponse.PaymentStatus {

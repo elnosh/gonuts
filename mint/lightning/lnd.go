@@ -112,24 +112,11 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 	return invoice, nil
 }
 
-func (lnd *LndClient) SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error) {
-	feeReserve := lnd.FeeReserve(amount)
-	feeLimit := lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(feeReserve)}}
-
-	// if amount is less than amount in invoice, pay partially if supported by backend.
-	// not checking err because invoice has already been validated by the mint
-	req := lnrpc.PayReqString{PayReq: request}
-	payReq, err := lnd.grpcClient.DecodePayReq(ctx, &req)
-	if err != nil {
-		return PaymentStatus{PaymentStatus: Failed}, err
-	}
-	if amount < uint64(payReq.NumMsat) {
-		return lnd.payPartialInvoice(ctx, payReq, amount, &feeLimit)
-	}
-
+func (lnd *LndClient) SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error) {
+	feeLimit := &lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(maxFee)}}
 	sendPaymentRequest := lnrpc.SendRequest{
 		PaymentRequest: request,
-		FeeLimit:       &feeLimit,
+		FeeLimit:       feeLimit,
 	}
 	sendPaymentResponse, err := lnd.grpcClient.SendPaymentSync(ctx, &sendPaymentRequest)
 	if err != nil {
@@ -151,15 +138,21 @@ func (lnd *LndClient) SendPayment(ctx context.Context, request string, amount ui
 	return paymentResponse, nil
 }
 
-func (lnd *LndClient) payPartialInvoice(
+func (lnd *LndClient) PayPartialAmount(
 	ctx context.Context,
-	req *lnrpc.PayReq,
-	partialAmountToPay uint64,
-	feeLimit *lnrpc.FeeLimit,
+	request string,
+	amountMsat uint64,
+	maxFee uint64,
 ) (PaymentStatus, error) {
+	payReq, err := lnd.grpcClient.DecodePayReq(ctx, &lnrpc.PayReqString{PayReq: request})
+	if err != nil {
+		return PaymentStatus{PaymentStatus: Failed}, err
+	}
+
+	feeLimit := &lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(maxFee)}}
 	queryRoutesRequest := lnrpc.QueryRoutesRequest{
-		PubKey:   req.Destination,
-		Amt:      int64(partialAmountToPay),
+		PubKey:   payReq.Destination,
+		AmtMsat:  int64(amountMsat),
 		FeeLimit: feeLimit,
 	}
 
@@ -172,10 +165,10 @@ func (lnd *LndClient) payPartialInvoice(
 	}
 
 	route := queryRoutesResponse.Routes[0]
-	mppRecord := lnrpc.MPPRecord{PaymentAddr: req.PaymentAddr, TotalAmtMsat: req.NumMsat}
+	mppRecord := lnrpc.MPPRecord{PaymentAddr: payReq.PaymentAddr, TotalAmtMsat: payReq.NumMsat}
 	route.Hops[len(route.Hops)-1].MppRecord = &mppRecord
 
-	paymentHashBytes, err := hex.DecodeString(req.PaymentHash)
+	paymentHashBytes, err := hex.DecodeString(payReq.PaymentHash)
 	if err != nil {
 		return PaymentStatus{PaymentStatus: Failed}, err
 	}

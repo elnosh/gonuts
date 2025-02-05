@@ -706,7 +706,7 @@ func TestMPPMelt(t *testing.T) {
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{
 		Request: addInvoiceResponse.PaymentRequest,
 		Unit:    cashu.Sat.String(),
-		Options: map[string]nut05.MppOption{"mpp": {Amount: 6000}},
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 6000 * 1000}},
 	}
 	meltQuote1, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
@@ -716,7 +716,7 @@ func TestMPPMelt(t *testing.T) {
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
 		Request: addInvoiceResponse.PaymentRequest,
 		Unit:    cashu.Sat.String(),
-		Options: map[string]nut05.MppOption{"mpp": {Amount: 4000}},
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 4000 * 1000}},
 	}
 	meltQuote2, err := testMppMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
@@ -771,7 +771,7 @@ func TestMPPMelt(t *testing.T) {
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
 		Request: addInvoiceResponse.PaymentRequest,
 		Unit:    cashu.Sat.String(),
-		Options: map[string]nut05.MppOption{"mpp": {Amount: 6000}},
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 6000 * 1000}},
 	}
 	meltQuote1, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
@@ -781,7 +781,7 @@ func TestMPPMelt(t *testing.T) {
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
 		Request: addInvoiceResponse.PaymentRequest,
 		Unit:    cashu.Sat.String(),
-		Options: map[string]nut05.MppOption{"mpp": {Amount: 4000}},
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 4000 * 1000}},
 	}
 	meltQuote2, err = testMppMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
@@ -828,7 +828,7 @@ func TestMPPMelt(t *testing.T) {
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
 		Request: addInvoiceResponse.PaymentRequest,
 		Unit:    cashu.Sat.String(),
-		Options: map[string]nut05.MppOption{"mpp": {Amount: 10100}},
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 10100 * 1000}},
 	}
 	meltQuote1, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err == nil {
@@ -854,7 +854,7 @@ func TestMPPMelt(t *testing.T) {
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
 		Request: addHodlInvoiceRes.PaymentRequest,
 		Unit:    cashu.Sat.String(),
-		Options: map[string]nut05.MppOption{"mpp": {Amount: 2000}},
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 2000 * 1000}},
 	}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
@@ -893,6 +893,24 @@ func TestMPPMelt(t *testing.T) {
 		if proofState.State != nut07.Pending {
 			t.Fatalf("expected pending proof but got '%s' instead", proofState.State)
 		}
+	}
+
+	// test reject MPP for internal quotes
+	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: 10000, Unit: cashu.Sat.String()}
+	mintQuote, err := testMint.RequestMintQuote(mintQuoteRequest)
+	if err != nil {
+		t.Fatalf("error requesting mint quote: %v", err)
+	}
+
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
+		Request: mintQuote.PaymentRequest,
+		Unit:    cashu.Sat.String(),
+		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 6000 * 1000}},
+	}
+	meltQuote1, err = testMint.RequestMeltQuote(meltQuoteRequest)
+	expectedErrMsg = "mpp for internal invoice is not allowed"
+	if err.Error() != expectedErrMsg {
+		t.Fatalf("expected error '%v' but got '%v'", expectedErrMsg, err.Error())
 	}
 }
 

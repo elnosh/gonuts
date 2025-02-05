@@ -7,7 +7,8 @@ type Client interface {
 	ConnectionStatus() error
 	CreateInvoice(amount uint64) (Invoice, error)
 	InvoiceStatus(hash string) (Invoice, error)
-	SendPayment(ctx context.Context, request string, amount uint64) (PaymentStatus, error)
+	SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error)
+	PayPartialAmount(ctx context.Context, request string, amountMsat uint64, maxFee uint64) (PaymentStatus, error)
 	OutgoingPaymentStatus(ctx context.Context, hash string) (PaymentStatus, error)
 	FeeReserve(amount uint64) uint64
 	SubscribeInvoice(paymentHash string) (InvoiceSubscriptionClient, error)
