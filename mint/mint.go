@@ -60,6 +60,8 @@ type Mint struct {
 	mppEnabled      bool
 
 	publisher *pubsub.PubSub
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 func LoadMint(config Config) (*Mint, error) {
@@ -107,6 +109,7 @@ func LoadMint(config Config) (*Mint, error) {
 		return nil, err
 	}
 	logger.Info(fmt.Sprintf("setting active keyset '%v' with fee %v", activeKeyset.Id, activeKeyset.InputFeePpk))
+	ctx, cancel := context.WithCancel(context.Background())
 
 	mint := &Mint{
 		db:            db,
@@ -115,6 +118,8 @@ func LoadMint(config Config) (*Mint, error) {
 		logger:        logger,
 		mppEnabled:    config.EnableMPP,
 		publisher:     pubsub.NewPubSub(),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	dbKeysets, err := mint.db.GetKeysets()
@@ -248,6 +253,11 @@ func (m *Mint) logDebugf(format string, args ...any) {
 	_ = m.logger.Handler().Handle(context.Background(), r)
 }
 
+func (m *Mint) Shutdown() error {
+	m.cancel()
+	return m.db.Close()
+}
+
 // RequestMintQuote will process a request to mint tokens
 // and returns a mint quote or an error.
 // The request to mint a token is explained in
@@ -306,7 +316,7 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 	}
 
 	// goroutine to check in the background when invoice gets paid and update db if so
-	go m.checkInvoicePaid(quoteId)
+	go m.checkInvoicePaid(m.ctx, quoteId)
 
 	return mintQuote, nil
 }

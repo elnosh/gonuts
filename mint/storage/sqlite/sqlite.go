@@ -99,8 +99,8 @@ func InitSQLite(path string) (*SQLiteDB, error) {
 	return &SQLiteDB{db: db}, nil
 }
 
-func (sqlite *SQLiteDB) Close() {
-	sqlite.db.Close()
+func (sqlite *SQLiteDB) Close() error {
+	return sqlite.db.Close()
 }
 
 func (sqlite *SQLiteDB) GetBalance() (uint64, error) {

@@ -30,8 +30,8 @@ var upgrader = websocket.Upgrader{
 
 type WebsocketManager struct {
 	clients map[*Client]bool
-	sync.RWMutex
-	mint *Mint
+	mu      sync.RWMutex
+	mint    *Mint
 }
 
 func NewWebSocketManager(mint *Mint) *WebsocketManager {
@@ -58,18 +58,30 @@ func (wm *WebsocketManager) serveWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (wm *WebsocketManager) addClient(client *Client) {
-	wm.Lock()
+	wm.mu.Lock()
 	wm.clients[client] = true
-	wm.Unlock()
+	wm.mu.Unlock()
 }
 
-func (wm *WebsocketManager) removeClient(client *Client) {
-	wm.Lock()
+func (wm *WebsocketManager) removeClient(client *Client) error {
+	wm.mu.Lock()
 	if _, ok := wm.clients[client]; ok {
-		client.close()
+		if err := client.close(); err != nil {
+			return err
+		}
 		delete(wm.clients, client)
 	}
-	wm.Unlock()
+	wm.mu.Unlock()
+	return nil
+}
+
+func (wm *WebsocketManager) Shutdown() error {
+	for client := range wm.clients {
+		if err := wm.removeClient(client); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Client struct {

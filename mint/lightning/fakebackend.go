@@ -157,7 +157,7 @@ func (fb *FakeBackend) FeeReserve(amount uint64) uint64 {
 	return 0
 }
 
-func (fb *FakeBackend) SubscribeInvoice(paymentHash string) (InvoiceSubscriptionClient, error) {
+func (fb *FakeBackend) SubscribeInvoice(ctx context.Context, paymentHash string) (InvoiceSubscriptionClient, error) {
 	return &FakeInvoiceSub{
 		paymentHash: paymentHash,
 		fb:          fb,

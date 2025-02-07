@@ -38,7 +38,7 @@ type MintDB interface {
 	GetBlindSignature(B_ string) (cashu.BlindedSignature, error)
 	GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error)
 
-	Close()
+	Close() error
 }
 
 type DBKeyset struct {

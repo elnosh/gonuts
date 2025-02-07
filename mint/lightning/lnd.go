@@ -249,7 +249,7 @@ func (lnd *LndClient) FeeReserve(amount uint64) uint64 {
 	return uint64(fee)
 }
 
-func (lnd *LndClient) SubscribeInvoice(paymentHash string) (InvoiceSubscriptionClient, error) {
+func (lnd *LndClient) SubscribeInvoice(ctx context.Context, paymentHash string) (InvoiceSubscriptionClient, error) {
 	hash, err := hex.DecodeString(paymentHash)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func (lnd *LndClient) SubscribeInvoice(paymentHash string) (InvoiceSubscriptionC
 	invoiceSubRequest := &invoicesrpc.SubscribeSingleInvoiceRequest{
 		RHash: hash,
 	}
-	lndInvoiceClient, err := lnd.invoicesClient.SubscribeSingleInvoice(context.Background(), invoiceSubRequest)
+	lndInvoiceClient, err := lnd.invoicesClient.SubscribeSingleInvoice(ctx, invoiceSubRequest)
 	if err != nil {
 		return nil, err
 	}

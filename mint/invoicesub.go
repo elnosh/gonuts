@@ -1,7 +1,9 @@
 package mint
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -10,14 +12,14 @@ import (
 
 // checkInvoicePaid should be called in a different goroutine to check in the background
 // if the invoice for the quoteId gets paid and update it in the db.
-func (m *Mint) checkInvoicePaid(quoteId string) {
+func (m *Mint) checkInvoicePaid(ctx context.Context, quoteId string) {
 	mintQuote, err := m.db.GetMintQuote(quoteId)
 	if err != nil {
 		m.logErrorf("could not get mint quote '%v' from db: %v", quoteId, err)
 		return
 	}
 
-	invoiceSub, err := m.lightningClient.SubscribeInvoice(mintQuote.PaymentHash)
+	invoiceSub, err := m.lightningClient.SubscribeInvoice(ctx, mintQuote.PaymentHash)
 	if err != nil {
 		m.logErrorf("could not subscribe to invoice changes for mint quote '%v': %v", quoteId, err)
 		return
@@ -56,7 +58,11 @@ func (m *Mint) checkInvoicePaid(quoteId string) {
 			m.publisher.Publish(BOLT11_MINT_QUOTE_TOPIC, jsonQuote)
 		}
 	case err := <-errChan:
-		m.logErrorf("error reading from invoice subscription: %v", err)
+		if errors.Is(ctx.Err(), context.Canceled) {
+			m.logDebugf("canceling invoice subscription for quote '%v'. Context canceled", mintQuote.Id)
+		} else {
+			m.logErrorf("error reading from invoice subscription: %v", err)
+		}
 	case <-time.After(time.Second * time.Duration(timeUntilExpiry)):
 		// cancel when quote reaches expiry time
 		m.logDebugf("canceling invoice subscription for quote '%v'. Reached deadline", mintQuote.Id)

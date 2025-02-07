@@ -64,10 +64,18 @@ func SetupMintServer(config Config) (*MintServer, error) {
 	return mintServer, nil
 }
 
-func (ms *MintServer) Shutdown() {
+func (ms *MintServer) Shutdown() error {
 	ms.mint.logger.Info("starting shutdown")
-	ms.mint.db.Close()
-	ms.httpServer.Shutdown(context.Background())
+	if err := ms.mint.Shutdown(); err != nil {
+		return err
+	}
+	if err := ms.websocketManager.Shutdown(); err != nil {
+		return err
+	}
+	if err := ms.httpServer.Shutdown(context.Background()); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (ms *MintServer) setupHttpServer(port int) error {
