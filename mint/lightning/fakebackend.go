@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	InvoiceExpiry          = 3600
 	FakePreimage           = "0000000000000000"
 	FailPaymentDescription = "fail the payment"
 )
@@ -29,6 +30,7 @@ type FakeBackendInvoice struct {
 	Preimage       string
 	Status         State
 	Amount         uint64
+	Expiry         uint64
 }
 
 func (i *FakeBackendInvoice) ToInvoice() Invoice {
@@ -38,6 +40,7 @@ func (i *FakeBackendInvoice) ToInvoice() Invoice {
 		Preimage:       i.Preimage,
 		Settled:        i.Status == Succeeded,
 		Amount:         i.Amount,
+		Expiry:         i.Expiry,
 	}
 }
 
@@ -60,6 +63,7 @@ func (fb *FakeBackend) CreateInvoice(amount uint64) (Invoice, error) {
 		Preimage:       preimage,
 		Status:         Succeeded,
 		Amount:         amount,
+		Expiry:         InvoiceExpiry,
 	}
 	fb.Invoices = append(fb.Invoices, fakeInvoice)
 
