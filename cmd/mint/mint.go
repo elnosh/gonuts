@@ -5,12 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
@@ -197,7 +202,18 @@ func configFromEnv() (*mint.Config, error) {
 }
 
 func main() {
-	err := godotenv.Load()
+	f, err := os.Create("cpu.prof")
+	if err != nil {
+		log.Fatal("could not create CPU profile: ", err)
+	}
+	defer f.Close()
+
+	if err := pprof.StartCPUProfile(f); err != nil {
+		log.Fatal("could not start CPU profile: ", err)
+	}
+	defer pprof.StopCPUProfile()
+
+	err = godotenv.Load()
 	if err != nil {
 		log.Fatal("error loading .env file")
 	}
@@ -219,7 +235,28 @@ func main() {
 		mintServer.Shutdown()
 	}()
 
-	if err := mintServer.Start(); err != nil {
-		log.Fatalf("error running mint: %v\n", err)
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		if err := mintServer.Start(); err != nil {
+			log.Fatalf("error running mint: %v\n", err)
+		}
+		wg.Done()
+	}()
+
+	memf, err := os.Create("mem.prof")
+	if err != nil {
+		log.Fatal("could not create memory profile: ", err)
 	}
+	defer memf.Close()
+	runtime.GC() // get up-to-date statistics
+	if err := pprof.WriteHeapProfile(memf); err != nil {
+		log.Fatal("could not write memory profile: ", err)
+	}
+
+	wg.Wait()
 }
