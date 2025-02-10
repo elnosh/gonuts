@@ -19,6 +19,9 @@ func (m *Mint) checkInvoicePaid(ctx context.Context, quoteId string) {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	invoiceSub, err := m.lightningClient.SubscribeInvoice(ctx, mintQuote.PaymentHash)
 	if err != nil {
 		m.logErrorf("could not subscribe to invoice changes for mint quote '%v': %v", quoteId, err)
