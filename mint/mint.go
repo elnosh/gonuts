@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -30,6 +31,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/cashu/nuts/nut17"
+	"github.com/elnosh/gonuts/cashu/nuts/nut20"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/mint/pubsub"
@@ -269,6 +271,21 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 		return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
 
+	var publicKey *secp256k1.PublicKey
+	if len(mintQuoteRequest.Pubkey) > 0 {
+		hexPubkey, err := hex.DecodeString(mintQuoteRequest.Pubkey)
+		if err != nil {
+			errmsg := fmt.Sprintf("invalid public key '%v'", err)
+			return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.StandardErrCode)
+		}
+
+		publicKey, err = secp256k1.ParsePubKey(hexPubkey)
+		if err != nil {
+			errmsg := fmt.Sprintf("invalid public key '%v'", err)
+			return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.StandardErrCode)
+		}
+	}
+
 	// check limits
 	requestAmount := mintQuoteRequest.Amount
 	if m.limits.MintingSettings.MaxAmount > 0 {
@@ -307,6 +324,7 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 		PaymentHash:    invoice.PaymentHash,
 		State:          nut04.Unpaid,
 		Expiry:         uint64(time.Now().Add(time.Second * time.Duration(invoice.Expiry)).Unix()),
+		Pubkey:         publicKey,
 	}
 
 	err = m.db.SaveMintQuote(mintQuote)
@@ -407,9 +425,34 @@ func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.
 				errmsg := fmt.Sprintf("error getting blind signatures from db: %v", err)
 				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
-
 			if len(sigs) > 0 {
 				return cashu.BlindedMessageAlreadySigned
+			}
+
+			// verify signature on mint quote
+			if mintQuote.Pubkey != nil {
+				if len(mintTokensRequest.Signature) == 0 {
+					return cashu.MintQuoteInvalidSigErr
+				}
+
+				sigBytes, err := hex.DecodeString(mintTokensRequest.Signature)
+				if err != nil {
+					return cashu.MintQuoteInvalidSigErr
+				}
+				signature, err := schnorr.ParseSignature(sigBytes)
+				if err != nil {
+					return cashu.MintQuoteInvalidSigErr
+				}
+
+				if !nut20.VerifyMintQuoteSignature(
+					signature,
+					mintQuote.Id,
+					mintTokensRequest.Outputs,
+					mintQuote.Pubkey,
+				) {
+					return cashu.MintQuoteInvalidSigErr
+				}
+				m.logDebugf("verified signature on mint quote")
 			}
 
 			blindedSignatures, err = m.signBlindedMessages(blindedMessages)
@@ -1495,6 +1538,7 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 				},
 			},
 		},
+		Nut20: nut06.Supported{Supported: true},
 	}
 
 	if m.mppEnabled {

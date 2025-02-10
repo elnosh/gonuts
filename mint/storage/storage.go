@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
@@ -68,6 +69,7 @@ type MintQuote struct {
 	PaymentHash    string
 	State          nut04.State
 	Expiry         uint64
+	Pubkey         *secp256k1.PublicKey
 }
 
 type MeltQuote struct {

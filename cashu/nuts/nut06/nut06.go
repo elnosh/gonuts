@@ -91,6 +91,7 @@ type Nuts struct {
 	Nut14 Supported         `json:"14"`
 	Nut15 *NutSetting       `json:"15,omitempty"`
 	Nut17 nut17.InfoSetting `json:"17"`
+	Nut20 Supported         `json:"20"`
 }
 
 // custom unmarshaller because format to signal support for nut-15 changed.
@@ -109,6 +110,7 @@ func (nuts *Nuts) UnmarshalJSON(data []byte) error {
 		Nut14 Supported         `json:"14"`
 		Nut15 json.RawMessage   `json:"15,omitempty"`
 		Nut17 nut17.InfoSetting `json:"17"`
+		Nut20 Supported         `json:"20"`
 	}
 
 	if err := json.Unmarshal(data, &tempNuts); err != nil {
@@ -125,6 +127,7 @@ func (nuts *Nuts) UnmarshalJSON(data []byte) error {
 	nuts.Nut12 = tempNuts.Nut12
 	nuts.Nut14 = tempNuts.Nut14
 	nuts.Nut17 = tempNuts.Nut17
+	nuts.Nut20 = tempNuts.Nut20
 
 	if err := json.Unmarshal(tempNuts.Nut15, &nuts.Nut15); err != nil {
 		var nut15Methods []MethodSetting

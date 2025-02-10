@@ -473,11 +473,13 @@ const (
 	MintQuoteRequestNotPaidErrCode CashuErrCode = 20001
 	MintQuoteAlreadyIssuedErrCode  CashuErrCode = 20002
 	MintingDisabledErrCode         CashuErrCode = 20003
+	MintQuoteInvalidSigErrCode     CashuErrCode = 20008
 
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
-	LightningPaymentErrCode     CashuErrCode = 20008
-	MeltQuoteErrCode            CashuErrCode = 20009
+
+	//LightningPaymentErrCode     CashuErrCode = 20008
+	MeltQuoteErrCode CashuErrCode = 20009
 )
 
 var (
@@ -492,6 +494,7 @@ var (
 	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}
 	MintingDisabled              = Error{Detail: "minting is disabled", Code: MintingDisabledErrCode}
 	MintAmountExceededErr        = Error{Detail: "max amount for minting exceeded", Code: AmountLimitExceeded}
+	MintQuoteInvalidSigErr       = Error{Detail: "Mint quote with pubkey but no valid signature provided.", Code: MintQuoteInvalidSigErrCode}
 	OutputsOverQuoteAmountErr    = Error{Detail: "sum of the output amounts is greater than quote amount", Code: StandardErrCode}
 	ProofAlreadyUsedErr          = Error{Detail: "proof already used", Code: ProofAlreadyUsedErrCode}
 	ProofPendingErr              = Error{Detail: "proof is pending", Code: ProofAlreadyUsedErrCode}
