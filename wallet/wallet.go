@@ -29,6 +29,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/cashu/nuts/nut15"
+	"github.com/elnosh/gonuts/cashu/nuts/nut20"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/elnosh/gonuts/wallet/storage"
@@ -233,7 +234,16 @@ func (w *Wallet) RequestMint(amount uint64, mint string) (*nut04.PostMintQuoteBo
 		return nil, ErrMintNotExist
 	}
 
-	mintRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: w.unit.String()}
+	privateKey, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("could not create key for request: %v", err)
+	}
+
+	mintRequest := nut04.PostMintQuoteBolt11Request{
+		Amount: amount,
+		Unit:   w.unit.String(),
+		Pubkey: hex.EncodeToString(privateKey.PubKey().SerializeCompressed()),
+	}
 	mintResponse, err := client.PostMintQuoteBolt11(selectedMint.mintURL, mintRequest)
 	if err != nil {
 		return nil, err
@@ -254,6 +264,7 @@ func (w *Wallet) RequestMint(amount uint64, mint string) (*nut04.PostMintQuoteBo
 		PaymentRequest: mintResponse.Request,
 		CreatedAt:      int64(bolt11.CreatedAt),
 		QuoteExpiry:    mintResponse.Expiry,
+		PrivateKey:     privateKey,
 	}
 	if err := w.db.SaveMintQuote(quote); err != nil {
 		return nil, fmt.Errorf("error saving mint quote: %v", err)
@@ -275,11 +286,17 @@ func (w *Wallet) MintQuoteState(quoteId string) (*nut04.PostMintQuoteBolt11Respo
 	}
 
 	if quote.State == nut04.Issued {
+		var pubkey string
+		if quote.PrivateKey != nil {
+			pubkey = hex.EncodeToString(quote.PrivateKey.PubKey().SerializeCompressed())
+		}
+
 		return &nut04.PostMintQuoteBolt11Response{
 			Quote:   quote.QuoteId,
 			Request: quote.PaymentRequest,
 			State:   quote.State,
 			Expiry:  quote.QuoteExpiry,
+			Pubkey:  pubkey,
 		}, nil
 	}
 
@@ -340,8 +357,21 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 		return 0, fmt.Errorf("error creating blinded messages: %v", err)
 	}
 
+	var signature string
+	if quote.PrivateKey != nil {
+		sig, err := nut20.SignMintQuote(quote.PrivateKey, quoteId, blindedMessages)
+		if err != nil {
+			return 0, fmt.Errorf("could not sign mint quote: %v", err)
+		}
+		signature = hex.EncodeToString(sig.Serialize())
+	}
+
 	// request mint to sign the blinded messages
-	postMintRequest := nut04.PostMintBolt11Request{Quote: quoteId, Outputs: blindedMessages}
+	postMintRequest := nut04.PostMintBolt11Request{
+		Quote:     quoteId,
+		Outputs:   blindedMessages,
+		Signature: signature,
+	}
 	mintResponse, err := client.PostMintBolt11(mint, postMintRequest)
 	if err != nil {
 		return 0, err

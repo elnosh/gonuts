@@ -489,7 +489,7 @@ func (db *BoltDB) GetKeysetCounter(keysetId string) uint32 {
 }
 
 func (db *BoltDB) SaveMintQuote(quote MintQuote) error {
-	jsonbytes, err := json.Marshal(quote)
+	jsonbytes, err := json.Marshal(&quote)
 	if err != nil {
 		return fmt.Errorf("invalid mint quote: %v", err)
 	}
@@ -499,7 +499,7 @@ func (db *BoltDB) SaveMintQuote(quote MintQuote) error {
 		key := []byte(quote.QuoteId)
 		return quotesb.Put(key, jsonbytes)
 	}); err != nil {
-		return fmt.Errorf("error saving mint quote: %v", err)
+		return err
 	}
 	return nil
 }
@@ -525,16 +525,19 @@ func (db *BoltDB) GetMintQuotes() []MintQuote {
 }
 
 func (db *BoltDB) GetMintQuoteById(id string) *MintQuote {
-	var quote *MintQuote
-	db.bolt.View(func(tx *bolt.Tx) error {
+	var quote MintQuote
+	if err := db.bolt.View(func(tx *bolt.Tx) error {
 		quotesb := tx.Bucket([]byte(MINT_QUOTES_BUCKET))
 		quoteBytes := quotesb.Get([]byte(id))
 		if err := json.Unmarshal(quoteBytes, &quote); err != nil {
-			quote = nil
+			return err
 		}
 		return nil
-	})
-	return quote
+	}); err != nil {
+		return nil
+	}
+
+	return &quote
 }
 
 func (db *BoltDB) SaveMeltQuote(quote MeltQuote) error {
@@ -548,7 +551,7 @@ func (db *BoltDB) SaveMeltQuote(quote MeltQuote) error {
 		key := []byte(quote.QuoteId)
 		return quotesb.Put(key, jsonbytes)
 	}); err != nil {
-		return fmt.Errorf("error saving melt quote: %v", err)
+		return err
 	}
 	return nil
 }
