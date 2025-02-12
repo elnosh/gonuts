@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/hex"
 	"log"
 	"math/rand/v2"
@@ -221,12 +222,12 @@ func TestKeysets(t *testing.T) {
 
 func TestMintQuotes(t *testing.T) {
 	quoteId := "quoteId1"
-	mintQuote := generateMintQuote(quoteId)
+	mintQuote := generateMintQuote(quoteId, false)
 	if err := db.SaveMintQuote(mintQuote); err != nil {
 		t.Fatalf("error saving mint quote: %v", err)
 	}
 
-	mintQuotes := generateRandomMintQuotes(50)
+	mintQuotes := generateRandomMintQuotes(50, false)
 	for _, quote := range mintQuotes {
 		if err := db.SaveMintQuote(quote); err != nil {
 			t.Fatalf("error saving mint quote: %v", err)
@@ -238,9 +239,11 @@ func TestMintQuotes(t *testing.T) {
 	if quoteById == nil {
 		t.Fatal("expected valid quote but got nil")
 	}
-
 	if !reflect.DeepEqual(mintQuote, *quoteById) {
 		t.Fatal("mint quote from db does not match generated one")
+	}
+	if quoteById.PrivateKey != nil {
+		t.Fatalf("expected nil private key but got %v", quoteById.PrivateKey)
 	}
 
 	quotesFromDb := db.GetMintQuotes()
@@ -248,6 +251,29 @@ func TestMintQuotes(t *testing.T) {
 	if len(quotesFromDb) != expectedNumQuotes {
 		t.Fatalf("expected '%v' mint quotes but got '%v' ", expectedNumQuotes, len(quotesFromDb))
 	}
+
+	// test mint quote with private key
+	quoteId = "quote-with-privatekey"
+	mintQuote = generateMintQuote(quoteId, true)
+	if err := db.SaveMintQuote(mintQuote); err != nil {
+		t.Fatalf("error saving mint quote: %v", err)
+	}
+	quoteById = db.GetMintQuoteById(quoteId)
+	if quoteById == nil {
+		t.Fatal("expected valid quote but got nil")
+	}
+	if !reflect.DeepEqual(mintQuote, *quoteById) {
+		t.Fatal("mint quote from db does not match generated one")
+	}
+	if quoteById.PrivateKey == nil {
+		t.Fatal("expected private key but got nil")
+	}
+
+	expectedKey := mintQuote.PrivateKey.Serialize()
+	if bytes.Compare(expectedKey, quoteById.PrivateKey.Serialize()) != 0 {
+		t.Fatalf("expected key '%v' but got '%v'", expectedKey, quoteById.PrivateKey.Serialize())
+	}
+
 }
 
 func TestMeltQuotes(t *testing.T) {
@@ -351,21 +377,30 @@ func generateKeyset(mint string) crypto.WalletKeyset {
 	}
 }
 
-func generateMintQuote(id string) MintQuote {
-	return MintQuote{
+func generateMintQuote(id string, privateKey bool) MintQuote {
+	mintQuote := MintQuote{
 		QuoteId: id,
 		Mint:    "http://localhost:3338",
 		Method:  "bolt11",
 		State:   nut04.Unpaid,
 		Amount:  21,
 	}
+	if privateKey {
+		pk, err := secp256k1.GeneratePrivateKey()
+		if err != nil {
+			panic(err)
+		}
+		mintQuote.PrivateKey = pk
+	}
+
+	return mintQuote
 }
 
-func generateRandomMintQuotes(num int) []MintQuote {
+func generateRandomMintQuotes(num int, privateKey bool) []MintQuote {
 	quotes := make([]MintQuote, num)
 	for i := 0; i < num; i++ {
 		id := generateRandomString(32)
-		quote := generateMintQuote(id)
+		quote := generateMintQuote(id, privateKey)
 		quotes[i] = quote
 	}
 	return quotes

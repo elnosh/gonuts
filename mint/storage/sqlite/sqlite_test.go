@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"encoding/hex"
 	"log"
 	"math/rand/v2"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
@@ -158,29 +160,26 @@ func TestPendingProofs(t *testing.T) {
 }
 
 func TestMintQuotes(t *testing.T) {
-	mintQuotes := generateRandomMintQuotes(150)
+	mintQuotes := generateRandomMintQuotes(150, false)
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, 150)
-	done := make(chan interface{})
+	var mu sync.RWMutex
+	errs := make([]error, 0)
 	for _, quote := range mintQuotes {
 		wg.Add(1)
-		go func() {
+		go func(quote storage.MintQuote) {
 			if err := db.SaveMintQuote(quote); err != nil {
-				errChan <- err
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 			}
 			wg.Done()
-		}()
+		}(quote)
 	}
 	wg.Wait()
-	go func() {
-		done <- struct{}{}
-	}()
 
-	select {
-	case err := <-errChan:
-		t.Fatalf("error saving mint quote: %v", err)
-	case <-done:
+	if len(errs) > 0 {
+		t.Fatalf("error saving mint quote: %v", errs[0])
 	}
 
 	expectedQuote := mintQuotes[21]
@@ -188,18 +187,22 @@ func TestMintQuotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting mint quote by id: %v", err)
 	}
-
 	if !reflect.DeepEqual(expectedQuote, quote) {
 		t.Fatal("quote from db does not match generated one")
+	}
+	if quote.Pubkey != nil {
+		t.Fatalf("expected nil pubkey but got '%v'", quote.Pubkey)
 	}
 
 	quote, err = db.GetMintQuoteByPaymentHash(expectedQuote.PaymentHash)
 	if err != nil {
 		t.Fatalf("error getting mint quote by payment hash: %v", err)
 	}
-
 	if !reflect.DeepEqual(expectedQuote, quote) {
 		t.Fatal("quote from db does not match generated one")
+	}
+	if quote.Pubkey != nil {
+		t.Fatalf("expected nil pubkey but got '%v'", quote.Pubkey)
 	}
 
 	if err := db.UpdateMintQuoteState(quote.Id, nut04.Paid); err != nil {
@@ -227,32 +230,62 @@ func TestMintQuotes(t *testing.T) {
 	if !reflect.DeepEqual(expectedQuote, quote) {
 		t.Fatal("quote from db does not match generated one")
 	}
+
+	// test mint quotes with pubkey
+	mintQuotes = generateRandomMintQuotes(20, true)
+
+	errs = make([]error, 0)
+	for _, quote := range mintQuotes {
+		wg.Add(1)
+		go func(quote storage.MintQuote) {
+			if err := db.SaveMintQuote(quote); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+			wg.Done()
+		}(quote)
+	}
+	wg.Wait()
+
+	expectedQuote = mintQuotes[10]
+	quote, err = db.GetMintQuote(expectedQuote.Id)
+	if err != nil {
+		t.Fatalf("error getting mint quote by id: %v", err)
+	}
+	if !reflect.DeepEqual(expectedQuote, quote) {
+		t.Fatal("quote from db does not match generated one")
+	}
+	if expectedQuote.Pubkey == nil {
+		t.Fatal("expected pubkey in mint quote but got nil")
+	}
+	expectedPubkey := expectedQuote.Pubkey.SerializeCompressed()
+	if bytes.Compare(expectedPubkey, quote.Pubkey.SerializeCompressed()) != 0 {
+		t.Fatalf("expected pubkey '%v' but got '%v'", expectedPubkey, quote.Pubkey.SerializeCompressed())
+	}
 }
 
 func TestMeltQuote(t *testing.T) {
 	meltQuotes := generateRandomMeltQuotes(150)
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, 150)
-	done := make(chan interface{})
+	var mu sync.RWMutex
+	errs := make([]error, 0)
 	for _, quote := range meltQuotes {
 		wg.Add(1)
-		go func() {
+		go func(quote storage.MeltQuote) {
 			if err := db.SaveMeltQuote(quote); err != nil {
-				errChan <- err
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 			}
 			wg.Done()
-		}()
+		}(quote)
 	}
 	wg.Wait()
-	go func() {
-		done <- struct{}{}
-	}()
 
-	select {
-	case err := <-errChan:
-		t.Fatalf("error saving melt quote: %v", err)
-	case <-done:
+	if len(errs) > 0 {
+		t.Fatalf("error saving melt quote: %v", errs[0])
 	}
 
 	expectedQuote := meltQuotes[21]
@@ -308,26 +341,23 @@ func TestBlindSignatures(t *testing.T) {
 	blindSignatures := generateBlindSignatures(count)
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, count)
-	done := make(chan interface{})
+	var mu sync.RWMutex
+	errs := make([]error, 0)
 	for i := 0; i < count; i++ {
 		wg.Add(1)
 		go func() {
 			if err := db.SaveBlindSignature(blindedMessages[i], blindSignatures[i]); err != nil {
-				errChan <- err
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
-	go func() {
-		done <- struct{}{}
-	}()
 
-	select {
-	case err := <-errChan:
-		t.Fatalf("error saving blind signature: %v", err)
-	case <-done:
+	if len(errs) > 0 {
+		t.Fatalf("error saving blind signature: %v", errs[0])
 	}
 
 	expectedBlindSig := blindSignatures[21]
@@ -394,7 +424,7 @@ func sortDBProofs(proofs []storage.DBProof) {
 	})
 }
 
-func generateRandomMintQuotes(num int) []storage.MintQuote {
+func generateRandomMintQuotes(num int, pubkey bool) []storage.MintQuote {
 	quotes := make([]storage.MintQuote, num)
 	for i := 0; i < num; i++ {
 		quote := storage.MintQuote{
@@ -403,6 +433,13 @@ func generateRandomMintQuotes(num int) []storage.MintQuote {
 			PaymentRequest: generateRandomString(100),
 			PaymentHash:    generateRandomString(50),
 			State:          nut04.Unpaid,
+		}
+		if pubkey {
+			key, err := secp256k1.GeneratePrivateKey()
+			if err != nil {
+				panic(err)
+			}
+			quote.Pubkey = key.PubKey()
 		}
 		quotes[i] = quote
 	}
