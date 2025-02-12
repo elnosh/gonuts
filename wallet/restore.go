@@ -188,6 +188,8 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 					return 0, err
 				}
 
+				pendingProofs := make(cashu.Proofs, 0, len(proofStateResponse.States))
+
 				for _, proofState := range proofStateResponse.States {
 					// NUT-07 can also respond with witness data. Since not supporting this yet, ignore proofs that have witness
 					if len(proofState.Witness) > 0 {
@@ -199,9 +201,20 @@ func Restore(walletPath, mnemonic string, mintsToRestore []string) (uint64, erro
 						proof := proofs[proofState.Y]
 						proofsRestored = append(proofsRestored, proof)
 					}
+
+					if proofState.State == nut07.Pending {
+						proof := proofs[proofState.Y]
+						pendingProofs = append(pendingProofs, proof)
+					}
 				}
 				if err := db.SaveProofs(proofsRestored); err != nil {
 					return 0, fmt.Errorf("error saving restored proofs: %v", err)
+				}
+
+				if len(pendingProofs) > 0 {
+					if err := db.AddPendingProofs(pendingProofs); err != nil {
+						return 0, fmt.Errorf("error saving pending proofs: %v", err)
+					}
 				}
 
 				// save wallet keyset with latest counter moving forward for wallet
