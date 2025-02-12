@@ -475,10 +475,10 @@ const (
 	MintingDisabledErrCode         CashuErrCode = 20003
 	MintQuoteInvalidSigErrCode     CashuErrCode = 20008
 
+	LightningPaymentErrCode     CashuErrCode = 20004
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
 
-	//LightningPaymentErrCode     CashuErrCode = 20008
 	MeltQuoteErrCode CashuErrCode = 20009
 )
 
@@ -503,6 +503,7 @@ var (
 	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
 	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: MeltQuoteErrCode}
 	QuotePending                 = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
+	LightningPaymentFailed       = Error{Detail: "Lightning payment failed", Code: LightningPaymentErrCode}
 	MeltQuoteAlreadyPaid         = Error{Detail: "quote already paid", Code: MeltQuoteAlreadyPaidErrCode}
 	MeltAmountExceededErr        = Error{Detail: "max amount for melting exceeded", Code: AmountLimitExceeded}
 	MeltQuoteForRequestExists    = Error{Detail: "melt quote for payment request already exists", Code: MeltQuoteErrCode}

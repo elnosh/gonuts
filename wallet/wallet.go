@@ -913,14 +913,22 @@ func (w *Wallet) Melt(quoteId string) (*nut05.PostMeltQuoteBolt11Response, error
 	}
 	meltBolt11Response, err := client.PostMeltBolt11(mint.mintURL, meltBolt11Request)
 	if err != nil {
-		// if there was error with melt, remove proofs from pending and save them for use
-		if err := w.db.SaveProofs(proofs); err != nil {
-			return nil, fmt.Errorf("error storing proofs: %v", err)
+		if cashuErr, ok := err.(cashu.Error); ok {
+			if cashuErr.Code == cashu.LightningPaymentErrCode {
+				// only remove proofs from pending and save them for use
+				// if got specific error that payment failed
+				if err := w.db.SaveProofs(proofs); err != nil {
+					return nil, fmt.Errorf("error storing proofs: %v", err)
+				}
+				if err := w.db.DeletePendingProofsByQuoteId(quote.QuoteId); err != nil {
+					return nil, fmt.Errorf("error removing pending proofs: %v", err)
+				}
+				return nil, err
+			}
+		} else {
+			// for any other errors leave proofs as pending
+			return nil, fmt.Errorf("error doing melt request: %v. Proofs are pending", err)
 		}
-		if err := w.db.DeletePendingProofsByQuoteId(quote.QuoteId); err != nil {
-			return nil, fmt.Errorf("error removing pending proofs: %v", err)
-		}
-		return nil, err
 	}
 
 	switch meltBolt11Response.State {
