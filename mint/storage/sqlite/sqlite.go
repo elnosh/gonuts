@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
@@ -400,15 +401,21 @@ func (sqlite *SQLiteDB) RemovePendingProofs(Ys []string) error {
 }
 
 func (sqlite *SQLiteDB) SaveMintQuote(mintQuote storage.MintQuote) error {
+	var pubkey string
+	if mintQuote.Pubkey != nil {
+		pubkey = hex.EncodeToString(mintQuote.Pubkey.SerializeCompressed())
+	}
+
 	_, err := sqlite.db.Exec(
-		`INSERT INTO mint_quotes (id, payment_request, payment_hash, amount, state, expiry) 
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO mint_quotes (id, payment_request, payment_hash, amount, state, expiry, pubkey)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		mintQuote.Id,
 		mintQuote.PaymentRequest,
 		mintQuote.PaymentHash,
 		mintQuote.Amount,
 		mintQuote.State.String(),
 		mintQuote.Expiry,
+		pubkey,
 	)
 
 	return err
@@ -419,6 +426,7 @@ func (sqlite *SQLiteDB) GetMintQuote(quoteId string) (storage.MintQuote, error) 
 
 	var mintQuote storage.MintQuote
 	var state string
+	var pubkey sql.NullString
 
 	err := row.Scan(
 		&mintQuote.Id,
@@ -427,11 +435,27 @@ func (sqlite *SQLiteDB) GetMintQuote(quoteId string) (storage.MintQuote, error) 
 		&mintQuote.Amount,
 		&state,
 		&mintQuote.Expiry,
+		&pubkey,
 	)
 	if err != nil {
 		return storage.MintQuote{}, err
 	}
 	mintQuote.State = nut04.StringToState(state)
+
+	if pubkey.Valid && len(pubkey.String) > 0 {
+		// these should not error because validation is done before saving with public key
+		// if there is an error, something bad happened
+		hexPubkey, err := hex.DecodeString(pubkey.String)
+		if err != nil {
+			return storage.MintQuote{}, fmt.Errorf("invalid public key in db: %v", err)
+		}
+
+		publicKey, err := secp256k1.ParsePubKey(hexPubkey)
+		if err != nil {
+			return storage.MintQuote{}, fmt.Errorf("invalid public key in db: %v", err)
+		}
+		mintQuote.Pubkey = publicKey
+	}
 
 	return mintQuote, nil
 }
@@ -441,6 +465,7 @@ func (sqlite *SQLiteDB) GetMintQuoteByPaymentHash(paymentHash string) (storage.M
 
 	var mintQuote storage.MintQuote
 	var state string
+	var pubkey sql.NullString
 
 	err := row.Scan(
 		&mintQuote.Id,
@@ -449,11 +474,27 @@ func (sqlite *SQLiteDB) GetMintQuoteByPaymentHash(paymentHash string) (storage.M
 		&mintQuote.Amount,
 		&state,
 		&mintQuote.Expiry,
+		&pubkey,
 	)
 	if err != nil {
 		return storage.MintQuote{}, err
 	}
 	mintQuote.State = nut04.StringToState(state)
+
+	if pubkey.Valid && len(pubkey.String) > 0 {
+		// these should not error because validation is done before saving with public key
+		// if there is an error, something bad happened
+		hexPubkey, err := hex.DecodeString(pubkey.String)
+		if err != nil {
+			return storage.MintQuote{}, fmt.Errorf("invalid public key in db: %v", err)
+		}
+
+		publicKey, err := secp256k1.ParsePubKey(hexPubkey)
+		if err != nil {
+			return storage.MintQuote{}, fmt.Errorf("invalid public key in db: %v", err)
+		}
+		mintQuote.Pubkey = publicKey
+	}
 
 	return mintQuote, nil
 }

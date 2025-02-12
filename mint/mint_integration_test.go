@@ -12,11 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -26,6 +28,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut12"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
+	"github.com/elnosh/gonuts/cashu/nuts/nut20"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/mint/storage"
@@ -118,6 +121,19 @@ func TestRequestMintQuote(t *testing.T) {
 	if cashuErr.Code != cashu.UnitErrCode {
 		t.Fatalf("expected cashu error code '%v' but got '%v' instead", cashu.UnitErrCode, cashuErr.Code)
 	}
+
+	// test invalid pubkey
+	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{
+		Amount: mintAmount,
+		Unit:   cashu.Sat.String(),
+		Pubkey: "invalidpubkey",
+	}
+	_, err = testMint.RequestMintQuote(mintQuoteRequest)
+	cashuErr, _ = err.(*cashu.Error)
+	invalidPubkeyErr := "invalid public key"
+	if !strings.Contains(cashuErr.Detail, invalidPubkeyErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", invalidPubkeyErr, cashuErr.Detail)
+	}
 }
 
 func TestMintQuoteState(t *testing.T) {
@@ -180,7 +196,6 @@ func TestMintQuoteState(t *testing.T) {
 	if quoteStateResponse.State != nut04.Issued {
 		t.Fatalf("expected quote state '%s' but got '%s' instead", nut04.Issued, quoteStateResponse.State)
 	}
-
 }
 
 func TestMintTokens(t *testing.T) {
@@ -265,6 +280,59 @@ func TestMintTokens(t *testing.T) {
 	_, err = testMint.MintTokens(mintTokensRequest)
 	if !errors.Is(err, cashu.BlindedMessageAlreadySigned) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.BlindedMessageAlreadySigned, err)
+	}
+
+	// test signature on mint quote
+	privateKey, _ := secp256k1.GeneratePrivateKey()
+	mintQuoteRequest = nut04.PostMintQuoteBolt11Request{
+		Amount: mintAmount,
+		Unit:   cashu.Sat.String(),
+		Pubkey: hex.EncodeToString(privateKey.PubKey().SerializeCompressed()),
+	}
+	mintQuoteResponse, err = testMint.RequestMintQuote(mintQuoteRequest)
+	if err != nil {
+		t.Fatalf("error requesting mint quote: %v", err)
+	}
+	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
+
+	sendPaymentRequest = lnrpc.SendRequest{
+		PaymentRequest: mintQuoteResponse.PaymentRequest,
+	}
+	response, _ = lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	}
+
+	// test no signature for mint quote with pubkey
+	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
+	_, err = testMint.MintTokens(mintTokensRequest)
+	if !errors.Is(err, cashu.MintQuoteInvalidSigErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintQuoteInvalidSigErr, err)
+	}
+
+	// test invalid signature on mint quote
+	incorrectKey, _ := secp256k1.GeneratePrivateKey()
+	sig, _ := nut20.SignMintQuote(incorrectKey, mintQuoteResponse.Id, blindedMessages)
+	mintTokensRequest = nut04.PostMintBolt11Request{
+		Quote:     mintQuoteResponse.Id,
+		Outputs:   blindedMessages,
+		Signature: hex.EncodeToString(sig.Serialize()),
+	}
+	_, err = testMint.MintTokens(mintTokensRequest)
+	if !errors.Is(err, cashu.MintQuoteInvalidSigErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MintQuoteInvalidSigErr, err)
+	}
+
+	// test valid signature on mint quote
+	validSig, _ := nut20.SignMintQuote(privateKey, mintQuoteResponse.Id, blindedMessages)
+	mintTokensRequest = nut04.PostMintBolt11Request{
+		Quote:     mintQuoteResponse.Id,
+		Outputs:   blindedMessages,
+		Signature: hex.EncodeToString(validSig.Serialize()),
+	}
+	_, err = testMint.MintTokens(mintTokensRequest)
+	if err != nil {
+		t.Fatalf("got unexpected error minting tokens: %v", err)
 	}
 }
 

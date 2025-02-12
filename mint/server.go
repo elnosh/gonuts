@@ -2,6 +2,7 @@ package mint
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -248,6 +249,10 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 		State:   mintQuote.State,
 		Expiry:  mintQuote.Expiry,
 	}
+	if mintQuote.Pubkey != nil {
+		mintQuoteResponse.Pubkey = hex.EncodeToString(mintQuote.Pubkey.SerializeCompressed())
+	}
+
 	jsonRes, err := json.Marshal(&mintQuoteResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
@@ -289,6 +294,10 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 		State:   mintQuote.State,
 		Expiry:  mintQuote.Expiry,
 	}
+	if mintQuote.Pubkey != nil {
+		mintQuoteStateResponse.Pubkey = hex.EncodeToString(mintQuote.Pubkey.SerializeCompressed())
+	}
+
 	jsonRes, err := json.Marshal(&mintQuoteStateResponse)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
