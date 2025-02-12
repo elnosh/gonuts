@@ -484,7 +484,7 @@ const (
 
 var (
 	StandardErr                  = Error{Detail: "mint is currently unable to process request", Code: StandardErrCode}
-	EmptyBodyErr                 = Error{Detail: "request body cannot be emtpy", Code: StandardErrCode}
+	EmptyBodyErr                 = Error{Detail: "request body cannot be empty", Code: StandardErrCode}
 	UnknownKeysetErr             = Error{Detail: "unknown keyset", Code: UnknownKeysetErrCode}
 	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
 	UnitNotSupportedErr          = Error{Detail: "unit not supported", Code: UnitErrCode}
