@@ -489,6 +489,7 @@ var (
 	PaymentMethodNotSupportedErr = Error{Detail: "payment method not supported", Code: PaymentMethodErrCode}
 	UnitNotSupportedErr          = Error{Detail: "unit not supported", Code: UnitErrCode}
 	InvalidBlindedMessageAmount  = Error{Detail: "invalid amount in blinded message", Code: StandardErrCode}
+	InvalidProofAmount           = Error{Detail: "invalid amount in proof", Code: StandardErrCode}
 	BlindedMessageAlreadySigned  = Error{Detail: "blinded message already signed", Code: BlindedMessageAlreadySignedErrCode}
 	MintQuoteRequestNotPaid      = Error{Detail: "quote request has not been paid", Code: MintQuoteRequestNotPaidErrCode}
 	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}

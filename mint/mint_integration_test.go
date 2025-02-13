@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -249,6 +250,17 @@ func TestMintTokens(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.UnknownKeysetErr, err)
 	}
 
+	// test overflow in blinded messages amount
+	overflowBlindedMessages, _, _, err := testutils.CreateBlindedMessages(math.MaxUint64, keyset)
+	bms, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
+	overflowBlindedMessages = append(overflowBlindedMessages, bms...)
+	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: overflowBlindedMessages}
+	_, err = testMint.MintTokens(mintTokensRequest)
+	if !errors.Is(err, cashu.InvalidBlindedMessageAmount) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvalidBlindedMessageAmount, err)
+	}
+
+	// valid mint request
 	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
 	_, err = testMint.MintTokens(mintTokensRequest)
 	if err != nil {
@@ -352,6 +364,15 @@ func TestSwap(t *testing.T) {
 	_, err = testMint.Swap(proofs, overBlindedMessages)
 	if !errors.Is(err, cashu.InsufficientProofsAmount) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InsufficientProofsAmount, err)
+	}
+
+	// test overflow in blinded messages amount
+	overflowBlindedMessages, _, _, err := testutils.CreateBlindedMessages(math.MaxUint64, keyset)
+	bms, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
+	overflowBlindedMessages = append(overflowBlindedMessages, bms...)
+	_, err = testMint.Swap(proofs, overflowBlindedMessages)
+	if !errors.Is(err, cashu.InvalidBlindedMessageAmount) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvalidBlindedMessageAmount, err)
 	}
 
 	// test with duplicates in proofs list passed
