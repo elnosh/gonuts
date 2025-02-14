@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/fxamacker/cbor/v2"
@@ -33,9 +34,10 @@ func (unit Unit) String() string {
 }
 
 var (
-	ErrInvalidTokenV3 = errors.New("invalid V3 token")
-	ErrInvalidTokenV4 = errors.New("invalid V4 token")
-	ErrInvalidUnit    = errors.New("invalid unit")
+	ErrInvalidTokenV3  = errors.New("invalid V3 token")
+	ErrInvalidTokenV4  = errors.New("invalid V4 token")
+	ErrInvalidUnit     = errors.New("invalid unit")
+	ErrAmountOverflows = errors.New("amount overflows")
 )
 
 // Cashu BlindedMessage. See https://github.com/cashubtc/nuts/blob/main/00.md#blindedmessage
@@ -77,6 +79,38 @@ func (bm BlindedMessages) Amount() uint64 {
 		totalAmount += msg.Amount
 	}
 	return totalAmount
+}
+
+// AmountChecked returns the total amount in the blinded messages
+// and an error if it overflows
+func (bm BlindedMessages) AmountChecked() (uint64, error) {
+	var totalAmount uint64 = 0
+	overflows := false
+	for _, msg := range bm {
+		totalAmount, overflows = OverflowAddUint64(totalAmount, msg.Amount)
+		if overflows {
+			return 0, ErrAmountOverflows
+		}
+	}
+
+	return totalAmount, nil
+}
+
+// OverflowAddUint64 adds two uint64 and checks if that results in an overflow
+func OverflowAddUint64(a, b uint64) (uint64, bool) {
+	sum := a + b
+	if sum < a || sum < b {
+		return math.MaxUint64, true
+	}
+	return sum, false
+}
+
+// UnderflowSubUint64 subtracts two uint64 and checks if that results in an underflow
+func UnderflowSubUint64(a, b uint64) (uint64, bool) {
+	if b > a {
+		return 0, true
+	}
+	return a - b, false
 }
 
 // Cashu BlindedSignature. See https://github.com/cashubtc/nuts/blob/main/00.md#blindsignature

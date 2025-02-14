@@ -2,9 +2,181 @@ package cashu
 
 import (
 	"encoding/hex"
+	"math"
+	"math/big"
 	"reflect"
 	"testing"
 )
+
+func TestAmountChecked(t *testing.T) {
+	split := AmountSplit(math.MaxUint64)
+	overflowBlindedMessages := make(BlindedMessages, len(split)+1)
+	for i, amount := range split {
+		overflowBlindedMessages[i] = BlindedMessage{Amount: amount}
+	}
+	overflowBlindedMessages[len(split)] = BlindedMessage{Amount: 4}
+
+	tests := []struct {
+		blindedMessages BlindedMessages
+		expectedAmount  uint64
+		expectedErr     error
+	}{
+		{
+			blindedMessages: BlindedMessages{
+				BlindedMessage{Amount: 2},
+				BlindedMessage{Amount: 4},
+				BlindedMessage{Amount: 8},
+				BlindedMessage{Amount: 64},
+			},
+			expectedAmount: 78,
+			expectedErr:    nil,
+		},
+		{
+			blindedMessages: overflowBlindedMessages,
+			expectedAmount:  0,
+			expectedErr:     ErrAmountOverflows,
+		},
+	}
+
+	for _, test := range tests {
+		totalAmount, err := test.blindedMessages.AmountChecked()
+		if totalAmount != test.expectedAmount {
+			t.Fatalf("expected total amount of '%v' but got '%v'", test.expectedAmount, totalAmount)
+		}
+
+		if err != test.expectedErr {
+			t.Fatalf("expected error '%v' but got '%v'", test.expectedErr, err)
+		}
+	}
+}
+
+func TestOverflowAddUint64(t *testing.T) {
+	tests := []struct {
+		a                uint64
+		b                uint64
+		expectedUint64   uint64
+		expectedOverflow bool
+	}{
+		{
+			a:                21,
+			b:                42,
+			expectedUint64:   63,
+			expectedOverflow: false,
+		},
+		{
+			a:                math.MaxUint64 - 5,
+			b:                10,
+			expectedUint64:   math.MaxUint64,
+			expectedOverflow: true,
+		},
+	}
+
+	for _, test := range tests {
+		result, overflow := OverflowAddUint64(test.a, test.b)
+		if result != test.expectedUint64 {
+			t.Fatalf("expected result '%v' but got '%v'", test.expectedUint64, result)
+		}
+
+		if overflow != test.expectedOverflow {
+			t.Fatalf("expected overflow '%v' but got '%v'", test.expectedOverflow, overflow)
+		}
+	}
+}
+
+func FuzzOverflowAddUint64(f *testing.F) {
+	cases := [][2]uint64{
+		{21, 42},
+		{math.MaxUint64, 10},
+	}
+	for _, seed := range cases {
+		f.Add(seed[0], seed[1])
+	}
+
+	f.Fuzz(func(t *testing.T, a uint64, b uint64) {
+		bigA := new(big.Int).SetUint64(a)
+		bigB := new(big.Int).SetUint64(b)
+		bigA.Add(bigA, bigB)
+
+		result, overflow := OverflowAddUint64(a, b)
+		// IsUint64 reports whether the number can be represented as uint64
+		if bigA.IsUint64() {
+			uint64Result := bigA.Uint64()
+			if uint64Result != result {
+				t.Errorf("a = %v and b = %v. expected result %v but got %v", a, b, uint64Result, result)
+			}
+		} else {
+			// if result from addition cannot be represented as uint64,
+			// then function should return overflow == true
+			if !overflow {
+				t.Error("addition is above max uint64 but did not return overflow")
+			}
+		}
+	})
+}
+
+func TestUnderflowSubUint64(t *testing.T) {
+	tests := []struct {
+		a                 uint64
+		b                 uint64
+		expectedUint64    uint64
+		expectedUnderflow bool
+	}{
+		{
+			a:                 42,
+			b:                 21,
+			expectedUint64:    21,
+			expectedUnderflow: false,
+		},
+		{
+			a:                 10,
+			b:                 210,
+			expectedUint64:    0,
+			expectedUnderflow: true,
+		},
+	}
+
+	for _, test := range tests {
+		result, underflow := UnderflowSubUint64(test.a, test.b)
+		if result != test.expectedUint64 {
+			t.Fatalf("expected result '%v' but got '%v'", test.expectedUint64, result)
+		}
+
+		if underflow != test.expectedUnderflow {
+			t.Fatalf("expected overflow '%v' but got '%v'", test.expectedUnderflow, underflow)
+		}
+	}
+}
+
+func FuzzUnderflowSubUint64(f *testing.F) {
+	cases := [][2]uint64{
+		{42, 21},
+		{10, 210},
+	}
+	for _, seed := range cases {
+		f.Add(seed[0], seed[1])
+	}
+
+	f.Fuzz(func(t *testing.T, a uint64, b uint64) {
+		bigA := new(big.Int).SetUint64(a)
+		bigB := new(big.Int).SetUint64(b)
+		bigA.Sub(bigA, bigB)
+
+		result, underflow := UnderflowSubUint64(a, b)
+		// IsUint64 reports whether the number can be represented as uint64
+		if bigA.IsUint64() {
+			uint64Result := bigA.Uint64()
+			if uint64Result != result {
+				t.Errorf("a = %v and b = %v. expected result %v but got %v", a, b, uint64Result, result)
+			}
+		} else {
+			// if result from sub cannot be represented as uint64,
+			// then function should return underflow == true
+			if !underflow {
+				t.Error("subtraction is below 0 but did not return underflow")
+			}
+		}
+	})
+}
 
 func TestDecodeTokenV4(t *testing.T) {
 	keysetIdBytes, _ := hex.DecodeString("00ad268c4d1f5826")
