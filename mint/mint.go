@@ -404,6 +404,10 @@ func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.
 				return cashu.InvalidBlindedMessageAmount
 			}
 
+			if cashu.CheckDuplicateBlindedMessages(blindedMessages) {
+				return cashu.DuplicateOutputs
+			}
+
 			// verify that amount from blinded messages is enough
 			// for quote amount
 			if blindedMessagesAmount > mintQuote.Amount {
@@ -505,6 +509,10 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	blindedMessagesAmount, err := blindedMessages.AmountChecked()
 	if err != nil {
 		return nil, cashu.InvalidBlindedMessageAmount
+	}
+
+	if cashu.CheckDuplicateBlindedMessages(blindedMessages) {
+		return nil, cashu.DuplicateOutputs
 	}
 
 	B_s := make([]string, len(blindedMessages))

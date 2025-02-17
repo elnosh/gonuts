@@ -260,6 +260,17 @@ func TestMintTokens(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvalidBlindedMessageAmount, err)
 	}
 
+	// test duplicate blinded messages in request
+	bmLen := len(blindedMessages)
+	duplicateBlindedMessages := make(cashu.BlindedMessages, bmLen)
+	copy(duplicateBlindedMessages, blindedMessages)
+	duplicateBlindedMessages[bmLen-2] = duplicateBlindedMessages[bmLen-1]
+	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: duplicateBlindedMessages}
+	_, err = testMint.MintTokens(mintTokensRequest)
+	if !errors.Is(err, cashu.DuplicateOutputs) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.DuplicateOutputs, err)
+	}
+
 	// valid mint request
 	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
 	_, err = testMint.MintTokens(mintTokensRequest)
@@ -373,6 +384,16 @@ func TestSwap(t *testing.T) {
 	_, err = testMint.Swap(proofs, overflowBlindedMessages)
 	if !errors.Is(err, cashu.InvalidBlindedMessageAmount) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.InvalidBlindedMessageAmount, err)
+	}
+
+	// test duplicate blinded messages in request
+	bmLen := len(newBlindedMessages)
+	duplicateBlindedMessages := make(cashu.BlindedMessages, bmLen)
+	copy(duplicateBlindedMessages, newBlindedMessages)
+	duplicateBlindedMessages[bmLen-2] = duplicateBlindedMessages[bmLen-1]
+	_, err = testMint.Swap(proofs, duplicateBlindedMessages)
+	if !errors.Is(err, cashu.DuplicateOutputs) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.DuplicateOutputs, err)
 	}
 
 	// test with duplicates in proofs list passed
