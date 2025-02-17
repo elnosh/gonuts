@@ -699,7 +699,8 @@ func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int, lnd *btcd
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:        "cashubtc/nutshell:0.16.5",
+		//Image:        "cashubtc/nutshell:0.16.5",
+		Image:        "cashubtc/nutshell:latest",
 		ExposedPorts: []string{"3338"},
 		Cmd: []string{
 			"poetry",

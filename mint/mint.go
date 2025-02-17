@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -400,21 +399,20 @@ func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.
 			}
 
 			blindedMessages := mintTokensRequest.Outputs
-			var blindedMessagesAmount uint64
-			B_s := make([]string, len(blindedMessages))
-			var overflows bool
-			for i, bm := range blindedMessages {
-				blindedMessagesAmount, overflows = overflowAddUint64(blindedMessagesAmount, bm.Amount)
-				if overflows {
-					return cashu.InvalidBlindedMessageAmount
-				}
-				B_s[i] = bm.B_
+			blindedMessagesAmount, err := blindedMessages.AmountChecked()
+			if err != nil {
+				return cashu.InvalidBlindedMessageAmount
 			}
 
 			// verify that amount from blinded messages is enough
 			// for quote amount
 			if blindedMessagesAmount > mintQuote.Amount {
 				return cashu.OutputsOverQuoteAmountErr
+			}
+
+			B_s := make([]string, len(blindedMessages))
+			for i, bm := range blindedMessages {
+				B_s[i] = bm.B_
 			}
 
 			sigs, err := m.db.GetBlindSignatures(B_s)
@@ -500,19 +498,18 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		Ys[i] = Yhex
 	}
 
-	var blindedMessagesAmount uint64
+	blindedMessagesAmount, err := blindedMessages.AmountChecked()
+	if err != nil {
+		return nil, cashu.InvalidBlindedMessageAmount
+	}
+
 	B_s := make([]string, len(blindedMessages))
-	var overflows bool
 	for i, bm := range blindedMessages {
-		blindedMessagesAmount, overflows = overflowAddUint64(blindedMessagesAmount, bm.Amount)
-		if overflows {
-			return nil, cashu.InvalidBlindedMessageAmount
-		}
 		B_s[i] = bm.B_
 	}
 
 	fees := uint64(m.TransactionFees(proofs))
-	proofsMinusFees, underflow := underflowSubUint64(proofsAmount, fees)
+	proofsMinusFees, underflow := cashu.UnderflowSubUint64(proofsAmount, fees)
 	if underflow {
 		return nil, cashu.InvalidProofAmount
 	}
@@ -520,8 +517,7 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 		return nil, cashu.InsufficientProofsAmount
 	}
 
-	err := m.verifyProofs(proofs, Ys)
-	if err != nil {
+	if err := m.verifyProofs(proofs, Ys); err != nil {
 		return nil, err
 	}
 
@@ -1462,22 +1458,6 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 	}
 
 	return blindedSignatures, nil
-}
-
-// overflowAddUint64 adds two uint64 and checks if that results in an overflow
-func overflowAddUint64(a, b uint64) (uint64, bool) {
-	sum := a + b
-	if sum < a || sum < b {
-		return math.MaxUint64, true
-	}
-	return sum, false
-}
-
-func underflowSubUint64(a, b uint64) (uint64, bool) {
-	if b > a {
-		return 0, true
-	}
-	return a - b, false
 }
 
 // requestInvoice requests an invoice from the Lightning backend
