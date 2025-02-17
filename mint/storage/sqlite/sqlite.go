@@ -624,17 +624,30 @@ func (sqlite *SQLiteDB) UpdateMeltQuote(quoteId, preimage string, state nut05.St
 	return nil
 }
 
-func (sqlite *SQLiteDB) SaveBlindSignature(B_ string, blindSignature cashu.BlindedSignature) error {
-	_, err := sqlite.db.Exec(`
-		INSERT INTO blind_signatures (b_, c_, keyset_id, amount, e, s) VALUES (?, ?, ?, ?, ?, ?)`,
-		B_,
-		blindSignature.C_,
-		blindSignature.Id,
-		blindSignature.Amount,
-		blindSignature.DLEQ.E,
-		blindSignature.DLEQ.S,
-	)
-	return err
+func (sqlite *SQLiteDB) SaveBlindSignatures(B_s []string, blindSignatures cashu.BlindedSignatures) error {
+	tx, err := sqlite.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO blind_signatures (b_, c_, keyset_id, amount, e, s) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for i, sig := range blindSignatures {
+		if _, err := stmt.Exec(B_s[i], sig.C_, sig.Id, sig.Amount, sig.DLEQ.E, sig.DLEQ.S); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (sqlite *SQLiteDB) GetBlindSignature(B_ string) (cashu.BlindedSignature, error) {

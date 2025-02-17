@@ -35,7 +35,7 @@ type MintDB interface {
 	GetMeltQuoteByPaymentRequest(string) (*MeltQuote, error)
 	UpdateMeltQuote(quoteId string, preimage string, state nut05.State) error
 
-	SaveBlindSignature(B_ string, blindSignature cashu.BlindedSignature) error
+	SaveBlindSignatures(B_s []string, blindSignatures cashu.BlindedSignatures) error
 	GetBlindSignature(B_ string) (cashu.BlindedSignature, error)
 	GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error)
 

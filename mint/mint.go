@@ -457,11 +457,15 @@ func (m *Mint) MintTokens(mintTokensRequest nut04.PostMintBolt11Request) (cashu.
 
 			// mark quote as issued after signing the blinded messages
 			mintQuote.State = nut04.Issued
-			err = m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued)
-			if err != nil {
-				errmsg := fmt.Sprintf("error mint quote state: %v", err)
+			if err := m.db.UpdateMintQuoteState(mintQuote.Id, nut04.Issued); err != nil {
+				errmsg := fmt.Sprintf("error updating mint quote state: %v", err)
 				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 			}
+			if err := m.db.SaveBlindSignatures(B_s, blindedSignatures); err != nil {
+				errmsg := fmt.Sprintf("error saving blind signatures: %v", err)
+				return cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+			}
+
 			jsonQuote, _ := json.Marshal(mintQuote)
 			m.publisher.Publish(BOLT11_MINT_QUOTE_TOPIC, jsonQuote)
 			return nil
@@ -545,11 +549,15 @@ func (m *Mint) Swap(proofs cashu.Proofs, blindedMessages cashu.BlindedMessages) 
 	}
 
 	// invalidate proofs after signing blinded messages
-	err = m.db.SaveProofs(proofs)
-	if err != nil {
+	if err := m.db.SaveProofs(proofs); err != nil {
 		errmsg := fmt.Sprintf("error invalidating proofs. Could not save proofs to db: %v", err)
 		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
 	}
+	if err := m.db.SaveBlindSignatures(B_s, blindedSignatures); err != nil {
+		errmsg := fmt.Sprintf("error saving blind signatures: %v", err)
+		return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
+	}
+
 	m.publishProofsStateChanges(proofs, nut07.Spent)
 
 	return blindedSignatures, nil
@@ -1448,13 +1456,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 				S: hex.EncodeToString(s.Serialize()),
 			},
 		}
-
 		blindedSignatures[i] = blindedSignature
-
-		if err := m.db.SaveBlindSignature(msg.B_, blindedSignature); err != nil {
-			errmsg := fmt.Sprintf("error saving blind signatures: %v", err)
-			return nil, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
-		}
 	}
 
 	return blindedSignatures, nil
