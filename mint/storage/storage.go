@@ -8,8 +8,6 @@ import (
 )
 
 type MintDB interface {
-	GetBalance() (uint64, error)
-
 	SaveSeed([]byte) error
 	GetSeed() ([]byte, error)
 
@@ -38,6 +36,10 @@ type MintDB interface {
 	SaveBlindSignatures(B_s []string, blindSignatures cashu.BlindedSignatures) error
 	GetBlindSignature(B_ string) (cashu.BlindedSignature, error)
 	GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error)
+
+	// these return a map of keyset id and amount
+	GetEcashIssued() (map[string]uint64, error)
+	GetEcashRedeemed() (map[string]uint64, error)
 
 	Close() error
 }
