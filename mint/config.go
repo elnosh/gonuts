@@ -25,6 +25,7 @@ type Config struct {
 	LightningClient   lightning.Client
 	EnableMPP         bool
 	LogLevel          LogLevel
+	EnableAdminServer bool
 	// NOTE: using this value for testing
 	MeltTimeout *time.Duration
 }
