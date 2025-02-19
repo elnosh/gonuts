@@ -492,18 +492,20 @@ const (
 	DBErrCode               CashuErrCode = 1
 	LightningBackendErrCode CashuErrCode = 2
 
-	UnitErrCode                        CashuErrCode = 11005
-	PaymentMethodErrCode               CashuErrCode = 11007
 	BlindedMessageAlreadySignedErrCode CashuErrCode = 10002
+	InvalidProofErrCode                CashuErrCode = 10003
 
-	InvalidProofErrCode            CashuErrCode = 10003
 	ProofAlreadyUsedErrCode        CashuErrCode = 11001
 	InsufficientProofAmountErrCode CashuErrCode = 11002
+	PaymentMethodErrCode           CashuErrCode = 11003
+	UnitErrCode                    CashuErrCode = 11005
+	AmountLimitExceeded            CashuErrCode = 11006
+	DuplicateInputErrCode          CashuErrCode = 11007
+	DuplicateOutputErrCode         CashuErrCode = 11008
 
 	UnknownKeysetErrCode  CashuErrCode = 12001
 	InactiveKeysetErrCode CashuErrCode = 12002
 
-	AmountLimitExceeded            CashuErrCode = 11006
 	MintQuoteRequestNotPaidErrCode CashuErrCode = 20001
 	MintQuoteAlreadyIssuedErrCode  CashuErrCode = 20002
 	MintingDisabledErrCode         CashuErrCode = 20003
@@ -535,7 +537,8 @@ var (
 	ProofPendingErr              = Error{Detail: "proof is pending", Code: ProofAlreadyUsedErrCode}
 	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
 	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
-	DuplicateProofs              = Error{Detail: "duplicate proofs", Code: InvalidProofErrCode}
+	DuplicateProofs              = Error{Detail: "duplicate inputs", Code: DuplicateInputErrCode}
+	DuplicateOutputs             = Error{Detail: "duplicate outputs", Code: DuplicateOutputErrCode}
 	QuoteNotExistErr             = Error{Detail: "quote does not exist", Code: MeltQuoteErrCode}
 	QuotePending                 = Error{Detail: "quote is pending", Code: MeltQuotePendingErrCode}
 	LightningPaymentFailed       = Error{Detail: "Lightning payment failed", Code: LightningPaymentErrCode}
@@ -571,6 +574,20 @@ func CheckDuplicateProofs(proofs Proofs) bool {
 			return true
 		} else {
 			proofsMap[proof] = true
+		}
+	}
+
+	return false
+}
+
+func CheckDuplicateBlindedMessages(bms BlindedMessages) bool {
+	bmMap := make(map[BlindedMessage]bool)
+
+	for _, bm := range bms {
+		if bmMap[bm] {
+			return true
+		} else {
+			bmMap[bm] = true
 		}
 	}
 

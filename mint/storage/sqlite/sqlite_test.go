@@ -340,24 +340,8 @@ func TestBlindSignatures(t *testing.T) {
 	blindedMessages := generateRandomB_s(count)
 	blindSignatures := generateBlindSignatures(count)
 
-	var wg sync.WaitGroup
-	var mu sync.RWMutex
-	errs := make([]error, 0)
-	for i := 0; i < count; i++ {
-		wg.Add(1)
-		go func() {
-			if err := db.SaveBlindSignature(blindedMessages[i], blindSignatures[i]); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-			}
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-
-	if len(errs) > 0 {
-		t.Fatalf("error saving blind signature: %v", errs[0])
+	if err := db.SaveBlindSignatures(blindedMessages, blindSignatures); err != nil {
+		t.Fatalf("unexpected error saving blind signatures: %v", err)
 	}
 
 	expectedBlindSig := blindSignatures[21]
