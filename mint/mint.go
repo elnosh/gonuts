@@ -1527,16 +1527,16 @@ func (m *Mint) GetKeysetById(id string) (nut01.Keyset, error) {
 	}, nil
 }
 
-func (m *Mint) EcashIssued() (map[string]uint64, error) {
-	return m.db.GetEcashIssued()
+func (m *Mint) IssuedEcash() (map[string]uint64, error) {
+	return m.db.GetIssuedEcash()
 }
 
-func (m *Mint) EcashRedeemed() (map[string]uint64, error) {
-	return m.db.GetEcashRedeemed()
+func (m *Mint) RedeemedEcash() (map[string]uint64, error) {
+	return m.db.GetRedeemedEcash()
 }
 
 func (m *Mint) TotalBalance() (uint64, error) {
-	ecashIssued, err := m.db.GetEcashIssued()
+	ecashIssued, err := m.db.GetIssuedEcash()
 	if err != nil {
 		return 0, err
 	}
@@ -1545,7 +1545,7 @@ func (m *Mint) TotalBalance() (uint64, error) {
 		totalIssued += issuedForKeyset
 	}
 
-	ecashRedeemed, err := m.db.GetEcashRedeemed()
+	ecashRedeemed, err := m.db.GetRedeemedEcash()
 	if err != nil {
 		return 0, err
 	}

@@ -408,7 +408,7 @@ func TestBalanceViews(t *testing.T) {
 	proofKeysetId2 := proofs[0].Id
 
 	totalIssued := blindSignatures.Amount() + blindSignatures2.Amount()
-	ecashIssued, err := db.GetEcashIssued()
+	ecashIssued, err := db.GetIssuedEcash()
 	if err != nil {
 		t.Fatalf("unexpected error getting issued ecash: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestBalanceViews(t *testing.T) {
 	}
 
 	totalRedeemed := proofs.Amount() + proofs2.Amount()
-	ecashRedeemed, err := db.GetEcashRedeemed()
+	ecashRedeemed, err := db.GetRedeemedEcash()
 	if err != nil {
 		t.Fatalf("unexpected error getting redeemed ecash: %v", err)
 	}

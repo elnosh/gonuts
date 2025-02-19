@@ -24,12 +24,32 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type ServerConfig struct {
+	Port int
+	// NOTE: using this value for testing
+	MeltTimeout *time.Duration
+}
+
 type MintServer struct {
 	httpServer       *http.Server
 	mint             *Mint
 	websocketManager *WebsocketManager
 	// NOTE: using this value for testing
 	meltTimeout *time.Duration
+}
+
+func SetupMintServer(mint *Mint, config ServerConfig) (*MintServer, error) {
+	websocketManager := NewWebSocketManager(mint)
+
+	mintServer := &MintServer{
+		mint:             mint,
+		websocketManager: websocketManager,
+		meltTimeout:      config.MeltTimeout,
+	}
+	if err := mintServer.setupHttpServer(config.Port); err != nil {
+		return nil, err
+	}
+	return mintServer, nil
 }
 
 func (ms *MintServer) Start() error {
@@ -41,26 +61,6 @@ func (ms *MintServer) Start() error {
 		ms.mint.logger.Info("shutdown complete")
 	}
 	return nil
-}
-
-func SetupMintServer(config Config) (*MintServer, error) {
-	mint, err := LoadMint(config)
-	if err != nil {
-		return nil, err
-	}
-
-	websocketManager := NewWebSocketManager(mint)
-
-	mintServer := &MintServer{
-		mint:             mint,
-		websocketManager: websocketManager,
-		meltTimeout:      config.MeltTimeout,
-	}
-	err = mintServer.setupHttpServer(config.Port)
-	if err != nil {
-		return nil, err
-	}
-	return mintServer, nil
 }
 
 func (ms *MintServer) Shutdown() error {
