@@ -296,7 +296,7 @@ func (m *Mint) RequestMintQuote(mintQuoteRequest nut04.PostMintQuoteBolt11Reques
 		}
 	}
 	if m.limits.MaxBalance > 0 {
-		balance, err := m.db.GetBalance()
+		balance, err := m.TotalBalance()
 		if err != nil {
 			errmsg := fmt.Sprintf("could not get mint balance from db: %v", err)
 			return storage.MintQuote{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
@@ -1527,6 +1527,37 @@ func (m *Mint) GetKeysetById(id string) (nut01.Keyset, error) {
 	}, nil
 }
 
+func (m *Mint) IssuedEcash() (map[string]uint64, error) {
+	return m.db.GetIssuedEcash()
+}
+
+func (m *Mint) RedeemedEcash() (map[string]uint64, error) {
+	return m.db.GetRedeemedEcash()
+}
+
+func (m *Mint) TotalBalance() (uint64, error) {
+	ecashIssued, err := m.db.GetIssuedEcash()
+	if err != nil {
+		return 0, err
+	}
+	var totalIssued uint64
+	for _, issuedForKeyset := range ecashIssued {
+		totalIssued += issuedForKeyset
+	}
+
+	ecashRedeemed, err := m.db.GetRedeemedEcash()
+	if err != nil {
+		return 0, err
+	}
+
+	var totalRedeemed uint64
+	for _, redeemedForKeyset := range ecashRedeemed {
+		totalRedeemed += redeemedForKeyset
+	}
+
+	return totalIssued - totalRedeemed, nil
+}
+
 func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 	nuts := nut06.Nuts{
 		Nut04: nut06.NutSetting{
@@ -1610,7 +1641,7 @@ func (m Mint) RetrieveMintInfo() (nut06.MintInfo, error) {
 	}
 
 	mintingDisabled := false
-	mintBalance, err := m.db.GetBalance()
+	mintBalance, err := m.TotalBalance()
 	if err != nil {
 		errmsg := fmt.Sprintf("error getting mint balance: %v", err)
 		return nut06.MintInfo{}, cashu.BuildCashuError(errmsg, cashu.DBErrCode)
