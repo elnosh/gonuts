@@ -716,7 +716,7 @@ func (sqlite *SQLiteDB) GetBlindSignatures(B_s []string) (cashu.BlindedSignature
 	return signatures, nil
 }
 
-func (sqlite *SQLiteDB) GetEcashIssued() (map[string]uint64, error) {
+func (sqlite *SQLiteDB) GetIssuedEcash() (map[string]uint64, error) {
 	ecashIssued := make(map[string]uint64)
 
 	rows, err := sqlite.db.Query("SELECT * FROM total_issued")
@@ -737,7 +737,7 @@ func (sqlite *SQLiteDB) GetEcashIssued() (map[string]uint64, error) {
 	return ecashIssued, nil
 }
 
-func (sqlite *SQLiteDB) GetEcashRedeemed() (map[string]uint64, error) {
+func (sqlite *SQLiteDB) GetRedeemedEcash() (map[string]uint64, error) {
 	ecashRedeemed := make(map[string]uint64)
 
 	rows, err := sqlite.db.Query("SELECT * FROM total_redeemed")

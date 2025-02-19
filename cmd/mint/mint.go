@@ -11,11 +11,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
 	"github.com/elnosh/gonuts/mint"
 	"github.com/elnosh/gonuts/mint/lightning"
+	"github.com/elnosh/gonuts/mint/manager"
 	"github.com/joho/godotenv"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc/credentials"
@@ -183,6 +185,11 @@ func configFromEnv() (*mint.Config, error) {
 		logLevel = mint.Debug
 	}
 
+	enableAdminServer := false
+	if strings.ToLower(os.Getenv("ENABLE_ADMIN_SERVER")) == "true" {
+		enableAdminServer = true
+	}
+
 	return &mint.Config{
 		DerivationPathIdx: uint32(derivationPathIdx),
 		Port:              port,
@@ -193,6 +200,7 @@ func configFromEnv() (*mint.Config, error) {
 		LightningClient:   lightningClient,
 		EnableMPP:         enableMPP,
 		LogLevel:          logLevel,
+		EnableAdminServer: enableAdminServer,
 	}, nil
 }
 
@@ -206,7 +214,13 @@ func main() {
 		log.Fatalf("error reading config: %v", err)
 	}
 
-	mintServer, err := mint.SetupMintServer(*mintConfig)
+	m, err := mint.LoadMint(*mintConfig)
+	if err != nil {
+		log.Fatalf("error loading mint: %v\n", err)
+	}
+
+	serverConfig := mint.ServerConfig{Port: mintConfig.Port, MeltTimeout: mintConfig.MeltTimeout}
+	mintServer, err := mint.SetupMintServer(m, serverConfig)
 	if err != nil {
 		log.Fatalf("error starting mint server: %v", err)
 	}
@@ -214,12 +228,40 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
+	var adminServer *manager.Server
+
 	go func() {
 		<-c
 		mintServer.Shutdown()
+		// shutdown admin server if it was enabled
+		if mintConfig.EnableAdminServer {
+			adminServer.Shutdown()
+		}
 	}()
 
-	if err := mintServer.Start(); err != nil {
-		log.Fatalf("error running mint: %v\n", err)
+	var wg sync.WaitGroup
+	if mintConfig.EnableAdminServer {
+		adminServer, err = manager.SetupServer(m)
+		if err != nil {
+			log.Fatalf("error setting up admin server: %v\n", err)
+		}
+
+		wg.Add(1)
+		go func() {
+			if err := adminServer.Start(); err != nil {
+				log.Fatalf("error running admin server: %v\n", err)
+			}
+			wg.Done()
+		}()
 	}
+
+	wg.Add(1)
+	go func() {
+		if err := mintServer.Start(); err != nil {
+			log.Fatalf("error running mint: %v\n", err)
+		}
+		wg.Done()
+	}()
+
+	wg.Wait()
 }

@@ -38,8 +38,8 @@ type MintDB interface {
 	GetBlindSignatures(B_s []string) (cashu.BlindedSignatures, error)
 
 	// these return a map of keyset id and amount
-	GetEcashIssued() (map[string]uint64, error)
-	GetEcashRedeemed() (map[string]uint64, error)
+	GetIssuedEcash() (map[string]uint64, error)
+	GetRedeemedEcash() (map[string]uint64, error)
 
 	Close() error
 }
