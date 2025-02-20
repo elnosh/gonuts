@@ -415,7 +415,7 @@ func (w *Wallet) Send(amount uint64, mintURL string, includeFees bool) (cashu.Pr
 	}
 
 	if err := w.db.AddPendingProofs(proofsToSend); err != nil {
-		return nil, fmt.Errorf("could not save proofs to pending: %v\n", err)
+		return nil, fmt.Errorf("could not save proofs to pending: %v", err)
 	}
 
 	return proofsToSend, nil
@@ -1228,9 +1228,13 @@ func (w *Wallet) selectProofsForAmount(
 	inactiveKeysetProofs := w.getInactiveProofsByMint(mint.mintURL)
 	// if there are proofs from inactive keysets, select from those first
 	if len(inactiveKeysetProofs) > 0 {
-		// safe to ignore error here because if proofs aren't enough for the amount
-		// will add proofs from active keyset after
-		selectedProofs, _ = selectProofsToSend(inactiveKeysetProofs, amount, mint, includeFees)
+		// if proofs from inactive keysets are not enough to fulfill amount,
+		// add them to selectedProofs and continue to then add proofs from active ones
+		if inactiveKeysetProofs.Amount() < amount {
+			selectedProofs = inactiveKeysetProofs
+		} else {
+			selectedProofs, _ = selectProofsToSend(inactiveKeysetProofs, amount, mint, includeFees)
+		}
 		if includeFees {
 			fees = uint64(feesForProofs(selectedProofs, mint))
 		}
