@@ -42,6 +42,11 @@ jobs:
           with:
             go-version: 1.23.7
 
-        - name: Integration Tests
+        - name: Mint Integration Tests LND
           run: go test -v --tags=integration ./mint
-        - run: go test -v --tags=integration ./wallet
+
+        - name: Mint Integration Tests CLN
+          run: go test -v --tags=integration ./mint -args -backend=CLN 
+
+        - name: Wallet Integration Tests 
+          run: go test -v --tags=integration ./wallet

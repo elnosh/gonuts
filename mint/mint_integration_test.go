@@ -119,23 +119,40 @@ func testMain(m *testing.M) (int, error) {
 			lnd3.Terminate(ctx)
 		}()
 	case "CLN":
-		// NOTE: Putting as placeholder for now. Tests here will fail.
-		// Would still need to add some setup when CLN support is added.
 		cln1, err := cln.NewCLN(ctx, bitcoind)
 		if err != nil {
 			return 1, err
 		}
-
 		cln2, err := cln.NewCLN(ctx, bitcoind)
 		if err != nil {
 			return 1, err
 		}
+		cln3, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+
+		lightningClient1, err = testutils.CLNClient(cln1)
+		if err != nil {
+			return 1, err
+		}
+		lightningClient2, err = testutils.CLNClient(cln2)
+		if err != nil {
+			return 1, err
+		}
+		lightningClient3, err = testutils.CLNClient(cln3)
+		if err != nil {
+			return 1, err
+		}
+
 		node1 = testutils.NewCLNBackend(cln1)
 		node2 = testutils.NewCLNBackend(cln2)
+		node3 = testutils.NewCLNBackend(cln3)
 
 		defer func() {
 			cln1.Terminate(ctx)
 			cln2.Terminate(ctx)
+			cln3.Terminate(ctx)
 		}()
 
 	default:
@@ -537,7 +554,6 @@ func TestRequestMeltQuote(t *testing.T) {
 	// trying to create another melt quote with same invoice should throw error
 	_, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if !errors.Is(err, cashu.MeltQuoteForRequestExists) {
-		//if !errors.Is(err, cashu.PaymentMethodNotSupportedErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltQuoteForRequestExists, err)
 	}
 }
@@ -793,8 +809,14 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in melt: %v", err)
 	}
-	if len(melt.Preimage) == 0 {
-		t.Fatal("melt returned empty preimage")
+	if melt.State != nut05.Paid {
+		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Paid, meltResponse.State)
+	}
+	// NOTE: for internal quotes CLN will not return the preimage so only check it for LND
+	if *backend == "LND" {
+		if len(melt.Preimage) == 0 {
+			t.Fatal("melt returned empty preimage")
+		}
 	}
 
 	// now mint should work because quote was settled internally
@@ -815,6 +837,16 @@ func TestMPPMelt(t *testing.T) {
 		}
 		defer lnd4.Terminate(ctx)
 		lightningClient4, err = testutils.LndClient(lnd4)
+		if err != nil {
+			t.Fatal(err)
+		}
+	case "CLN":
+		cln4, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cln4.Terminate(ctx)
+		lightningClient4, err = testutils.CLNClient(cln4)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1054,17 +1086,40 @@ func TestMPPMelt(t *testing.T) {
 }
 
 func TestPendingProofs(t *testing.T) {
+	// CLN does not support hodl invoices unless with a plugin so creating LND container
+	// regardless and using this node for the hodl invoice that is used to test
+	// pending payments
+	lnd, err := lnd.NewLnd(ctx, bitcoind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lnd.Terminate(ctx)
+	node4 := &testutils.LndBackend{Lnd: lnd}
+	if err := testutils.OpenChannel(ctx, bitcoind, node1, node4, 300000); err != nil {
+		t.Fatal(err)
+	}
+
 	// use hodl invoice to cause payment to stuck and put quote and proofs in state of pending
 	preimageBytes, _ := testutils.GenerateRandomBytes()
 	preimage := hex.EncodeToString(preimageBytes)
 
 	hashBytes := sha256.Sum256(preimageBytes)
 	hash := hex.EncodeToString(hashBytes[:])
-	hodlInvoice, err := node2.CreateHodlInvoice(2100, hash)
-	if err != nil {
-		t.Fatalf("error creating hodl invoice: %v", err)
+
+	var paymentRequest string
+	if *backend == "CLN" {
+		hodlInvoice, err := node4.CreateHodlInvoice(2100, hash)
+		if err != nil {
+			t.Fatalf("error creating hodl invoice: %v", err)
+		}
+		paymentRequest = hodlInvoice.PaymentRequest
+	} else {
+		hodlInvoice, err := node2.CreateHodlInvoice(2100, hash)
+		if err != nil {
+			t.Fatalf("error creating hodl invoice: %v", err)
+		}
+		paymentRequest = hodlInvoice.PaymentRequest
 	}
-	paymentRequest := hodlInvoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
@@ -1130,11 +1185,17 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofPendingErr, err)
 	}
 
-	if err := node2.SettleHodlInvoice(preimage, "", nil); err != nil {
-		t.Fatalf("error settling hodl invoice: %v", err)
+	if *backend == "CLN" {
+		if err := node4.SettleHodlInvoice(preimage); err != nil {
+			t.Fatalf("error settling hodl invoice: %v", err)
+		}
+	} else {
+		if err := node2.SettleHodlInvoice(preimage); err != nil {
+			t.Fatalf("error settling hodl invoice: %v", err)
+		}
 	}
 
-	meltQuote, err = testMint.GetMeltQuoteState(ctx, melt.Id)
+	meltQuote, err = testMint.GetMeltQuoteState(context.Background(), melt.Id)
 	if err != nil {
 		t.Fatalf("unexpected error getting melt quote state: %v", err)
 	}
