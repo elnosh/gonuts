@@ -211,7 +211,7 @@ func (cln *CLNClient) SendPayment(ctx context.Context, request string, maxFee ui
 	}
 
 	var response struct {
-		Preimage string `json:"preimage"`
+		Preimage string `json:"payment_preimage"`
 		Status   string `json:"status"`
 	}
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
@@ -241,10 +241,13 @@ func (cln *CLNClient) PayPartialAmount(
 	url := fmt.Sprintf("%s/v1/pay", cln.config.RestURL)
 
 	body := map[string]interface{}{
-		"bolt11":      request,
-		"amount_msat": fmt.Sprintf("%dmsat", amountMsat),  // Ensure amount is in msats
-		"maxfee":      fmt.Sprintf("%dmsat", maxFee*1000), // Ensure max fee is in msats
+		"bolt11":        request,
+		"partial_msat":  fmt.Sprintf("%dmsat", amountMsat),  // Specify partial amount
+		"maxfee":        fmt.Sprintf("%dmsat", maxFee*1000), // Ensure max fee is in msats
+		"maxfeepercent": 0.5,                                // Allow up to 0.5% in fees
+		"retry_for":     60,                                 // Retry for up to 60 seconds
 	}
+
 	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return PaymentStatus{}, err
@@ -267,13 +270,37 @@ func (cln *CLNClient) PayPartialAmount(
 
 	var response struct {
 		Status   string `json:"status"`
-		Preimage string `json:"preimage,omitempty"`
+		Preimage string `json:"payment_preimage,omitempty"`
+		Attempts []struct {
+			Status     string `json:"status"`
+			FailReason string `json:"failreason,omitempty"`
+		} `json:"attempts"`
 	}
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return PaymentStatus{}, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Map status
+	// Handle potential retries for MPP
+	for _, attempt := range response.Attempts {
+		if attempt.Status == "failed" && attempt.FailReason == "WIRE_MPP_TIMEOUT" {
+			// Exclude failed routes on retry
+			body["exclude"] = []string{"last_failed_route"}
+			req, _ := cln.newRequest("POST", url, body)
+			resp, err = cln.client.Do(req)
+			if err != nil {
+				return PaymentStatus{}, err
+			}
+			defer resp.Body.Close()
+
+			bodyBytes, _ = io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				return PaymentStatus{}, fmt.Errorf("failed retry: %s - %s", resp.Status, string(bodyBytes))
+			}
+			_ = json.Unmarshal(bodyBytes, &response)
+		}
+	}
+
+	// Map final status
 	status := Pending
 	if response.Status == "complete" {
 		status = Succeeded
