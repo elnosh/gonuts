@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,27 +24,47 @@ type CLNConfig struct {
 // CLNClient interacts with a CLN node over REST
 type CLNClient struct {
 	config CLNConfig
+	client *http.Client
 }
 
-// SetupCLNClient initializes a CLNClient
+// SetupCLNClient initializes a CLNClient with a shared HTTP client
 func SetupCLNClient(config CLNConfig) (*CLNClient, error) {
-	return &CLNClient{config: config}, nil
+	return &CLNClient{
+		config: config,
+		client: &http.Client{Timeout: 30 * time.Second}, // Reuse client with timeout
+	}, nil
+}
+
+// helper function to create a request with headers
+func (cln *CLNClient) newRequest(method, url string, body interface{}) (*http.Request, error) {
+	var jsonData []byte
+	if body != nil {
+		var err error
+		jsonData, err = json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+	}
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Rune", cln.config.Rune)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
 }
 
 // ConnectionStatus checks if the CLN node is reachable
 func (cln *CLNClient) ConnectionStatus() error {
 	url := fmt.Sprintf("%s/v1/getinfo", cln.config.RestURL)
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte("{}")))
+	req, err := cln.newRequest("POST", url, map[string]string{})
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Rune", cln.config.Rune)
-	req.Header.Set("accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cln.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -59,48 +78,48 @@ func (cln *CLNClient) ConnectionStatus() error {
 	return nil
 }
 
-
 // CreateInvoice generates a new invoice
 func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 	url := fmt.Sprintf("%s/v1/invoice", cln.config.RestURL)
 
-	// Convert amount to millisatoshis (msat)
-	amountMsat := amount * 1000
-
-	// CLN requires a description, so we add one
 	body := map[string]interface{}{
-		"amount_msat": fmt.Sprintf("%dmsat", amountMsat), 
+		"amount_msat": fmt.Sprintf("%dmsat", amount*1000),
 		"label":       fmt.Sprintf("cashu-%d", time.Now().Unix()),
-		"description": "Cashu Lightning Invoice", // required description
+		"description": "Cashu Lightning Invoice",
 		"expiry":      InvoiceExpiryTimeCLN,
 	}
-	jsonData, _ := json.Marshal(body)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return Invoice{}, err
 	}
-	req.Header.Set("Rune", cln.config.Rune)
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cln.client.Do(req)
 	if err != nil {
 		return Invoice{}, err
 	}
 	defer resp.Body.Close()
 
-	// Accept both 200 OK and 201 Created
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Invoice{}, err
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return Invoice{}, fmt.Errorf("failed to create invoice: %s", resp.Status)
+		return Invoice{}, fmt.Errorf("failed to create invoice: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var response struct {
 		Bolt11      string `json:"bolt11"`
 		PaymentHash string `json:"payment_hash"`
+		Error       string `json:"error,omitempty"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return Invoice{}, err
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return Invoice{}, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// If CLN returned an error message in the response, return it
+	if response.Error != "" {
+		return Invoice{}, fmt.Errorf("CLN error: %s", response.Error)
 	}
 
 	return Invoice{
@@ -115,30 +134,22 @@ func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 	url := fmt.Sprintf("%s/v1/listinvoices", cln.config.RestURL)
 
-	// Prepare the request body
-	body := map[string]interface{}{
-		"payment_hash": hash,
-	}
-	jsonData, _ := json.Marshal(body)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	body := map[string]interface{}{"payment_hash": hash}
+	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return Invoice{}, err
 	}
-	req.Header.Set("Rune", cln.config.Rune)
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cln.client.Do(req)
 	if err != nil {
 		return Invoice{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return Invoice{}, fmt.Errorf("failed to get invoice status: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return Invoice{}, fmt.Errorf("failed to get invoice status: %s - %s", resp.Status, string(bodyBytes))
 	}
-	
 
 	var response struct {
 		Invoices []struct {
@@ -172,38 +183,38 @@ func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 	}, nil
 }
 
-
 // SendPayment pays an invoice
 func (cln *CLNClient) SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error) {
 	url := fmt.Sprintf("%s/v1/pay", cln.config.RestURL)
-	body := map[string]string{
+
+	body := map[string]interface{}{
 		"bolt11": request,
 	}
-	jsonData, _ := json.Marshal(body)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return PaymentStatus{}, err
 	}
-	req.Header.Set("Rune", cln.config.Rune)
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cln.client.Do(req)
 	if err != nil {
 		return PaymentStatus{}, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return PaymentStatus{}, fmt.Errorf("failed to send payment: %s", resp.Status)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return PaymentStatus{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return PaymentStatus{}, fmt.Errorf("failed to send payment: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var response struct {
 		Preimage string `json:"preimage"`
 		Status   string `json:"status"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return PaymentStatus{}, err
 	}
 
@@ -231,35 +242,35 @@ func (cln *CLNClient) PayPartialAmount(
 
 	body := map[string]interface{}{
 		"bolt11":      request,
-		"amount_msat": fmt.Sprintf("%dmsat", amountMsat), // Specify partial amount
-		"maxfee":      maxFee,
+		"amount_msat": fmt.Sprintf("%dmsat", amountMsat),  // Ensure amount is in msats
+		"maxfee":      fmt.Sprintf("%dmsat", maxFee*1000), // Ensure max fee is in msats
 	}
-	jsonData, _ := json.Marshal(body)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return PaymentStatus{}, err
 	}
-	req.Header.Set("Rune", cln.config.Rune)
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cln.client.Do(req)
 	if err != nil {
 		return PaymentStatus{}, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return PaymentStatus{}, fmt.Errorf("failed to send partial payment: %s", resp.Status)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return PaymentStatus{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return PaymentStatus{}, fmt.Errorf("failed to send partial payment: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var response struct {
 		Status   string `json:"status"`
 		Preimage string `json:"preimage,omitempty"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return PaymentStatus{}, err
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return PaymentStatus{}, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Map status
@@ -277,82 +288,56 @@ func (cln *CLNClient) PayPartialAmount(
 }
 
 func (cln *CLNClient) OutgoingPaymentStatus(ctx context.Context, paymentHash string) (PaymentStatus, error) {
-    // For CLN, we need to query the payment status using the payment hash
-    url := fmt.Sprintf("%s/v1/listpays", cln.config.RestURL)
-    
-    body := map[string]string{
-        "payment_hash": paymentHash,
-    }
-    jsonData, err := json.Marshal(body)
-    if err != nil {
-        return PaymentStatus{}, err
-    }
+	url := fmt.Sprintf("%s/v1/listpays", cln.config.RestURL)
 
-    req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-    if err != nil {
-        return PaymentStatus{}, err
-    }
-    req.Header.Set("Rune", cln.config.Rune)
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("Accept", "application/json")
+	body := map[string]string{"payment_hash": paymentHash}
+	req, err := cln.newRequest("POST", url, body)
+	if err != nil {
+		return PaymentStatus{}, err
+	}
 
-    client := &http.Client{
-        Timeout: 30 * time.Second,
-    }
-    resp, err := client.Do(req)
-    if err != nil {
-        if errors.Is(err, context.DeadlineExceeded) {
-            return PaymentStatus{PaymentStatus: Pending}, nil
-        }
-        return PaymentStatus{}, err
-    }
-    defer resp.Body.Close()
+	resp, err := cln.client.Do(req)
+	if err != nil {
+		return PaymentStatus{}, err
+	}
+	defer resp.Body.Close()
 
-    bodyBytes, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return PaymentStatus{}, err
-    }
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return PaymentStatus{}, err
+	}
 
-    if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-        return PaymentStatus{}, fmt.Errorf("failed to check payment status: %s - %s", 
-            resp.Status, string(bodyBytes))
-    }
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return PaymentStatus{}, fmt.Errorf("failed to check payment status: %s - %s", resp.Status, string(bodyBytes))
+	}
 
-    var listPaysResponse struct {
-        Pays []struct {
-            PaymentHash     string `json:"payment_hash"`
-            Status          string `json:"status"`
-            PaymentPreimage string `json:"preimage,omitempty"`
-        } `json:"pays"`
-    }
+	var listPaysResponse struct {
+		Pays []struct {
+			PaymentHash     string `json:"payment_hash"`
+			Status          string `json:"status"`
+			PaymentPreimage string `json:"preimage,omitempty"`
+		} `json:"pays"`
+	}
 
-    if err := json.Unmarshal(bodyBytes, &listPaysResponse); err != nil {
-        return PaymentStatus{}, fmt.Errorf("failed to parse response: %w", err)
-    }
+	if err := json.Unmarshal(bodyBytes, &listPaysResponse); err != nil {
+		return PaymentStatus{}, fmt.Errorf("failed to parse response: %w", err)
+	}
 
-    // Find the payment with the matching hash
-    for _, pay := range listPaysResponse.Pays {
-        if pay.PaymentHash == paymentHash {
-            switch pay.Status {
-            case "complete":
-                return PaymentStatus{
-                    PaymentStatus: Succeeded,
-                    Preimage:      pay.PaymentPreimage,
-                }, nil
-            case "pending":
-                return PaymentStatus{PaymentStatus: Pending}, nil
-            case "failed":
-                return PaymentStatus{
-                    PaymentStatus:        Failed,
-                }, nil
-            default:
-                return PaymentStatus{PaymentStatus: Failed}, nil
-            }
-        }
-    }
+	for _, pay := range listPaysResponse.Pays {
+		if pay.PaymentHash == paymentHash {
+			switch pay.Status {
+			case "complete":
+				return PaymentStatus{PaymentStatus: Succeeded, Preimage: pay.PaymentPreimage}, nil
+			case "failed":
+				return PaymentStatus{PaymentStatus: Failed}, nil
+			default:
+				return PaymentStatus{PaymentStatus: Pending}, nil
+			}
+		}
+	}
 
-    // If we don't find the payment, we treat it as pending
-    return PaymentStatus{PaymentStatus: Pending}, nil
+	// If we don't find the payment, assume failure (instead of PENDING)
+	return PaymentStatus{PaymentStatus: Failed}, nil
 }
 
 // FeeReserve estimates fees
@@ -379,18 +364,23 @@ type CLNInvoiceSub struct {
 
 // Recv checks invoice status in a loop
 func (sub *CLNInvoiceSub) Recv() (Invoice, error) {
+	timeout := time.After(5 * time.Minute) // Timeout after 5 minutes
+
 	for {
-		invoice, err := sub.client.InvoiceStatus(sub.paymentHash)
-		if err != nil {
-			return Invoice{}, err
-		}
+		select {
+		case <-timeout:
+			return Invoice{}, fmt.Errorf("invoice subscription timed out")
+		default:
+			invoice, err := sub.client.InvoiceStatus(sub.paymentHash)
+			if err != nil {
+				return Invoice{}, err
+			}
 
-		// If the invoice is settled, return immediately
-		if invoice.Settled {
-			return invoice, nil
-		}
+			if invoice.Settled {
+				return invoice, nil
+			}
 
-		// Wait before checking again
-		time.Sleep(sub.pollInterval)
+			time.Sleep(sub.pollInterval)
+		}
 	}
 }
