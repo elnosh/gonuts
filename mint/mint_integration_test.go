@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/btc-docker-test/cln"
 	"github.com/elnosh/btc-docker-test/lnd"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -51,7 +52,8 @@ var (
 	lightningClient3 lightning.Client
 
 	testMint *mint.Mint
-	backend  = flag.String("backend", "", "specify the lightning backend to run the mint tests (LND)")
+	// default to LND
+	backend = flag.String("backend", "LND", "specify the lightning backend to run the mint tests (LND, CLN)")
 )
 
 func TestMain(m *testing.M) {
@@ -116,6 +118,26 @@ func testMain(m *testing.M) (int, error) {
 			lnd2.Terminate(ctx)
 			lnd3.Terminate(ctx)
 		}()
+	case "CLN":
+		// NOTE: Putting as placeholder for now. Tests here will fail.
+		// Would still need to add some setup when CLN support is added.
+		cln1, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+
+		cln2, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+		node1 = testutils.NewCLNBackend(cln1)
+		node2 = testutils.NewCLNBackend(cln2)
+
+		defer func() {
+			cln1.Terminate(ctx)
+			cln2.Terminate(ctx)
+		}()
+
 	default:
 		return 1, errors.New("invalid lightning backend specified")
 	}
@@ -1108,7 +1130,7 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofPendingErr, err)
 	}
 
-	if err := node2.SettleHodlInvoice(preimage); err != nil {
+	if err := node2.SettleHodlInvoice(preimage, "", nil); err != nil {
 		t.Fatalf("error settling hodl invoice: %v", err)
 	}
 

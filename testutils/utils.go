@@ -1,6 +1,7 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	mathrand "math/rand/v2"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/btc-docker-test/cln"
 	"github.com/elnosh/btc-docker-test/lnd"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -47,15 +51,18 @@ const (
 
 type LightningBackend interface {
 	Info() (*NodeInfo, error)
-	Synced() bool
+	Synced() (bool, error)
 	NewAddress() (btcutil.Address, error)
 	ConnectToPeer(peer *Peer) error
 	OpenChannel(to *Peer, amount uint64) error
 	PayInvoice(string) error
 	CreateInvoice(amount uint64) (*Invoice, error)
-	CreateHodlInvoice(amount uint64, hash string) (*Invoice, error)
-	SettleHodlInvoice(preimage string) error
 	LookupInvoice(hash string) (*Invoice, error)
+	CreateHodlInvoice(amount uint64, hash string) (*Invoice, error)
+	// CLN does not support HODL invoices (unless using a plugin)
+	// passing invoice and payer as a hack. Payer will pay the invoice
+	// just like a regular invoice.
+	SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error
 }
 
 type Peer struct {
@@ -90,16 +97,16 @@ func (lndContainer *LndBackend) Info() (*NodeInfo, error) {
 	}, nil
 }
 
-func (lndContainer *LndBackend) Synced() bool {
+func (lndContainer *LndBackend) Synced() (bool, error) {
 	ctx := context.Background()
 	infoResponse, err := lndContainer.Client.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
-		return false
+		return false, err
 	}
 	if infoResponse.SyncedToChain {
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (lndContainer *LndBackend) NewAddress() (btcutil.Address, error) {
@@ -201,7 +208,8 @@ func (lndContainer *LndBackend) CreateHodlInvoice(amount uint64, hash string) (*
 	}, nil
 }
 
-func (lndContainer *LndBackend) SettleHodlInvoice(preimage string) error {
+// NOTE: invoice and payer are not used. Those are an ugly hack for CLN
+func (lndContainer *LndBackend) SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error {
 	preimageBytes, err := hex.DecodeString(preimage)
 	if err != nil {
 		return err
@@ -232,6 +240,298 @@ func (lndContainer *LndBackend) LookupInvoice(hash string) (*Invoice, error) {
 		PaymentRequest: invoice.PaymentRequest,
 		Hash:           hex.EncodeToString(invoice.RHash),
 		Preimage:       hex.EncodeToString(invoice.RPreimage),
+	}, nil
+}
+
+type CLNBackend struct {
+	*cln.CLN
+	client *http.Client
+	url    string
+}
+
+func NewCLNBackend(cln *cln.CLN) *CLNBackend {
+	return &CLNBackend{
+		CLN:    cln,
+		client: &http.Client{},
+		url:    fmt.Sprintf("%s/v1", "http://"+cln.Host+":"+cln.RestPort),
+	}
+}
+
+func (clnContainer *CLNBackend) Post(url string, body interface{}) (*http.Response, error) {
+	var jsonBody []byte
+	if body != nil {
+		var err error
+		jsonBody, err = json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Rune", clnContainer.Rune)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	return clnContainer.client.Do(req)
+}
+
+type InfoResponse struct {
+	Id                 string `json:"id"`
+	BitcoindSyncWarn   string `json:"warning_bitcoind_sync"`
+	LightningdSyncWarn string `json:"warning_lightningd_sync"`
+}
+
+func (clnContainer *CLNBackend) Info() (*NodeInfo, error) {
+	resp, err := clnContainer.Post(clnContainer.url+"/getinfo", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var infoResponse InfoResponse
+	if err := json.Unmarshal(bodyBytes, &infoResponse); err != nil {
+		return nil, err
+	}
+
+	return &NodeInfo{
+		Pubkey: infoResponse.Id,
+		Addr:   clnContainer.ContainerIP + ":" + cln.CLN_P2P_PORT,
+	}, nil
+}
+
+func (clnContainer *CLNBackend) Synced() (bool, error) {
+	resp, err := clnContainer.Post(clnContainer.url+"/getinfo", nil)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var infoResponse InfoResponse
+	if err := json.Unmarshal(bodyBytes, &infoResponse); err != nil {
+		return false, err
+	}
+
+	if len(infoResponse.BitcoindSyncWarn) > 0 || len(infoResponse.LightningdSyncWarn) > 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (clnContainer *CLNBackend) NewAddress() (btcutil.Address, error) {
+	body := map[string]string{
+		"addresstype": "bech32",
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/newaddr", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Bech32 string `json:"bech32"`
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, err
+	}
+
+	address, err := btcutil.DecodeAddress(response.Bech32, &chaincfg.RegressionNetParams)
+	if err != nil {
+		return nil, err
+	}
+	return address, nil
+}
+
+func (clnContainer *CLNBackend) ConnectToPeer(peer *Peer) error {
+	id := fmt.Sprintf("%s@%s", peer.Pubkey, peer.Addr)
+	body := map[string]string{
+		"id": id,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/connect", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var connectResponse struct {
+		Id string `json:"id"`
+	}
+	if err := json.Unmarshal(bodyBytes, &connectResponse); err != nil {
+		return err
+	}
+
+	if len(connectResponse.Id) == 0 {
+		return errors.New("could not connect to peer")
+	}
+
+	return nil
+}
+
+func (clnContainer *CLNBackend) OpenChannel(to *Peer, amount uint64) error {
+	body := map[string]any{
+		"id":     to.Pubkey,
+		"amount": amount,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/fundchannel", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var fundChannelResponse struct {
+		Tx string `json:"tx"`
+	}
+	if err := json.Unmarshal(bodyBytes, &fundChannelResponse); err != nil {
+		return err
+	}
+	if len(fundChannelResponse.Tx) == 0 {
+		return errors.New("could not open channel")
+	}
+
+	return nil
+}
+
+func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
+	body := map[string]string{
+		"bolt11": invoice,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/pay", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var payResponse struct {
+		PaymentPreimage string `json:"payment_preimage"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payResponse); err != nil {
+		return err
+	}
+	if len(payResponse.PaymentPreimage) == 0 {
+		return errors.New("payment failed")
+	}
+
+	return nil
+}
+
+func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+	body := map[string]any{
+		"amount":      amount * 1000,
+		"label":       time.Now().Unix(),
+		"description": "test",
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/invoice", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var invoiceResponse struct {
+		Bolt11      string `json:"bolt11"`
+		PaymentHash string `json:"payment_hash"`
+	}
+	if err := json.Unmarshal(bodyBytes, &invoiceResponse); err != nil {
+		return nil, err
+	}
+	if len(invoiceResponse.Bolt11) == 0 {
+		return nil, errors.New("could not create invoice")
+	}
+
+	return &Invoice{
+		PaymentRequest: invoiceResponse.Bolt11,
+		Hash:           invoiceResponse.PaymentHash,
+	}, nil
+}
+
+func (clnContainer *CLNBackend) CreateHodlInvoice(amount uint64, hash string) (*Invoice, error) {
+	return clnContainer.CreateInvoice(amount)
+}
+
+func (clnContainer *CLNBackend) SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error {
+	if err := payer.PayInvoice(invoice); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (clnContainer *CLNBackend) LookupInvoice(hash string) (*Invoice, error) {
+	body := map[string]string{
+		"payment_hash": hash,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/listinvoices", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var listInvoicesResponse struct {
+		Invoices []struct {
+			Bolt11      string `json:"bolt11"`
+			PaymentHash string `json:"payment_hash"`
+			Preimage    string `json:"payment_preimage"`
+		} `json:"invoices"`
+	}
+	if err := json.Unmarshal(bodyBytes, &listInvoicesResponse); err != nil {
+		return nil, err
+	}
+	if len(listInvoicesResponse.Invoices) == 0 {
+		return nil, errors.New("could not lookup invoice")
+	}
+
+	return &Invoice{
+		PaymentRequest: listInvoicesResponse.Invoices[0].Bolt11,
+		Hash:           listInvoicesResponse.Invoices[0].PaymentHash,
+		Preimage:       listInvoicesResponse.Invoices[0].Preimage,
 	}, nil
 }
 
@@ -305,7 +605,11 @@ func OpenChannel(
 
 func SyncNode(node LightningBackend) error {
 	for range 50 {
-		if node.Synced() {
+		synced, err := node.Synced()
+		if err != nil {
+			return fmt.Errorf("could not get node info: %v", err)
+		}
+		if synced {
 			return nil
 		}
 		time.Sleep(time.Millisecond * 500)
