@@ -1,6 +1,7 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	mathrand "math/rand/v2"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +24,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/btc-docker-test/cln"
+	"github.com/elnosh/btc-docker-test/lnd"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
@@ -32,6 +37,7 @@ import (
 	"github.com/elnosh/gonuts/wallet"
 	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -42,6 +48,492 @@ import (
 const (
 	NUM_BLOCKS int64 = 110
 )
+
+type LightningBackend interface {
+	Info() (*NodeInfo, error)
+	Synced() (bool, error)
+	NewAddress() (btcutil.Address, error)
+	ConnectToPeer(peer *Peer) error
+	OpenChannel(to *Peer, amount uint64) error
+	PayInvoice(string) error
+	CreateInvoice(amount uint64) (*Invoice, error)
+	LookupInvoice(hash string) (*Invoice, error)
+	CreateHodlInvoice(amount uint64, hash string) (*Invoice, error)
+	// CLN does not support HODL invoices (unless using a plugin)
+	// passing invoice and payer as a hack. Payer will pay the invoice
+	// just like a regular invoice.
+	SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error
+}
+
+type Peer struct {
+	Pubkey string
+	Addr   string
+}
+
+type NodeInfo struct {
+	Pubkey string
+	Addr   string
+}
+
+type Invoice struct {
+	PaymentRequest string
+	Hash           string
+	Preimage       string
+}
+
+type LndBackend struct {
+	*lnd.Lnd
+}
+
+func (lndContainer *LndBackend) Info() (*NodeInfo, error) {
+	ctx := context.Background()
+	infoResponse, err := lndContainer.Client.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return &NodeInfo{
+		Pubkey: infoResponse.IdentityPubkey,
+		Addr:   lndContainer.ContainerIP + ":" + lnd.LND_P2P_PORT,
+	}, nil
+}
+
+func (lndContainer *LndBackend) Synced() (bool, error) {
+	ctx := context.Background()
+	infoResponse, err := lndContainer.Client.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return false, err
+	}
+	if infoResponse.SyncedToChain {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (lndContainer *LndBackend) NewAddress() (btcutil.Address, error) {
+	ctx := context.Background()
+	addressResponse, err := lndContainer.Client.NewAddress(ctx, &lnrpc.NewAddressRequest{Type: 0})
+	if err != nil {
+		return nil, err
+	}
+
+	address, err := btcutil.DecodeAddress(addressResponse.Address, &chaincfg.RegressionNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return address, nil
+}
+
+func (lndContainer *LndBackend) ConnectToPeer(peer *Peer) error {
+	toLightningAddress := lnrpc.LightningAddress{
+		Pubkey: peer.Pubkey,
+		Host:   peer.Addr,
+	}
+	connectPeerRequest := lnrpc.ConnectPeerRequest{
+		Addr: &toLightningAddress,
+		Perm: false,
+	}
+
+	ctx := context.Background()
+	_, err := lndContainer.Client.ConnectPeer(ctx, &connectPeerRequest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (lndContainer *LndBackend) OpenChannel(to *Peer, amount uint64) error {
+	toPubkeyBytes, err := hex.DecodeString(to.Pubkey)
+	if err != nil {
+		return err
+	}
+	openChannelRequest := lnrpc.OpenChannelRequest{
+		NodePubkey:         toPubkeyBytes,
+		LocalFundingAmount: int64(amount),
+		PushSat:            int64(amount / 2),
+	}
+
+	ctx := context.Background()
+	_, err = lndContainer.Client.OpenChannelSync(ctx, &openChannelRequest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (lndContainer *LndBackend) PayInvoice(invoice string) error {
+	ctx := context.Background()
+	sendPaymentRequest := lnrpc.SendRequest{
+		PaymentRequest: invoice,
+	}
+	response, _ := lndContainer.Client.SendPaymentSync(ctx, &sendPaymentRequest)
+	if len(response.PaymentError) > 0 {
+		return errors.New(response.PaymentError)
+	}
+
+	return nil
+}
+
+func (lndContainer *LndBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+	ctx := context.Background()
+	invoice := lnrpc.Invoice{Value: int64(amount)}
+	addInvoiceResponse, err := lndContainer.Client.AddInvoice(ctx, &invoice)
+	if err != nil {
+		return nil, err
+	}
+	return &Invoice{
+		PaymentRequest: addInvoiceResponse.PaymentRequest,
+		Hash:           hex.EncodeToString(addInvoiceResponse.RHash),
+	}, nil
+}
+
+func (lndContainer *LndBackend) CreateHodlInvoice(amount uint64, hash string) (*Invoice, error) {
+	paymentHash, err := hex.DecodeString(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: paymentHash, Value: int64(amount)}
+	addHodlInvoiceRes, err := lndContainer.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Invoice{
+		PaymentRequest: addHodlInvoiceRes.PaymentRequest,
+		Hash:           hash,
+	}, nil
+}
+
+// NOTE: invoice and payer are not used. Those are an ugly hack for CLN
+func (lndContainer *LndBackend) SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error {
+	preimageBytes, err := hex.DecodeString(preimage)
+	if err != nil {
+		return err
+	}
+
+	settleHodlInvoice := invoicesrpc.SettleInvoiceMsg{Preimage: preimageBytes}
+	ctx := context.Background()
+	_, err = lndContainer.InvoicesClient.SettleInvoice(ctx, &settleHodlInvoice)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (lndContainer *LndBackend) LookupInvoice(hash string) (*Invoice, error) {
+	ctx := context.Background()
+	paymentHash, err := hex.DecodeString(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	invoice, err := lndContainer.Client.LookupInvoice(ctx, &lnrpc.PaymentHash{RHash: paymentHash})
+	if err != nil {
+		return nil, err
+	}
+	return &Invoice{
+		PaymentRequest: invoice.PaymentRequest,
+		Hash:           hex.EncodeToString(invoice.RHash),
+		Preimage:       hex.EncodeToString(invoice.RPreimage),
+	}, nil
+}
+
+type CLNBackend struct {
+	*cln.CLN
+	client *http.Client
+	url    string
+}
+
+func NewCLNBackend(cln *cln.CLN) *CLNBackend {
+	return &CLNBackend{
+		CLN:    cln,
+		client: &http.Client{},
+		url:    fmt.Sprintf("%s/v1", "http://"+cln.Host+":"+cln.RestPort),
+	}
+}
+
+func (clnContainer *CLNBackend) Post(url string, body interface{}) (*http.Response, error) {
+	var jsonBody []byte
+	if body != nil {
+		var err error
+		jsonBody, err = json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Rune", clnContainer.Rune)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	return clnContainer.client.Do(req)
+}
+
+type InfoResponse struct {
+	Id                 string `json:"id"`
+	BitcoindSyncWarn   string `json:"warning_bitcoind_sync"`
+	LightningdSyncWarn string `json:"warning_lightningd_sync"`
+}
+
+func (clnContainer *CLNBackend) Info() (*NodeInfo, error) {
+	resp, err := clnContainer.Post(clnContainer.url+"/getinfo", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var infoResponse InfoResponse
+	if err := json.Unmarshal(bodyBytes, &infoResponse); err != nil {
+		return nil, err
+	}
+
+	return &NodeInfo{
+		Pubkey: infoResponse.Id,
+		Addr:   clnContainer.ContainerIP + ":" + cln.CLN_P2P_PORT,
+	}, nil
+}
+
+func (clnContainer *CLNBackend) Synced() (bool, error) {
+	resp, err := clnContainer.Post(clnContainer.url+"/getinfo", nil)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var infoResponse InfoResponse
+	if err := json.Unmarshal(bodyBytes, &infoResponse); err != nil {
+		return false, err
+	}
+
+	if len(infoResponse.BitcoindSyncWarn) > 0 || len(infoResponse.LightningdSyncWarn) > 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (clnContainer *CLNBackend) NewAddress() (btcutil.Address, error) {
+	body := map[string]string{
+		"addresstype": "bech32",
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/newaddr", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Bech32 string `json:"bech32"`
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, err
+	}
+
+	address, err := btcutil.DecodeAddress(response.Bech32, &chaincfg.RegressionNetParams)
+	if err != nil {
+		return nil, err
+	}
+	return address, nil
+}
+
+func (clnContainer *CLNBackend) ConnectToPeer(peer *Peer) error {
+	id := fmt.Sprintf("%s@%s", peer.Pubkey, peer.Addr)
+	body := map[string]string{
+		"id": id,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/connect", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var connectResponse struct {
+		Id string `json:"id"`
+	}
+	if err := json.Unmarshal(bodyBytes, &connectResponse); err != nil {
+		return err
+	}
+
+	if len(connectResponse.Id) == 0 {
+		return errors.New("could not connect to peer")
+	}
+
+	return nil
+}
+
+func (clnContainer *CLNBackend) OpenChannel(to *Peer, amount uint64) error {
+	body := map[string]any{
+		"id":     to.Pubkey,
+		"amount": amount,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/fundchannel", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var fundChannelResponse struct {
+		Tx string `json:"tx"`
+	}
+	if err := json.Unmarshal(bodyBytes, &fundChannelResponse); err != nil {
+		return err
+	}
+	if len(fundChannelResponse.Tx) == 0 {
+		return errors.New("could not open channel")
+	}
+
+	return nil
+}
+
+func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
+	body := map[string]string{
+		"bolt11": invoice,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/pay", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var payResponse struct {
+		PaymentPreimage string `json:"payment_preimage"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payResponse); err != nil {
+		return err
+	}
+	if len(payResponse.PaymentPreimage) == 0 {
+		return errors.New("payment failed")
+	}
+
+	return nil
+}
+
+func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+	body := map[string]any{
+		"amount":      amount * 1000,
+		"label":       time.Now().Unix(),
+		"description": "test",
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/invoice", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var invoiceResponse struct {
+		Bolt11      string `json:"bolt11"`
+		PaymentHash string `json:"payment_hash"`
+	}
+	if err := json.Unmarshal(bodyBytes, &invoiceResponse); err != nil {
+		return nil, err
+	}
+	if len(invoiceResponse.Bolt11) == 0 {
+		return nil, errors.New("could not create invoice")
+	}
+
+	return &Invoice{
+		PaymentRequest: invoiceResponse.Bolt11,
+		Hash:           invoiceResponse.PaymentHash,
+	}, nil
+}
+
+func (clnContainer *CLNBackend) CreateHodlInvoice(amount uint64, hash string) (*Invoice, error) {
+	return clnContainer.CreateInvoice(amount)
+}
+
+func (clnContainer *CLNBackend) SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error {
+	if err := payer.PayInvoice(invoice); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (clnContainer *CLNBackend) LookupInvoice(hash string) (*Invoice, error) {
+	body := map[string]string{
+		"payment_hash": hash,
+	}
+
+	resp, err := clnContainer.Post(clnContainer.url+"/listinvoices", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var listInvoicesResponse struct {
+		Invoices []struct {
+			Bolt11      string `json:"bolt11"`
+			PaymentHash string `json:"payment_hash"`
+			Preimage    string `json:"payment_preimage"`
+		} `json:"invoices"`
+	}
+	if err := json.Unmarshal(bodyBytes, &listInvoicesResponse); err != nil {
+		return nil, err
+	}
+	if len(listInvoicesResponse.Invoices) == 0 {
+		return nil, errors.New("could not lookup invoice")
+	}
+
+	return &Invoice{
+		PaymentRequest: listInvoicesResponse.Invoices[0].Bolt11,
+		Hash:           listInvoicesResponse.Invoices[0].PaymentHash,
+		Preimage:       listInvoicesResponse.Invoices[0].Preimage,
+	}, nil
+}
 
 func MineBlocks(bitcoind *btcdocker.Bitcoind, numBlocks int64) error {
 	address, err := bitcoind.Client.GetNewAddress("")
@@ -57,13 +549,8 @@ func MineBlocks(bitcoind *btcdocker.Bitcoind, numBlocks int64) error {
 	return nil
 }
 
-func FundLndNode(ctx context.Context, bitcoind *btcdocker.Bitcoind, lnd *btcdocker.Lnd) error {
-	addressResponse, err := lnd.Client.NewAddress(ctx, &lnrpc.NewAddressRequest{Type: 0})
-	if err != nil {
-		return fmt.Errorf("error generating address: %v", err)
-	}
-
-	address, err := btcutil.DecodeAddress(addressResponse.Address, &chaincfg.RegressionNetParams)
+func FundNode(ctx context.Context, bitcoind *btcdocker.Bitcoind, lightningNode LightningBackend) error {
+	address, err := lightningNode.NewAddress()
 	if err != nil {
 		return fmt.Errorf("error generating address: %v", err)
 	}
@@ -74,8 +561,7 @@ func FundLndNode(ctx context.Context, bitcoind *btcdocker.Bitcoind, lnd *btcdock
 	}
 
 	time.Sleep(time.Second * 2)
-	err = SyncLndNode(ctx, lnd)
-	if err != nil {
+	if err := SyncNode(lightningNode); err != nil {
 		return err
 	}
 
@@ -85,70 +571,50 @@ func FundLndNode(ctx context.Context, bitcoind *btcdocker.Bitcoind, lnd *btcdock
 func OpenChannel(
 	ctx context.Context,
 	bitcoind *btcdocker.Bitcoind,
-	from *btcdocker.Lnd,
-	to *btcdocker.Lnd,
-	amount int64,
+	from LightningBackend,
+	to LightningBackend,
+	amount uint64,
 ) error {
-	infoResponse, err := to.Client.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	toInfo, err := to.Info()
 	if err != nil {
-		return fmt.Errorf("error getting information about node: %v", err)
+		return fmt.Errorf("error getting node info: %v", err)
+	}
+	peer := &Peer{
+		Pubkey: toInfo.Pubkey,
+		Addr:   toInfo.Addr,
 	}
 
-	toPubkey := infoResponse.IdentityPubkey
-	toPubkeyBytes, err := hex.DecodeString(toPubkey)
-	if err != nil {
-		return fmt.Errorf("error decoding node pubkey: %v", err)
-	}
-
-	toLightningAddress := lnrpc.LightningAddress{
-		Pubkey: toPubkey,
-		Host:   to.ContainerIP + ":" + btcdocker.LND_P2P_PORT,
-	}
-	connectPeerRequest := lnrpc.ConnectPeerRequest{
-		Addr: &toLightningAddress,
-		Perm: false,
-	}
-	_, err = from.Client.ConnectPeer(ctx, &connectPeerRequest)
-	if err != nil {
+	if err := from.ConnectToPeer(peer); err != nil {
 		return fmt.Errorf("error connecting to peer: %v", err)
 	}
 
-	openChannelRequest := lnrpc.OpenChannelRequest{
-		NodePubkey:         toPubkeyBytes,
-		LocalFundingAmount: amount,
-		PushSat:            amount / 2,
+	if err := from.OpenChannel(peer, amount); err != nil {
+		return fmt.Errorf("error opening channel: %v", err)
 	}
 
-	_, err = from.Client.OpenChannelSync(ctx, &openChannelRequest)
-	if err != nil {
-		return err
-	}
-
-	if err = MineBlocks(bitcoind, 6); err != nil {
+	if err := MineBlocks(bitcoind, 6); err != nil {
 		return fmt.Errorf("error generating new blocks: %v", err)
 	}
 	time.Sleep(time.Second * 2)
-	err = SyncLndNode(ctx, from)
-	if err != nil {
+	if err := SyncNode(from); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func SyncLndNode(ctx context.Context, lnd *btcdocker.Lnd) error {
+func SyncNode(node LightningBackend) error {
 	for range 50 {
-		infoResponse, err := lnd.Client.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+		synced, err := node.Synced()
 		if err != nil {
-			return fmt.Errorf("error getting node info: %v", err)
+			return fmt.Errorf("could not get node info: %v", err)
 		}
-		if infoResponse.SyncedToChain {
+		if synced {
 			return nil
 		}
 		time.Sleep(time.Millisecond * 500)
 	}
-
-	return errors.New("could not sync LND")
+	return errors.New("could not sync node")
 }
 
 func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
@@ -167,20 +633,15 @@ func CreateTestWallet(walletpath, defaultMint string) (*wallet.Wallet, error) {
 	return testWallet, nil
 }
 
-func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, lnd *btcdocker.Lnd, amount uint64) error {
+func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, backend LightningBackend, amount uint64) error {
 	mintRes, err := wallet.RequestMint(amount, wallet.CurrentMint())
 	if err != nil {
 		return fmt.Errorf("error requesting mint: %v", err)
 	}
 
-	if lnd != nil {
-		//pay invoice
-		sendPaymentRequest := lnrpc.SendRequest{
-			PaymentRequest: mintRes.Request,
-		}
-		response, _ := lnd.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-		if len(response.PaymentError) > 0 {
-			return fmt.Errorf("error paying invoice: %v", response.PaymentError)
+	if backend != nil {
+		if err := backend.PayInvoice(mintRes.Request); err != nil {
+			return fmt.Errorf("error paying invoice: %v", err)
 		}
 	}
 
@@ -220,34 +681,14 @@ func MintConfig(
 	return mintConfig, nil
 }
 
-func LndClient(lnd *btcdocker.Lnd, dbpath string) (*lightning.LndClient, error) {
-	if err := os.MkdirAll(dbpath, 0750); err != nil {
-		return nil, err
-	}
-	nodeDir := lnd.LndDir
-
-	creds, err := credentials.NewClientTLSFromFile(filepath.Join(nodeDir, "/tls.cert"), "")
+func LndClient(lnd *lnd.Lnd) (*lightning.LndClient, error) {
+	creds, err := credentials.NewClientTLSFromFile(filepath.Join(lnd.LndDir, "/tls.cert"), "")
 	if err != nil {
 		return nil, err
-	}
-
-	macaroonPath := filepath.Join(dbpath, "/admin.macaroon")
-	file, err := os.Create(macaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("error creating macaroon file: %v", err)
-	}
-
-	_, err = file.Write(lnd.AdminMacaroon)
-	if err != nil {
-		return nil, fmt.Errorf("error writing to macaroon file: %v", err)
-	}
-	macaroonBytes, err := os.ReadFile(macaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading macaroon: os.ReadFile %v", err)
 	}
 
 	macaroon := &macaroon.Macaroon{}
-	if err = macaroon.UnmarshalBinary(macaroonBytes); err != nil {
+	if err = macaroon.UnmarshalBinary(lnd.AdminMacaroon); err != nil {
 		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
 	}
 	macarooncreds, err := macaroons.NewMacaroonCredential(macaroon)
@@ -268,16 +709,12 @@ func LndClient(lnd *btcdocker.Lnd, dbpath string) (*lightning.LndClient, error) 
 }
 
 func CreateTestMint(
-	lnd *btcdocker.Lnd,
+	backend lightning.Client,
 	dbpath string,
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Mint, error) {
-	lndClient, err := LndClient(lnd, dbpath)
-	if err != nil {
-		return nil, err
-	}
-	config, err := MintConfig(lndClient, 0, 0, dbpath, inputFeePpk, limits)
+	config, err := MintConfig(backend, 0, 0, dbpath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +836,7 @@ func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 	return proofs, nil
 }
 
-func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) (
+func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer LightningBackend) (
 	cashu.BlindedMessages,
 	[]string,
 	[]*secp256k1.PrivateKey,
@@ -418,14 +855,8 @@ func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) 
 		return nil, nil, nil, nil, fmt.Errorf("error creating blinded message: %v", err)
 	}
 
-	ctx := context.Background()
-	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ := payer.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		return nil, nil, nil, nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
+	if err := payer.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("error paying invoice: %v", err)
 	}
 
 	mintTokensRequest := nut04.PostMintBolt11Request{
@@ -440,7 +871,7 @@ func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) 
 	return blindedMessages, secrets, rs, blindedSignatures, nil
 }
 
-func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer *btcdocker.Lnd) (cashu.Proofs, error) {
+func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer LightningBackend) (cashu.Proofs, error) {
 	keyset := mint.GetActiveKeyset()
 	_, secrets, rs, blindedSignatures, err := GetBlindedSignatures(amount, mint, payer)
 	if err != nil {
@@ -497,7 +928,7 @@ func GetProofsWithSpendingCondition(
 	amount uint64,
 	spendingCondition nut10.SpendingCondition,
 	mint *mint.Mint,
-	payer *btcdocker.Lnd,
+	payer LightningBackend,
 ) (cashu.Proofs, error) {
 	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: amount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, err := mint.RequestMintQuote(mintQuoteRequest)
@@ -513,14 +944,9 @@ func GetProofsWithSpendingCondition(
 		return nil, fmt.Errorf("error creating blinded message: %v", err)
 	}
 
-	ctx := context.Background()
 	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ := payer.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		return nil, fmt.Errorf("error paying invoice: %v", response.PaymentError)
+	if err := payer.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		return nil, fmt.Errorf("error paying invoice: %v", err)
 	}
 
 	mintTokensRequest := nut04.PostMintBolt11Request{
@@ -677,7 +1103,7 @@ type NutshellMintContainer struct {
 	Host string
 }
 
-func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int, lnd *btcdocker.Lnd) (*NutshellMintContainer, error) {
+func CreateNutshellMintContainer(ctx context.Context, inputFeePpk int, lnd *lnd.Lnd) (*NutshellMintContainer, error) {
 	envMap := map[string]string{
 		"MINT_LISTEN_HOST":   "0.0.0.0",
 		"MINT_LISTEN_PORT":   "3338",
