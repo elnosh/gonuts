@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/btc-docker-test/lnd"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
@@ -1153,22 +1154,26 @@ func TestMultimintPayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lnd1, err := btcdocker.NewLnd(ctx, bitcoind)
+	lnd1, err := lnd.NewLnd(ctx, bitcoind)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lnd2, err := btcdocker.NewLnd(ctx, bitcoind)
+	lnd2, err := lnd.NewLnd(ctx, bitcoind)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lnd3, err := btcdocker.NewLnd(ctx, bitcoind)
+	lnd3, err := lnd.NewLnd(ctx, bitcoind)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lnd4, err := btcdocker.NewLnd(ctx, bitcoind)
+	lnd4, err := lnd.NewLnd(ctx, bitcoind)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	node1 := &testutils.LndBackend{Lnd: lnd1}
+	node2 := &testutils.LndBackend{Lnd: lnd2}
+	node3 := &testutils.LndBackend{Lnd: lnd3}
 
 	defer func() {
 		bitcoind.Terminate(ctx)
@@ -1178,30 +1183,30 @@ func TestMultimintPayment(t *testing.T) {
 		lnd4.Terminate(ctx)
 	}()
 
-	if err := testutils.FundLndNode(ctx, bitcoind, lnd1); err != nil {
+	if err := testutils.FundNode(ctx, bitcoind, node1); err != nil {
 		t.Fatal(err)
 	}
-	if err := testutils.FundLndNode(ctx, bitcoind, lnd2); err != nil {
+	if err := testutils.FundNode(ctx, bitcoind, node2); err != nil {
 		t.Fatal(err)
 	}
-	if err := testutils.FundLndNode(ctx, bitcoind, lnd3); err != nil {
+	if err := testutils.FundNode(ctx, bitcoind, node3); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 1500000); err != nil {
+	if err := testutils.OpenChannel(ctx, bitcoind, node1, node2, 1500000); err != nil {
 		t.Fatal(err)
 	}
-	if err := testutils.OpenChannel(ctx, bitcoind, lnd2, lnd3, 1500000); err != nil {
+	if err := testutils.OpenChannel(ctx, bitcoind, node2, node3, 1500000); err != nil {
 		t.Fatal(err)
 	}
-	if err := testutils.OpenChannel(ctx, bitcoind, lnd3, lnd1, 1500000); err != nil {
+	if err := testutils.OpenChannel(ctx, bitcoind, node3, node1, 1500000); err != nil {
 		t.Fatal(err)
 	}
 
 	port, _ := testutils.GetAvailablePort()
 	mint1URL := "http://127.0.0.1:" + strconv.Itoa(port)
 	testMintPath := filepath.Join(".", "testmppmint1")
-	lndClient1, err := testutils.LndClient(lnd1, testMintPath)
+	lndClient1, err := testutils.LndClient(lnd1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1216,7 +1221,7 @@ func TestMultimintPayment(t *testing.T) {
 	port2, _ := testutils.GetAvailablePort()
 	mint2URL := "http://127.0.0.1:" + strconv.Itoa(port2)
 	testMintPath2 := filepath.Join(".", "testmppmint2")
-	lndClient2, err := testutils.LndClient(lnd2, testMintPath2)
+	lndClient2, err := testutils.LndClient(lnd2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1241,7 +1246,7 @@ func TestMultimintPayment(t *testing.T) {
 	defer os.RemoveAll(testWalletPath)
 
 	// fund wallet from both mints
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd3, 21000); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, node3, 21000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 	testWallet.Shutdown()
@@ -1252,7 +1257,7 @@ func TestMultimintPayment(t *testing.T) {
 		t.Fatalf("error loading wallet: %v", err)
 	}
 
-	if err := testutils.FundCashuWallet(ctx, testWallet, lnd3, 21000); err != nil {
+	if err := testutils.FundCashuWallet(ctx, testWallet, node3, 21000); err != nil {
 		t.Fatalf("error funding wallet: %v", err)
 	}
 
@@ -1305,8 +1310,8 @@ func TestMultimintPayment(t *testing.T) {
 func testMultimintPayment(
 	t *testing.T,
 	testWallet *wallet.Wallet,
-	routeNode *btcdocker.Lnd,
-	noRouteNode *btcdocker.Lnd,
+	routeNode *lnd.Lnd,
+	noRouteNode *lnd.Lnd,
 ) {
 	// create invoice from lnd3
 	invoice := lnrpc.Invoice{Value: 10000}

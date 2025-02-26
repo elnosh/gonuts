@@ -21,6 +21,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	btcdocker "github.com/elnosh/btc-docker-test"
+	"github.com/elnosh/btc-docker-test/cln"
+	"github.com/elnosh/btc-docker-test/lnd"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
@@ -32,21 +34,30 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut20"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/mint"
+	"github.com/elnosh/gonuts/mint/lightning"
 	"github.com/elnosh/gonuts/mint/storage"
 	"github.com/elnosh/gonuts/testutils"
-	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 )
 
 var (
 	ctx      context.Context
 	bitcoind *btcdocker.Bitcoind
-	lnd1     *btcdocker.Lnd
-	lnd2     *btcdocker.Lnd
+	node1    testutils.LightningBackend
+	node2    testutils.LightningBackend
+	node3    testutils.LightningBackend
+
+	// clients backing up the nodes
+	lightningClient1 lightning.Client
+	lightningClient2 lightning.Client
+	lightningClient3 lightning.Client
+
 	testMint *mint.Mint
+	// default to LND
+	backend = flag.String("backend", "LND", "specify the lightning backend to run the mint tests (LND, CLN)")
 )
 
 func TestMain(m *testing.M) {
+	flag.Parse()
 	code, err := testMain(m)
 	if err != nil {
 		log.Println(err)
@@ -55,47 +66,94 @@ func TestMain(m *testing.M) {
 }
 
 func testMain(m *testing.M) (int, error) {
-	flag.Parse()
-
 	ctx = context.Background()
 	var err error
 	bitcoind, err = btcdocker.NewBitcoind(ctx)
 	if err != nil {
 		return 1, err
 	}
+	defer bitcoind.Terminate(ctx)
 
 	_, err = bitcoind.Client.CreateWallet("")
 	if err != nil {
 		return 1, err
 	}
 
-	lnd1, err = btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
+	switch *backend {
+	case "LND":
+		lnd1, err := lnd.NewLnd(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+		lnd2, err := lnd.NewLnd(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+		lnd3, err := lnd.NewLnd(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+
+		lightningClient1, err = testutils.LndClient(lnd1)
+		if err != nil {
+			return 1, err
+		}
+
+		lightningClient2, err = testutils.LndClient(lnd2)
+		if err != nil {
+			return 1, err
+		}
+
+		lightningClient3, err = testutils.LndClient(lnd3)
+		if err != nil {
+			return 1, err
+		}
+
+		node1 = &testutils.LndBackend{Lnd: lnd1}
+		node2 = &testutils.LndBackend{Lnd: lnd2}
+		node3 = &testutils.LndBackend{Lnd: lnd3}
+
+		defer func() {
+			lnd1.Terminate(ctx)
+			lnd2.Terminate(ctx)
+			lnd3.Terminate(ctx)
+		}()
+	case "CLN":
+		// NOTE: Putting as placeholder for now. Tests here will fail.
+		// Would still need to add some setup when CLN support is added.
+		cln1, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+
+		cln2, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+		node1 = testutils.NewCLNBackend(cln1)
+		node2 = testutils.NewCLNBackend(cln2)
+
+		defer func() {
+			cln1.Terminate(ctx)
+			cln2.Terminate(ctx)
+		}()
+
+	default:
+		return 1, errors.New("invalid lightning backend specified")
+	}
+
+	log.Printf("Running mint tests with %v backend\n", *backend)
+
+	if err := testutils.FundNode(ctx, bitcoind, node1); err != nil {
 		return 1, err
 	}
 
-	lnd2, err = btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
-		return 1, err
-	}
-	defer func() {
-		bitcoind.Terminate(ctx)
-		lnd1.Terminate(ctx)
-		lnd2.Terminate(ctx)
-	}()
-
-	err = testutils.FundLndNode(ctx, bitcoind, lnd1)
-	if err != nil {
-		return 1, err
-	}
-
-	err = testutils.OpenChannel(ctx, bitcoind, lnd1, lnd2, 15000000)
-	if err != nil {
+	if err := testutils.OpenChannel(ctx, bitcoind, node1, node2, 15000000); err != nil {
 		return 1, err
 	}
 
 	testMintPath := filepath.Join(".", "testmint1")
-	testMint, err = testutils.CreateTestMint(lnd1, testMintPath, 0, mint.MintLimits{})
+	testMint, err = testutils.CreateTestMint(lightningClient1, testMintPath, 0, mint.MintLimits{})
 	if err != nil {
 		return 1, err
 	}
@@ -163,12 +221,8 @@ func TestMintQuoteState(t *testing.T) {
 	}
 
 	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		t.Fatalf("error paying invoice: %v", err)
 	}
 
 	// test quote state after paying invoice
@@ -225,12 +279,8 @@ func TestMintTokens(t *testing.T) {
 	}
 
 	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		t.Fatalf("error paying invoice: %v", err)
 	}
 
 	// test with blinded messages over request mint amount
@@ -291,12 +341,8 @@ func TestMintTokens(t *testing.T) {
 		t.Fatalf("error requesting mint quote: %v", err)
 	}
 
-	sendPaymentRequest = lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ = lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		t.Fatalf("error paying invoice: %v", err)
 	}
 
 	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
@@ -318,12 +364,8 @@ func TestMintTokens(t *testing.T) {
 	}
 	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
 
-	sendPaymentRequest = lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ = lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		t.Fatalf("error paying invoice: %v", err)
 	}
 
 	// test no signature for mint quote with pubkey
@@ -361,7 +403,7 @@ func TestMintTokens(t *testing.T) {
 
 func TestSwap(t *testing.T) {
 	var amount uint64 = 10000
-	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -418,7 +460,7 @@ func TestSwap(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofAlreadyUsedErr, err)
 	}
 
-	proofs, err = testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	proofs, err = testutils.GetValidProofsForAmount(amount, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -431,14 +473,14 @@ func TestSwap(t *testing.T) {
 
 	// mint with fees
 	mintFeesPath := filepath.Join(".", "mintfees")
-	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, 100, mint.MintLimits{})
+	mintFees, err := testutils.CreateTestMint(lightningClient1, mintFeesPath, 100, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(mintFeesPath)
 
 	amount = 5000
-	proofs, err = testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
+	proofs, err = testutils.GetValidProofsForAmount(amount, mintFees, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -463,15 +505,13 @@ func TestSwap(t *testing.T) {
 }
 
 func TestRequestMeltQuote(t *testing.T) {
-	invoice := lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err := node2.CreateInvoice(10000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest := addInvoiceResponse.PaymentRequest
 
 	// test invalid unit
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: "eth"}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: "eth"}
 	_, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	cashuErr, ok := err.(*cashu.Error)
 	if !ok {
@@ -488,7 +528,7 @@ func TestRequestMeltQuote(t *testing.T) {
 		t.Fatal("expected error but got nil")
 	}
 
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: cashu.Sat.String()}
 	_, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -503,19 +543,12 @@ func TestRequestMeltQuote(t *testing.T) {
 }
 
 func TestMeltQuoteState(t *testing.T) {
-	invoice := lnrpc.Invoice{Value: 2000}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	newInvoice, err := node2.CreateInvoice(2000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest := addInvoiceResponse.PaymentRequest
 
-	lookupInvoice, err := lnd2.Client.LookupInvoice(ctx, &lnrpc.PaymentHash{RHash: addInvoiceResponse.RHash})
-	if err != nil {
-		t.Fatalf("error finding invoice: %v", err)
-	}
-
-	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
+	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: newInvoice.PaymentRequest, Unit: cashu.Sat.String()}
 	meltRequest, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
@@ -537,7 +570,7 @@ func TestMeltQuoteState(t *testing.T) {
 	}
 
 	// test state after melting
-	validProofs, err := testutils.GetValidProofsForAmount(6500, testMint, lnd2)
+	validProofs, err := testutils.GetValidProofsForAmount(6500, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -555,26 +588,29 @@ func TestMeltQuoteState(t *testing.T) {
 	if meltQuote.State != nut05.Paid {
 		t.Fatalf("expected quote state '%s' but got '%s' instead", nut05.Paid, meltQuote.State)
 	}
-	preimageString := hex.EncodeToString(lookupInvoice.RPreimage)
-	if meltQuote.Preimage != preimageString {
-		t.Fatalf("expected quote preimage '%v' but got '%v' instead", preimageString, meltQuote.Preimage)
+
+	invoice, err := node2.LookupInvoice(newInvoice.Hash)
+	if err != nil {
+		t.Fatalf("error finding invoice: %v", err)
+	}
+	if meltQuote.Preimage != invoice.Preimage {
+		t.Fatalf("expected quote preimage '%v' but got '%v' instead", invoice.Preimage, meltQuote.Preimage)
 	}
 
 }
 
 func TestMelt(t *testing.T) {
 	var amount uint64 = 1000
-	underProofs, err := testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	underProofs, err := testutils.GetValidProofsForAmount(amount, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	invoice := lnrpc.Invoice{Value: 6000}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err := node2.CreateInvoice(6000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest := addInvoiceResponse.PaymentRequest
+	paymentRequest := invoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
@@ -589,7 +625,7 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.PaymentMethodNotSupportedErr, err)
 	}
 
-	validProofs, err := testutils.GetValidProofsForAmount(6500, testMint, lnd2)
+	validProofs, err := testutils.GetValidProofsForAmount(6500, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -631,12 +667,11 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.MeltQuoteAlreadyPaid, err)
 	}
 
-	invoice = lnrpc.Invoice{Value: 6000}
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err = node2.CreateInvoice(6000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest = addInvoiceResponse.PaymentRequest
+	paymentRequest = invoice.PaymentRequest
 
 	// test already used proofs
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
@@ -653,29 +688,29 @@ func TestMelt(t *testing.T) {
 
 	// mint with fees
 	mintFeesPath := filepath.Join(".", "mintfeesmelt")
-	mintFees, err := testutils.CreateTestMint(lnd1, mintFeesPath, 100, mint.MintLimits{})
+	mintFees, err := testutils.CreateTestMint(lightningClient1, mintFeesPath, 100, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(mintFeesPath)
 
 	amount = 6000
-	underProofs, err = testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
+	underProofs, err = testutils.GetValidProofsForAmount(amount, mintFees, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
 	amount = 6500
-	validProofsWithFees, err := testutils.GetValidProofsForAmount(amount, mintFees, lnd2)
+	validProofsWithFees, err := testutils.GetValidProofsForAmount(amount, mintFees, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err = node2.CreateInvoice(6000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest = addInvoiceResponse.PaymentRequest
+	paymentRequest = invoice.PaymentRequest
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err = mintFees.RequestMeltQuote(meltQuoteRequest)
@@ -701,15 +736,8 @@ func TestMelt(t *testing.T) {
 	}
 
 	// test failed lightning payment
-	lnd3, err := btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lnd3.Terminate(ctx)
-
 	// create invoice from node for which there is no route so payment fails
-	noRoute := lnrpc.Invoice{Value: 2000}
-	noRouteInvoice, err := lnd3.Client.AddInvoice(ctx, &noRoute)
+	noRouteInvoice, err := lightningClient3.CreateInvoice(2000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
@@ -721,7 +749,7 @@ func TestMelt(t *testing.T) {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
 
-	validProofs, err = testutils.GetValidProofsForAmount(6500, testMint, lnd2)
+	validProofs, err = testutils.GetValidProofsForAmount(6500, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -743,7 +771,7 @@ func TestMelt(t *testing.T) {
 	keyset := testMint.GetActiveKeyset()
 	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
 
-	proofs, err := testutils.GetValidProofsForAmount(mintAmount, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(mintAmount, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -778,43 +806,45 @@ func TestMelt(t *testing.T) {
 }
 
 func TestMPPMelt(t *testing.T) {
-	lnd3, err := btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
+	var lightningClient4 lightning.Client
+	switch *backend {
+	case "LND":
+		lnd4, err := lnd.NewLnd(ctx, bitcoind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lnd4.Terminate(ctx)
+		lightningClient4, err = testutils.LndClient(lnd4)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := testutils.FundNode(ctx, bitcoind, node2); err != nil {
 		t.Fatal(err)
 	}
-	lnd4, err := btcdocker.NewLnd(ctx, bitcoind)
-	if err != nil {
+	if err := testutils.OpenChannel(ctx, bitcoind, node1, node3, 1500000); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		lnd3.Terminate(ctx)
-		lnd4.Terminate(ctx)
-	}()
-	if err := testutils.FundLndNode(ctx, bitcoind, lnd2); err != nil {
-		t.Fatal(err)
-	}
-	if err := testutils.OpenChannel(ctx, bitcoind, lnd1, lnd3, 1500000); err != nil {
-		t.Fatal(err)
-	}
-	if err := testutils.OpenChannel(ctx, bitcoind, lnd2, lnd3, 1500000); err != nil {
+	if err := testutils.OpenChannel(ctx, bitcoind, node2, node3, 1500000); err != nil {
 		t.Fatal(err)
 	}
 
 	testMppMintPath := filepath.Join(".", "testmppmint2")
-	testMppMint, err := testutils.CreateTestMint(lnd2, testMppMintPath, 0, mint.MintLimits{})
+	testMppMint, err := testutils.CreateTestMint(lightningClient2, testMppMintPath, 0, mint.MintLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(testMppMintPath)
 
-	invoice := lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err := lnd3.Client.AddInvoice(ctx, &invoice)
+	invoice, err := node3.CreateInvoice(10000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
+	paymentRequest := invoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{
-		Request: addInvoiceResponse.PaymentRequest,
+		Request: paymentRequest,
 		Unit:    cashu.Sat.String(),
 		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 6000 * 1000}},
 	}
@@ -824,7 +854,7 @@ func TestMPPMelt(t *testing.T) {
 	}
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
-		Request: addInvoiceResponse.PaymentRequest,
+		Request: paymentRequest,
 		Unit:    cashu.Sat.String(),
 		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 4000 * 1000}},
 	}
@@ -834,8 +864,8 @@ func TestMPPMelt(t *testing.T) {
 	}
 
 	// get valid proofs to use in melts
-	validProofsFromMint1, _ := testutils.GetValidProofsForAmount(6100, testMint, lnd3)
-	validProofsFromMint2, _ := testutils.GetValidProofsForAmount(4100, testMppMint, lnd3)
+	validProofsFromMint1, _ := testutils.GetValidProofsForAmount(6100, testMint, node3)
+	validProofsFromMint2, _ := testutils.GetValidProofsForAmount(4100, testMppMint, node3)
 
 	// do melt tokens request concurrently
 	type result struct {
@@ -872,14 +902,14 @@ func TestMPPMelt(t *testing.T) {
 	}
 
 	// MPP will fail because there is no route
-	invoice = lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err = lnd4.Client.AddInvoice(ctx, &invoice)
+	noRouteInvoice, err := lightningClient4.CreateInvoice(10000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
+	noRoutePaymentRequest := noRouteInvoice.PaymentRequest
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
-		Request: addInvoiceResponse.PaymentRequest,
+		Request: noRoutePaymentRequest,
 		Unit:    cashu.Sat.String(),
 		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 6000 * 1000}},
 	}
@@ -889,7 +919,7 @@ func TestMPPMelt(t *testing.T) {
 	}
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
-		Request: addInvoiceResponse.PaymentRequest,
+		Request: noRoutePaymentRequest,
 		Unit:    cashu.Sat.String(),
 		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 4000 * 1000}},
 	}
@@ -899,8 +929,8 @@ func TestMPPMelt(t *testing.T) {
 	}
 
 	// get valid proofs to use in melts
-	validProofsFromMint1, _ = testutils.GetValidProofsForAmount(6100, testMint, lnd3)
-	validProofsFromMint2, _ = testutils.GetValidProofsForAmount(4100, testMppMint, lnd3)
+	validProofsFromMint1, _ = testutils.GetValidProofsForAmount(6100, testMint, node3)
+	validProofsFromMint2, _ = testutils.GetValidProofsForAmount(4100, testMppMint, node3)
 
 	wg.Add(1)
 	go func() {
@@ -929,14 +959,13 @@ func TestMPPMelt(t *testing.T) {
 	}
 
 	// test err on mpp amount over invoice amount
-	invoice = lnrpc.Invoice{Value: 10000}
-	addInvoiceResponse, err = lnd4.Client.AddInvoice(ctx, &invoice)
+	newInvoice, err := lightningClient4.CreateInvoice(10000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
-		Request: addInvoiceResponse.PaymentRequest,
+		Request: newInvoice.PaymentRequest,
 		Unit:    cashu.Sat.String(),
 		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 10100 * 1000}},
 	}
@@ -951,9 +980,9 @@ func TestMPPMelt(t *testing.T) {
 
 	// test pending in-flight payments
 	preimage, _ := testutils.GenerateRandomBytes()
-	hash := sha256.Sum256(preimage)
-	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
-	addHodlInvoiceRes, err := lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
+	hashBytes := sha256.Sum256(preimage)
+	hash := hex.EncodeToString(hashBytes[:])
+	hodlInvoice, err := node2.CreateHodlInvoice(2100, hash)
 	if err != nil {
 		t.Fatalf("error creating hodl invoice: %v", err)
 	}
@@ -962,7 +991,7 @@ func TestMPPMelt(t *testing.T) {
 	defer cancel()
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{
-		Request: addHodlInvoiceRes.PaymentRequest,
+		Request: hodlInvoice.PaymentRequest,
 		Unit:    cashu.Sat.String(),
 		Options: map[string]nut05.MppOption{"mpp": {AmountMsat: 2000 * 1000}},
 	}
@@ -970,7 +999,7 @@ func TestMPPMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
-	validProofsFromMint, _ := testutils.GetValidProofsForAmount(2100, testMint, lnd3)
+	validProofsFromMint, _ := testutils.GetValidProofsForAmount(2100, testMint, node3)
 	meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote.Id, Inputs: validProofsFromMint}
 	melt, err := testMint.MeltTokens(meltContext, meltTokensRequest)
 	if err != nil {
@@ -1026,14 +1055,16 @@ func TestMPPMelt(t *testing.T) {
 
 func TestPendingProofs(t *testing.T) {
 	// use hodl invoice to cause payment to stuck and put quote and proofs in state of pending
-	preimage, _ := testutils.GenerateRandomBytes()
-	hash := sha256.Sum256(preimage)
-	hodlInvoice := invoicesrpc.AddHoldInvoiceRequest{Hash: hash[:], Value: 2100}
-	addHodlInvoiceRes, err := lnd2.InvoicesClient.AddHoldInvoice(ctx, &hodlInvoice)
+	preimageBytes, _ := testutils.GenerateRandomBytes()
+	preimage := hex.EncodeToString(preimageBytes)
+
+	hashBytes := sha256.Sum256(preimageBytes)
+	hash := hex.EncodeToString(hashBytes[:])
+	hodlInvoice, err := node2.CreateHodlInvoice(2100, hash)
 	if err != nil {
 		t.Fatalf("error creating hodl invoice: %v", err)
 	}
-	paymentRequest := addHodlInvoiceRes.PaymentRequest
+	paymentRequest := hodlInvoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
@@ -1041,7 +1072,7 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
 
-	validProofs, err := testutils.GetValidProofsForAmount(2200, testMint, lnd2)
+	validProofs, err := testutils.GetValidProofsForAmount(2200, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -1099,9 +1130,7 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofPendingErr, err)
 	}
 
-	settleHodlInvoice := invoicesrpc.SettleInvoiceMsg{Preimage: preimage}
-	_, err = lnd2.InvoicesClient.SettleInvoice(ctx, &settleHodlInvoice)
-	if err != nil {
+	if err := node2.SettleHodlInvoice(preimage, "", nil); err != nil {
 		t.Fatalf("error settling hodl invoice: %v", err)
 	}
 
@@ -1113,7 +1142,7 @@ func TestPendingProofs(t *testing.T) {
 		t.Fatalf("expected melt quote with state of '%s' but got '%s' instead", nut05.Paid, meltQuote.State)
 	}
 
-	expectedPreimage := hex.EncodeToString(preimage)
+	expectedPreimage := preimage
 	if meltQuote.Preimage != expectedPreimage {
 		t.Fatalf("expected melt quote with preimage of '%v' but got '%v' instead", preimage, meltQuote.Preimage)
 	}
@@ -1139,12 +1168,8 @@ func TestConcurrentMint(t *testing.T) {
 	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		t.Fatalf("error paying invoice: %v", err)
 	}
 
 	var wg sync.WaitGroup
@@ -1177,7 +1202,7 @@ func TestConcurrentMint(t *testing.T) {
 
 func TestConcurrentSwap(t *testing.T) {
 	var amount uint64 = 2100
-	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -1219,14 +1244,12 @@ func TestConcurrentMelt(t *testing.T) {
 	var feeReserve uint64 = 0
 	// create 100 melt quotes
 	for i := 0; i < numRequests; i++ {
-		invoice := lnrpc.Invoice{Value: int64(amount)}
-		addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+		invoice, err := node2.CreateInvoice(amount)
 		if err != nil {
 			t.Fatalf("error creating invoice: %v", err)
 		}
-		paymentRequest := addInvoiceResponse.PaymentRequest
 
-		meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
+		meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: cashu.Sat.String()}
 		meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 		if err != nil {
 			t.Fatalf("got unexpected error in melt request: %v", err)
@@ -1235,7 +1258,7 @@ func TestConcurrentMelt(t *testing.T) {
 		feeReserve = meltQuote.FeeReserve
 	}
 
-	proofs, err := testutils.GetValidProofsForAmount(amount+feeReserve, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(amount+feeReserve, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -1270,7 +1293,7 @@ func TestConcurrentMelt(t *testing.T) {
 }
 
 func TestProofsStateCheck(t *testing.T) {
-	proofs, err := testutils.GetValidProofsForAmount(5000, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(5000, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -1281,7 +1304,7 @@ func TestProofsStateCheck(t *testing.T) {
 		Kind: nut10.P2PK,
 		Data: hex.EncodeToString(lock.PubKey().SerializeCompressed()),
 	}
-	p2pkProofs, err := testutils.GetProofsWithSpendingCondition(2100, p2pkSpendingCondition, testMint, lnd2)
+	p2pkProofs, err := testutils.GetProofsWithSpendingCondition(2100, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1295,7 +1318,7 @@ func TestProofsStateCheck(t *testing.T) {
 		Kind: nut10.HTLC,
 		Data: hex.EncodeToString(hashBytes[:]),
 	}
-	htlcProofs, err := testutils.GetProofsWithSpendingCondition(2100, htlcSpendingCondition, testMint, lnd2)
+	htlcProofs, err := testutils.GetProofsWithSpendingCondition(2100, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1367,7 +1390,7 @@ func TestProofsStateCheck(t *testing.T) {
 
 func TestRestoreSignatures(t *testing.T) {
 	// create blinded messages
-	blindedMessages, _, _, blindedSignatures, err := testutils.GetBlindedSignatures(5000, testMint, lnd2)
+	blindedMessages, _, _, blindedSignatures, err := testutils.GetBlindedSignatures(5000, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating blinded signatures: %v", err)
 	}
@@ -1427,7 +1450,7 @@ func TestMintLimits(t *testing.T) {
 	}
 
 	limitsMint, err := testutils.CreateTestMint(
-		lnd1,
+		lightningClient1,
 		limitsMintPath,
 		100,
 		mintLimits,
@@ -1459,12 +1482,8 @@ func TestMintLimits(t *testing.T) {
 	blindedMessages, secrets, rs, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	//pay invoice
-	sendPaymentRequest := lnrpc.SendRequest{
-		PaymentRequest: mintQuoteResponse.PaymentRequest,
-	}
-	response, _ := lnd2.Client.SendPaymentSync(ctx, &sendPaymentRequest)
-	if len(response.PaymentError) > 0 {
-		t.Fatalf("error paying invoice: %v", response.PaymentError)
+	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
+		t.Fatalf("error paying invoice: %v", err)
 	}
 
 	mintTokensRequest := nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
@@ -1481,12 +1500,11 @@ func TestMintLimits(t *testing.T) {
 	}
 
 	// test melt with invoice over max melt amount
-	invoice := lnrpc.Invoice{Value: 15000}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err := node2.CreateInvoice(15000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest := addInvoiceResponse.PaymentRequest
+	paymentRequest := invoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	_, err = limitsMint.RequestMeltQuote(meltQuoteRequest)
@@ -1496,12 +1514,11 @@ func TestMintLimits(t *testing.T) {
 
 	// test melt with invoice within limit
 	validProofs, err := testutils.ConstructProofs(blindedSignatures, secrets, rs, &keyset)
-	invoice = lnrpc.Invoice{Value: 8000}
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err = node2.CreateInvoice(8000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest = addInvoiceResponse.PaymentRequest
+	paymentRequest = invoice.PaymentRequest
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := limitsMint.RequestMeltQuote(meltQuoteRequest)
@@ -1526,14 +1543,7 @@ func TestMintLimits(t *testing.T) {
 func TestNUT11P2PK(t *testing.T) {
 	lock, _ := btcec.NewPrivateKey()
 
-	p2pkMintPath := filepath.Join(".", "p2pkmint")
-	p2pkMint, err := testutils.CreateTestMint(lnd1, p2pkMintPath, 0, mint.MintLimits{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(p2pkMintPath)
-
-	keyset := p2pkMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset()
 
 	var mintAmount uint64 = 1500
 	hexPubkey := hex.EncodeToString(lock.PubKey().SerializeCompressed())
@@ -1541,14 +1551,14 @@ func TestNUT11P2PK(t *testing.T) {
 		Kind: nut10.P2PK,
 		Data: hexPubkey,
 	}
-	lockedProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	lockedProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	// swap with proofs that do not have valid witness
-	_, err = p2pkMint.Swap(lockedProofs, blindedMessages)
+	_, err = testMint.Swap(lockedProofs, blindedMessages)
 	if !errors.Is(err, nut11.InvalidWitness) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
 	}
@@ -1556,14 +1566,14 @@ func TestNUT11P2PK(t *testing.T) {
 	// invalid proofs signed with another key
 	anotherKey, _ := btcec.NewPrivateKey()
 	invalidProofs, _ := nut11.AddSignatureToInputs(lockedProofs, anotherKey)
-	_, err = p2pkMint.Swap(invalidProofs, blindedMessages)
+	_, err = testMint.Swap(invalidProofs, blindedMessages)
 	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
 	}
 
 	// valid signed proofs
 	signedProofs, _ := nut11.AddSignatureToInputs(lockedProofs, lock)
-	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	_, err = testMint.Swap(signedProofs, blindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
 	}
@@ -1578,7 +1588,7 @@ func TestNUT11P2PK(t *testing.T) {
 		Pubkeys: multisigKeys,
 	}
 	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
-	multisigProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	multisigProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1586,7 +1596,7 @@ func TestNUT11P2PK(t *testing.T) {
 	// proofs with only 1 signature but require 2
 	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
 	notEnoughSigsProofs, _ := nut11.AddSignatureToInputs(multisigProofs, lock)
-	_, err = p2pkMint.Swap(notEnoughSigsProofs, blindedMessages)
+	_, err = testMint.Swap(notEnoughSigsProofs, blindedMessages)
 	if !errors.Is(err, nut11.NotEnoughSignaturesErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.NotEnoughSignaturesErr, err)
 	}
@@ -1594,14 +1604,14 @@ func TestNUT11P2PK(t *testing.T) {
 	signingKeys := []*btcec.PrivateKey{key1, key2}
 	// enough signatures but blinded messages not signed
 	signedProofs, _ = testutils.AddP2PKWitnessToInputs(multisigProofs, signingKeys)
-	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	_, err = testMint.Swap(signedProofs, blindedMessages)
 	if !errors.Is(err, nut11.InvalidWitness) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
 	}
 
 	// inputs and outputs with valid signatures
 	signedBlindedMessages, _ := testutils.AddP2PKWitnessToOutputs(blindedMessages, signingKeys)
-	_, err = p2pkMint.Swap(signedProofs, signedBlindedMessages)
+	_, err = testMint.Swap(signedProofs, signedBlindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
 	}
@@ -1611,19 +1621,19 @@ func TestNUT11P2PK(t *testing.T) {
 		Locktime: time.Now().Add(time.Minute * 1).Unix(),
 	}
 	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
-	locktimeProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	locktimeProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
 	// unsigned proofs
-	_, err = p2pkMint.Swap(locktimeProofs, blindedMessages)
+	_, err = testMint.Swap(locktimeProofs, blindedMessages)
 	if !errors.Is(err, nut11.InvalidWitness) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
 	}
 
 	signedProofs, _ = nut11.AddSignatureToInputs(locktimeProofs, lock)
-	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	_, err = testMint.Swap(signedProofs, blindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
 	}
@@ -1632,14 +1642,14 @@ func TestNUT11P2PK(t *testing.T) {
 		Locktime: time.Now().Add(-(time.Minute * 10)).Unix(),
 	}
 	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
-	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 
 	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
 	// locktime expired so spendable without signature
-	_, err = p2pkMint.Swap(locktimeProofs, blindedMessages)
+	_, err = testMint.Swap(locktimeProofs, blindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
 	}
@@ -1650,12 +1660,12 @@ func TestNUT11P2PK(t *testing.T) {
 		Refund:   []*btcec.PublicKey{key1.PubKey()},
 	}
 	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
-	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 	// unsigned proofs should fail because there were refund pubkeys in the tags
-	_, err = p2pkMint.Swap(locktimeProofs, blindedMessages)
+	_, err = testMint.Swap(locktimeProofs, blindedMessages)
 	if err == nil {
 		t.Fatal("expected error but got 'nil' instead")
 	}
@@ -1663,40 +1673,39 @@ func TestNUT11P2PK(t *testing.T) {
 	// sign with refund pubkey
 	signedProofs, _ = testutils.AddP2PKWitnessToInputs(locktimeProofs, []*btcec.PrivateKey{key1})
 	blindedMessages, _, _, _ = testutils.CreateBlindedMessages(mintAmount, keyset)
-	_, err = p2pkMint.Swap(signedProofs, blindedMessages)
+	_, err = testMint.Swap(signedProofs, blindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
 	}
 
 	// get locked proofs for melting
 	p2pkSpendingCondition.Tags = [][]string{}
-	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 
-	invoice := lnrpc.Invoice{Value: 500}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err := node2.CreateInvoice(500)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest := addInvoiceResponse.PaymentRequest
+	paymentRequest := invoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
-	meltQuote, err := p2pkMint.RequestMeltQuote(meltQuoteRequest)
+	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
 
 	meltTokensRequest := nut05.PostMeltBolt11Request{Quote: meltQuote.Id, Inputs: lockedProofs}
-	_, err = p2pkMint.MeltTokens(ctx, meltTokensRequest)
+	_, err = testMint.MeltTokens(ctx, meltTokensRequest)
 	if !errors.Is(err, nut11.InvalidWitness) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.InvalidWitness, err)
 	}
 
 	signedProofs, _ = testutils.AddP2PKWitnessToInputs(lockedProofs, []*btcec.PrivateKey{lock})
 	meltTokensRequest = nut05.PostMeltBolt11Request{Quote: meltQuote.Id, Inputs: signedProofs}
-	_, err = p2pkMint.MeltTokens(ctx, meltTokensRequest)
+	_, err = testMint.MeltTokens(ctx, meltTokensRequest)
 	if err != nil {
 		t.Fatalf("unexpected error melting: %v", err)
 	}
@@ -1706,27 +1715,26 @@ func TestNUT11P2PK(t *testing.T) {
 		Sigflag: nut11.SIGALL,
 	}
 	p2pkSpendingCondition.Tags = nut11.SerializeP2PKTags(tags)
-	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, p2pkMint, lnd2)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, p2pkSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 	signedProofs, _ = testutils.AddP2PKWitnessToInputs(lockedProofs, []*btcec.PrivateKey{lock})
 
-	invoice = lnrpc.Invoice{Value: 500}
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err = node2.CreateInvoice(500)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest = addInvoiceResponse.PaymentRequest
+	paymentRequest = invoice.PaymentRequest
 
 	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
-	meltQuote, err = p2pkMint.RequestMeltQuote(meltQuoteRequest)
+	meltQuote, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
 	}
 
 	meltTokensRequest = nut05.PostMeltBolt11Request{Quote: meltQuote.Id, Inputs: signedProofs}
-	_, err = p2pkMint.MeltTokens(ctx, meltTokensRequest)
+	_, err = testMint.MeltTokens(ctx, meltTokensRequest)
 	if !errors.Is(err, nut11.SigAllOnlySwap) {
 		t.Fatalf("expected error '%v' but got '%v' instead", nut11.SigAllOnlySwap, err)
 	}
@@ -1734,7 +1742,7 @@ func TestNUT11P2PK(t *testing.T) {
 
 func TestDLEQProofs(t *testing.T) {
 	var amount uint64 = 5000
-	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, lnd2)
+	proofs, err := testutils.GetValidProofsForAmount(amount, testMint, node2)
 	if err != nil {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
@@ -1783,7 +1791,7 @@ func TestHTLC(t *testing.T) {
 		Kind: nut10.HTLC,
 		Data: hash,
 	}
-	lockedProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	lockedProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1821,7 +1829,7 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: nut11.SerializeP2PKTags(tags),
 	}
-	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1861,7 +1869,7 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: serializedTags,
 	}
-	multisigHTLC, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	multisigHTLC, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1885,7 +1893,7 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: nut11.SerializeP2PKTags(tags),
 	}
-	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1915,7 +1923,7 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: nut11.SerializeP2PKTags(tags),
 	}
-	locktimeProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	locktimeProofs, err := testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1937,7 +1945,7 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: nut11.SerializeP2PKTags(tags),
 	}
-	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	locktimeProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
@@ -1961,17 +1969,16 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: [][]string{},
 	}
-	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 
-	invoice := lnrpc.Invoice{Value: 500}
-	addInvoiceResponse, err := lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err := node2.CreateInvoice(500)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	paymentRequest := addInvoiceResponse.PaymentRequest
+	paymentRequest := invoice.PaymentRequest
 
 	meltQuoteRequest := nut05.PostMeltQuoteBolt11Request{Request: paymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err := testMint.RequestMeltQuote(meltQuoteRequest)
@@ -2001,18 +2008,17 @@ func TestHTLC(t *testing.T) {
 		Data: hash,
 		Tags: nut11.SerializeP2PKTags(tags),
 	}
-	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, lnd2)
+	lockedProofs, err = testutils.GetProofsWithSpendingCondition(mintAmount, htlcSpendingCondition, testMint, node2)
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
 	lockedProofs, _ = testutils.AddHTLCWitnessToInputs(lockedProofs, preimage, signingKey)
 
-	invoice = lnrpc.Invoice{Value: 500}
-	addInvoiceResponse, err = lnd2.Client.AddInvoice(ctx, &invoice)
+	invoice, err = node2.CreateInvoice(500)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
 	}
-	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: addInvoiceResponse.PaymentRequest, Unit: cashu.Sat.String()}
+	meltQuoteRequest = nut05.PostMeltQuoteBolt11Request{Request: invoice.PaymentRequest, Unit: cashu.Sat.String()}
 	meltQuote, err = testMint.RequestMeltQuote(meltQuoteRequest)
 	if err != nil {
 		t.Fatalf("got unexpected error in melt request: %v", err)
