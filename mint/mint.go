@@ -87,16 +87,12 @@ func LoadMint(config Config) (*Mint, error) {
 	seed, err := db.GetSeed()
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			// generate new seed
-			for {
-				seed, err = hdkeychain.GenerateSeed(32)
-				if err == nil {
-					err = db.SaveSeed(seed)
-					if err != nil {
-						return nil, err
-					}
-					break
-				}
+			seed, err = hdkeychain.GenerateSeed(32)
+			if err != nil {
+				return nil, err
+			}
+			if err := db.SaveSeed(seed); err != nil {
+				return nil, fmt.Errorf("could not save generated seed to db: %v", err)
 			}
 		} else {
 			return nil, err
@@ -108,56 +104,21 @@ func LoadMint(config Config) (*Mint, error) {
 		return nil, err
 	}
 
-	activeKeyset, err := crypto.GenerateKeyset(master, config.DerivationPathIdx, config.InputFeePpk)
-	if err != nil {
-		return nil, err
-	}
-	logger.Info(fmt.Sprintf("setting active keyset '%v' with fee %v", activeKeyset.Id, activeKeyset.InputFeePpk))
-	ctx, cancel := context.WithCancel(context.Background())
-
-	mint := &Mint{
-		db:            db,
-		activeKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
-		limits:        config.Limits,
-		logger:        logger,
-		mppEnabled:    config.EnableMPP,
-		publisher:     pubsub.NewPubSub(),
-		ctx:           ctx,
-		cancel:        cancel,
-	}
-
-	dbKeysets, err := mint.db.GetKeysets()
+	dbKeysets, err := db.GetKeysets()
 	if err != nil {
 		return nil, fmt.Errorf("error reading keysets from db: %v", err)
 	}
 
-	activeKeysetNew := true
+	var activeKeyset *crypto.MintKeyset
 	mintKeysets := make(map[string]crypto.MintKeyset)
-	for _, dbkeyset := range dbKeysets {
-		seed, err := hex.DecodeString(dbkeyset.Seed)
+	// if no keysets stored, just create a new one
+	if len(dbKeysets) == 0 {
+		keyset, err := crypto.GenerateKeyset(master, 0, config.InputFeePpk, true)
 		if err != nil {
 			return nil, err
 		}
-
-		master, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
-		if err != nil {
-			return nil, err
-		}
-
-		if dbkeyset.Id == activeKeyset.Id {
-			activeKeysetNew = false
-			mint.db.UpdateKeysetActive(activeKeyset.Id, true)
-		}
-		keyset, err := crypto.GenerateKeyset(master, dbkeyset.DerivationPathIdx, dbkeyset.InputFeePpk)
-		if err != nil {
-			return nil, err
-		}
-		keyset.Active = dbkeyset.Active
-		mintKeysets[keyset.Id] = *keyset
-	}
-
-	// save active keyset if new
-	if activeKeysetNew {
+		activeKeyset = keyset
+		mintKeysets[activeKeyset.Id] = *activeKeyset
 		hexseed := hex.EncodeToString(seed)
 		activeDbKeyset := storage.DBKeyset{
 			Id:                activeKeyset.Id,
@@ -167,31 +128,85 @@ func LoadMint(config Config) (*Mint, error) {
 			DerivationPathIdx: activeKeyset.DerivationPathIdx,
 			InputFeePpk:       activeKeyset.InputFeePpk,
 		}
-		err := mint.db.SaveKeyset(activeDbKeyset)
-		if err != nil {
+		if err := db.SaveKeyset(activeDbKeyset); err != nil {
 			return nil, fmt.Errorf("error saving new active keyset: %v", err)
 		}
+	} else {
+		// build keysets from db
+		for _, dbkeyset := range dbKeysets {
+			keyset, err := crypto.GenerateKeyset(
+				master,
+				dbkeyset.DerivationPathIdx,
+				dbkeyset.InputFeePpk,
+				dbkeyset.Active,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if keyset.Active {
+				activeKeyset = keyset
+			}
+			mintKeysets[keyset.Id] = *keyset
+		}
+		if config.RotateKeyset {
+			newDerivationPathIdx := activeKeyset.DerivationPathIdx + 1
+			newKeyset, err := crypto.GenerateKeyset(
+				master,
+				newDerivationPathIdx,
+				config.InputFeePpk,
+				true,
+			)
+			if err != nil {
+				return nil, err
+			}
+			logger.Info(fmt.Sprintf("setting keyset '%v' to inactive", activeKeyset.Id))
+			// if rotating, deactivate previous one and change it in db
+			activeKeyset.Active = false
+			mintKeysets[activeKeyset.Id] = *activeKeyset
+			if err := db.UpdateKeysetActive(activeKeyset.Id, false); err != nil {
+				return nil, fmt.Errorf("could not update active state of keyset in db: %v", err)
+			}
+			activeKeyset = newKeyset
+			mintKeysets[newKeyset.Id] = *newKeyset
+
+			hexseed := hex.EncodeToString(seed)
+			activeDbKeyset := storage.DBKeyset{
+				Id:                newKeyset.Id,
+				Unit:              newKeyset.Unit,
+				Active:            true,
+				Seed:              hexseed,
+				DerivationPathIdx: newKeyset.DerivationPathIdx,
+				InputFeePpk:       newKeyset.InputFeePpk,
+			}
+			if err := db.SaveKeyset(activeDbKeyset); err != nil {
+				return nil, fmt.Errorf("error saving new active keyset: %v", err)
+			}
+		}
 	}
-	mint.keysets = mintKeysets
-	mint.keysets[activeKeyset.Id] = *activeKeyset
+
+	logger.Info(fmt.Sprintf("setting active keyset '%v' with fee %v", activeKeyset.Id, activeKeyset.InputFeePpk))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	mint := &Mint{
+		db:            db,
+		activeKeysets: map[string]crypto.MintKeyset{activeKeyset.Id: *activeKeyset},
+		keysets:       mintKeysets,
+		limits:        config.Limits,
+		logger:        logger,
+		mppEnabled:    config.EnableMPP,
+		publisher:     pubsub.NewPubSub(),
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
 	if config.LightningClient == nil {
 		return nil, errors.New("invalid lightning client")
 	}
-
 	if err := config.LightningClient.ConnectionStatus(); err != nil {
 		return nil, fmt.Errorf("can't connect to lightning backend: %v", err)
 	}
 	mint.lightningClient = config.LightningClient
 	mint.SetMintInfo(config.MintInfo)
-
-	for _, keyset := range mint.keysets {
-		if keyset.Id != activeKeyset.Id && keyset.Active {
-			mint.logger.Info(fmt.Sprintf("setting keyset '%v' to inactive", keyset.Id))
-			keyset.Active = false
-			mint.db.UpdateKeysetActive(keyset.Id, false)
-			mint.keysets[keyset.Id] = keyset
-		}
-	}
 
 	return mint, nil
 }

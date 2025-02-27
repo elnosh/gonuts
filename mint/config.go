@@ -16,7 +16,7 @@ const (
 )
 
 type Config struct {
-	DerivationPathIdx uint32
+	RotateKeyset      bool
 	Port              int
 	MintPath          string
 	InputFeePpk       uint

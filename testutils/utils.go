@@ -658,7 +658,7 @@ func FundCashuWallet(ctx context.Context, wallet *wallet.Wallet, backend Lightni
 func MintConfig(
 	backend lightning.Client,
 	port int,
-	derivationPathIdx uint32,
+	rotateKeyset bool,
 	dbpath string,
 	inputFeePpk uint,
 	limits mint.MintLimits,
@@ -669,15 +669,15 @@ func MintConfig(
 
 	timeout := time.Second * 2
 	mintConfig := &mint.Config{
-		DerivationPathIdx: derivationPathIdx,
-		Port:              port,
-		MintPath:          dbpath,
-		InputFeePpk:       inputFeePpk,
-		Limits:            limits,
-		LightningClient:   backend,
-		EnableMPP:         true,
-		LogLevel:          mint.Disable,
-		MeltTimeout:       &timeout,
+		RotateKeyset:    rotateKeyset,
+		Port:            port,
+		MintPath:        dbpath,
+		InputFeePpk:     inputFeePpk,
+		Limits:          limits,
+		LightningClient: backend,
+		EnableMPP:       true,
+		LogLevel:        mint.Disable,
+		MeltTimeout:     &timeout,
 	}
 
 	return mintConfig, nil
@@ -716,7 +716,7 @@ func CreateTestMint(
 	inputFeePpk uint,
 	limits mint.MintLimits,
 ) (*mint.Mint, error) {
-	config, err := MintConfig(backend, 0, 0, dbpath, inputFeePpk, limits)
+	config, err := MintConfig(backend, 0, false, dbpath, inputFeePpk, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -731,11 +731,11 @@ func CreateTestMint(
 func CreateTestMintServer(
 	backend lightning.Client,
 	port int,
-	derivationPathIdx uint32,
+	rotateKeyset bool,
 	dbpath string,
 	inputFeePpk uint,
 ) (*mint.MintServer, error) {
-	config, err := MintConfig(backend, port, derivationPathIdx, dbpath, inputFeePpk, mint.MintLimits{})
+	config, err := MintConfig(backend, port, rotateKeyset, dbpath, inputFeePpk, mint.MintLimits{})
 	if err != nil {
 		return nil, err
 	}
