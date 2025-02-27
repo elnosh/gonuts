@@ -50,6 +50,7 @@ func (s *Server) setupHttpServer() error {
 	r.HandleFunc("/redeemed", s.getRedeemedEcash).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/redeemed/{keyset_id}", s.getRedeemedByKeyset).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/totalbalance", s.getTotalEcash).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/keysets", s.getKeysets).Methods(http.MethodGet, http.MethodOptions)
 
 	r.Use(setupHeaders)
 
@@ -208,6 +209,13 @@ func (s *Server) getTotalEcash(rw http.ResponseWriter, req *http.Request) {
 		TotalInCirculation: issuedEcash.TotalIssued - redeemedEcash.TotalRedeemed,
 	}
 	response, _ := json.Marshal(totalBalance)
+	rw.Write(response)
+}
+
+// same response from NUT-02 /v1/keysets
+func (s *Server) getKeysets(rw http.ResponseWriter, req *http.Request) {
+	keysetsResponse := s.mint.ListKeysets()
+	response, _ := json.Marshal(keysetsResponse)
 	rw.Write(response)
 }
 
