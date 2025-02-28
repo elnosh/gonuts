@@ -4,9 +4,9 @@
 package nut01
 
 import (
-	"bytes"
 	"encoding/json"
-	"slices"
+
+	"github.com/elnosh/gonuts/crypto"
 )
 
 type GetKeysResponse struct {
@@ -14,49 +14,51 @@ type GetKeysResponse struct {
 }
 
 type Keyset struct {
-	Id   string  `json:"id"`
-	Unit string  `json:"unit"`
-	Keys KeysMap `json:"keys"`
+	Id   string            `json:"id"`
+	Unit string            `json:"unit"`
+	Keys crypto.PublicKeys `json:"keys"`
 }
 
-type KeysMap map[uint64]string
-
-// Custom marshaller to display sorted keys
-func (km KeysMap) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte('{')
-
-	amounts := make([]uint64, len(km))
-	i := 0
-	for k := range km {
-		amounts[i] = k
-		i++
+func (kr *GetKeysResponse) UnmarshalJSON(data []byte) error {
+	var tempResponse struct {
+		Keysets []json.RawMessage
 	}
-	slices.Sort(amounts)
-
-	for j, amount := range amounts {
-		if j != 0 {
-			buf.WriteByte(',')
-		}
-
-		// marshal key
-		key, err := json.Marshal(amount)
-		if err != nil {
-			return nil, err
-		}
-		buf.WriteByte('"')
-		buf.Write(key)
-		buf.WriteByte('"')
-		buf.WriteByte(':')
-		// marshal value
-		pubkey := km[amount]
-		val, err := json.Marshal(pubkey)
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(val)
+	if err := json.Unmarshal(data, &tempResponse); err != nil {
+		return nil
 	}
 
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
+	keysets := make([]Keyset, len(tempResponse.Keysets))
+	for i, k := range tempResponse.Keysets {
+		var keyset Keyset
+		if err := json.Unmarshal(k, &keyset); err != nil {
+			return err
+		}
+		keysets[i] = keyset
+	}
+	kr.Keysets = keysets
+
+	return nil
+}
+
+func (ks *Keyset) UnmarshalJSON(data []byte) error {
+	var tempKeyset struct {
+		Id   string
+		Unit string
+		Keys json.RawMessage
+	}
+
+	if err := json.Unmarshal(data, &tempKeyset); err != nil {
+		return err
+	}
+
+	ks.Id = tempKeyset.Id
+	ks.Unit = tempKeyset.Unit
+
+	publicKeys := make(crypto.PublicKeys, len(tempKeyset.Keys))
+	if err := json.Unmarshal(tempKeyset.Keys, &publicKeys); err != nil {
+		return err
+	}
+	ks.Keys = publicKeys
+
+	return nil
 }

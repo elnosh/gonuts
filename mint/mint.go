@@ -23,6 +23,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut01"
+	"github.com/elnosh/gonuts/cashu/nuts/nut02"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut06"
@@ -1490,13 +1492,39 @@ func (m *Mint) TransactionFees(inputs cashu.Proofs) uint {
 	return (fees + 999) / 1000
 }
 
-func (m *Mint) GetActiveKeyset() crypto.MintKeyset {
-	var keyset crypto.MintKeyset
-	for _, k := range m.activeKeysets {
-		keyset = k
-		break
+func (m *Mint) ListKeysets() nut02.GetKeysetsResponse {
+	keysets := make([]nut02.Keyset, len(m.keysets))
+	i := 0
+	for _, keyset := range m.keysets {
+		keysetRes := nut02.Keyset{
+			Id:          keyset.Id,
+			Unit:        keyset.Unit,
+			Active:      keyset.Active,
+			InputFeePpk: keyset.InputFeePpk,
+		}
+		keysets[i] = keysetRes
+		i++
 	}
-	return keyset
+	return nut02.GetKeysetsResponse{Keysets: keysets}
+}
+
+func (m *Mint) GetActiveKeyset() nut01.Keyset {
+	for _, k := range m.activeKeysets {
+		return nut01.Keyset{Id: k.Id, Unit: k.Unit, Keys: k.PublicKeys()}
+	}
+	return nut01.Keyset{}
+}
+
+func (m *Mint) GetKeysetById(id string) (nut01.Keyset, error) {
+	keyset, ok := m.keysets[id]
+	if !ok {
+		return nut01.Keyset{}, cashu.UnknownKeysetErr
+	}
+	return nut01.Keyset{
+		Id:   keyset.Id,
+		Unit: keyset.Unit,
+		Keys: keyset.PublicKeys(),
+	}, nil
 }
 
 func (m *Mint) SetMintInfo(mintInfo MintInfo) {

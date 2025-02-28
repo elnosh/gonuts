@@ -16,13 +16,11 @@ import (
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut01"
-	"github.com/elnosh/gonuts/cashu/nuts/nut02"
 	"github.com/elnosh/gonuts/cashu/nuts/nut03"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
 	"github.com/elnosh/gonuts/cashu/nuts/nut07"
 	"github.com/elnosh/gonuts/cashu/nuts/nut09"
-	"github.com/elnosh/gonuts/crypto"
 	"github.com/gorilla/mux"
 )
 
@@ -170,8 +168,9 @@ func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errRes
 }
 
 func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request) {
-	getKeysResponse := buildKeysResponse(ms.mint.activeKeysets)
-	jsonRes, err := json.Marshal(getKeysResponse)
+	activeKeyset := ms.mint.GetActiveKeyset()
+	activeKeysets := nut01.GetKeysResponse{Keysets: []nut01.Keyset{activeKeyset}}
+	jsonRes, err := json.Marshal(&activeKeysets)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -181,8 +180,8 @@ func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request
 }
 
 func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) {
-	getKeysetsResponse := ms.buildAllKeysetsResponse()
-	jsonRes, err := json.Marshal(getKeysetsResponse)
+	keysetsList := ms.mint.ListKeysets()
+	jsonRes, err := json.Marshal(keysetsList)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -195,14 +194,13 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 
-	ks, ok := ms.mint.keysets[id]
-	if !ok {
+	keyset, err := ms.mint.GetKeysetById(id)
+	if err != nil {
 		ms.writeErr(rw, req, cashu.UnknownKeysetErr)
 		return
 	}
-
-	getKeysResponse := buildKeysResponse(map[string]crypto.MintKeyset{ks.Id: ks})
-	jsonRes, err := json.Marshal(getKeysResponse)
+	keysets := nut01.GetKeysResponse{Keysets: []nut01.Keyset{keyset}}
+	jsonRes, err := json.Marshal(&keysets)
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
@@ -616,34 +614,6 @@ func (ms *MintServer) mintInfo(rw http.ResponseWriter, req *http.Request) {
 
 	ms.logRequest(req, http.StatusOK, "returning mint info")
 	rw.Write(jsonRes)
-}
-
-func buildKeysResponse(keysets map[string]crypto.MintKeyset) nut01.GetKeysResponse {
-	keysResponse := nut01.GetKeysResponse{}
-
-	for _, keyset := range keysets {
-		pks := keyset.DerivePublic()
-		keyRes := nut01.Keyset{Id: keyset.Id, Unit: keyset.Unit, Keys: pks}
-		keysResponse.Keysets = append(keysResponse.Keysets, keyRes)
-	}
-
-	return keysResponse
-}
-
-func (ms *MintServer) buildAllKeysetsResponse() nut02.GetKeysetsResponse {
-	keysetsResponse := nut02.GetKeysetsResponse{}
-
-	for _, keyset := range ms.mint.keysets {
-		keysetRes := nut02.Keyset{
-			Id:          keyset.Id,
-			Unit:        keyset.Unit,
-			Active:      keyset.Active,
-			InputFeePpk: keyset.InputFeePpk,
-		}
-		keysetsResponse.Keysets = append(keysetsResponse.Keysets, keysetRes)
-	}
-
-	return keysetsResponse
 }
 
 func decodeJsonReqBody(req *http.Request, dst any) error {
