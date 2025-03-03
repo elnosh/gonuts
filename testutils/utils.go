@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	mathrand "math/rand/v2"
 	"net"
 	"net/http"
@@ -713,6 +714,8 @@ func CLNClient(clnNode *cln.CLN) (*lightning.CLNClient, error) {
 		RestURL: fmt.Sprintf("http://%s:%s", clnNode.Host, clnNode.RestPort),
 		Rune:    clnNode.Rune,
 	}
+
+	log.Printf("Setting up CLN client with RestURL: %s, Rune: %s", clnConfig.RestURL, clnConfig.Rune)
 
 	clnClient, err := lightning.SetupCLNClient(clnConfig)
 	if err != nil {
