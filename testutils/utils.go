@@ -708,6 +708,21 @@ func LndClient(lnd *lnd.Lnd) (*lightning.LndClient, error) {
 	return lndClient, nil
 }
 
+func CLNClient(clnNode *cln.CLN) (*lightning.CLNClient, error) {
+	clnConfig := lightning.CLNConfig{
+		RestURL: fmt.Sprintf("http://%s:%s", clnNode.Host, clnNode.RestPort),
+		Rune:    clnNode.Rune,
+	}
+
+	clnClient, err := lightning.SetupCLNClient(clnConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error setting CLN client: %v", err)
+	}
+
+	return clnClient, nil
+}
+
+
 func CreateTestMint(
 	backend lightning.Client,
 	dbpath string,

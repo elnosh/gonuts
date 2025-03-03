@@ -1,0 +1,36 @@
+# Bump this number to generate new active keyset and deactivate previous one
+DERIVATION_PATH_IDX=0
+# fee to charge per input (in parts per thousand)
+INPUT_FEE_PPK=100
+
+# mint info
+MINT_NAME="a cashu mint"
+MINT_DESCRIPTION="short mint description"
+MINT_DESCRIPTION_LONG="a long description of the mint"
+MINT_CONTACT_INFO=[["email", "contact@me.com"], ["nostr", "npub..."]]
+MINT_MOTD="message to the users of the mint"
+MINT_ICON_URL="https://<mint>/icon.jpeg"
+MINT_URLS=["https://<mint>", "https://<mint2>"]
+
+# mint limits (these are optional but recommended to use)
+# max balance (in sats). Minting new ecash will be disabled if this balance is reached
+MAX_BALANCE=1000000
+# max mint amount (in sats)
+MINTING_MAX_AMOUNT=50000
+# max melt amount (in sats)
+MELTING_MAX_AMOUNT=50000
+
+# Lightning Backend - Lnd, CLN, FakeBackend (FOR TESTING ONLY)
+LIGHTNING_BACKEND="CLN"
+
+# LND
+LND_GRPC_HOST="127.0.0.1:10001"
+LND_CERT_PATH="/path/to/tls/cert"
+LND_MACAROON_PATH="/path/to/macaroon"
+
+# CLN
+CLN_REST_URL="http://100.67.176.8:3030"
+CLN_REST_RUNE="Wy8jHmjeNwyQr7VVy3saPl5MMid9z23xilESE9ru94c9MA==" #change to path to rune later
+
+# enable MPP/NUT-15 (disabled by default)
+ENABLE_MPP=TRUE
