@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,10 +21,22 @@ const (
 	DebugLogging         = true // Toggle this for logs
 )
 
-// Log helper
+// Set up logging to a file
+func init() {
+	logFile, err := os.OpenFile("cln_debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	log.SetOutput(logFile)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile) // Include timestamps & file info
+}
+
 func debugLog(format string, args ...interface{}) {
 	if DebugLogging {
-		log.Printf(format, args...)
+		message := fmt.Sprintf(format, args...)
+		if strings.Contains(strings.ToLower(message), "error") { // Only log errors
+			log.Println(message)
+		}
 	}
 }
 
