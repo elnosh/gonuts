@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,12 +30,10 @@ func init() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile) // Include timestamps & file info
 }
 
+// Log helper
 func debugLog(format string, args ...interface{}) {
 	if DebugLogging {
-		message := fmt.Sprintf(format, args...)
-		if strings.Contains(strings.ToLower(message), "error") { // Only log errors
-			log.Println(message)
-		}
+		log.Printf(format, args...)
 	}
 }
 
