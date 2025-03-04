@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/client"
@@ -64,26 +63,18 @@ func GetMintInactiveKeysets(mintURL string, unit cashu.Unit) (map[string]crypto.
 	return inactiveKeysets, nil
 }
 
-func GetKeysetKeys(mintURL, id string) (map[uint64]*secp256k1.PublicKey, error) {
+func GetKeysetKeys(mintURL, id string) (crypto.PublicKeys, error) {
 	keysetsResponse, err := client.GetKeysetById(mintURL, id)
 	if err != nil {
 		return nil, fmt.Errorf("error getting keyset from mint: %v", err)
 	}
 
-	var keys map[uint64]*secp256k1.PublicKey
-	if len(keysetsResponse.Keysets) > 0 {
-		var err error
-		keys, err = crypto.MapPubKeys(keysetsResponse.Keysets[0].Keys)
-		if err != nil {
-			return nil, err
-		}
-	}
-	derivedId := crypto.DeriveKeysetId(keys)
+	derivedId := crypto.DeriveKeysetId(keysetsResponse.Keysets[0].Keys)
 	if id != derivedId {
 		return nil, fmt.Errorf("Got invalid keyset. Derived id: '%v' but got '%v' from mint", derivedId, keysetsResponse.Keysets[0].Id)
 	}
 
-	return keys, nil
+	return keysetsResponse.Keysets[0].Keys, nil
 }
 
 // getActiveKeyset returns the active keyset for the mint passed.

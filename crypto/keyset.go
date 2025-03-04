@@ -1,16 +1,18 @@
 package crypto
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
-	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 )
 
 const MAX_ORDER = 60
@@ -91,6 +93,68 @@ func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk ui
 	}, nil
 }
 
+type PublicKeys map[uint64]*secp256k1.PublicKey
+
+// Custom marshaller to display sorted keys
+func (pks PublicKeys) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+
+	amounts := make([]uint64, len(pks))
+	i := 0
+	for k := range pks {
+		amounts[i] = k
+		i++
+	}
+	slices.Sort(amounts)
+
+	for j, amount := range amounts {
+		if j != 0 {
+			buf.WriteByte(',')
+		}
+
+		// marshal key
+		key, err := json.Marshal(amount)
+		if err != nil {
+			return nil, err
+		}
+		buf.WriteByte('"')
+		buf.Write(key)
+		buf.WriteByte('"')
+		buf.WriteByte(':')
+		// marshal value
+		pubkey := hex.EncodeToString(pks[amount].SerializeCompressed())
+		val, err := json.Marshal(pubkey)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(val)
+	}
+
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+func (pks PublicKeys) UnmarshalJSON(data []byte) error {
+	var tempKeys map[uint64]string
+	if err := json.Unmarshal(data, &tempKeys); err != nil {
+		return err
+	}
+
+	for amount, key := range tempKeys {
+		keyBytes, err := hex.DecodeString(key)
+		if err != nil {
+			return err
+		}
+		publicKey, err := secp256k1.ParsePubKey(keyBytes)
+		if err != nil {
+			return fmt.Errorf("invalid public key: %v", err)
+		}
+		pks[amount] = publicKey
+	}
+	return nil
+}
+
 // DeriveKeysetId returns the string ID derived from the map keyset
 // The steps to derive the ID are:
 // - sort public keys by their amount in ascending order
@@ -98,7 +162,7 @@ func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk ui
 // - HASH_SHA256 the concatenated public keys
 // - take the first 14 characters of the hex-encoded hash
 // - prefix it with a keyset ID version byte
-func DeriveKeysetId(keyset map[uint64]*secp256k1.PublicKey) string {
+func DeriveKeysetId(keyset PublicKeys) string {
 	type pubkey struct {
 		amount uint64
 		pk     *secp256k1.PublicKey
@@ -125,11 +189,10 @@ func DeriveKeysetId(keyset map[uint64]*secp256k1.PublicKey) string {
 
 // DerivePublic returns the keyset's public keys as
 // a map of amounts uint64 to strings that represents the public key
-func (ks *MintKeyset) DerivePublic() map[uint64]string {
-	pubkeys := make(map[uint64]string)
+func (ks *MintKeyset) PublicKeys() PublicKeys {
+	pubkeys := make(map[uint64]*secp256k1.PublicKey, len(ks.Keys))
 	for amount, key := range ks.Keys {
-		pubkey := hex.EncodeToString(key.PublicKey.SerializeCompressed())
-		pubkeys[amount] = pubkey
+		pubkeys[amount] = key.PublicKey
 	}
 	return pubkeys
 }
@@ -288,20 +351,4 @@ func (wk *WalletKeyset) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-func MapPubKeys(keys nut01.KeysMap) (map[uint64]*secp256k1.PublicKey, error) {
-	publicKeys := make(map[uint64]*secp256k1.PublicKey)
-	for amount, key := range keys {
-		pkbytes, err := hex.DecodeString(key)
-		if err != nil {
-			return nil, err
-		}
-		pubkey, err := secp256k1.ParsePubKey(pkbytes)
-		if err != nil {
-			return nil, err
-		}
-		publicKeys[amount] = pubkey
-	}
-	return publicKeys, nil
 }

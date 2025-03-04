@@ -251,7 +251,7 @@ func TestMintQuoteState(t *testing.T) {
 		t.Fatalf("expected quote state '%s' but got '%s' instead", nut04.Paid, quoteStateResponse.State)
 	}
 
-	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
+	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset.Id)
 
 	// mint tokens
 	mintTokensRequest := nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: blindedMessages}
@@ -278,7 +278,7 @@ func TestMintTokens(t *testing.T) {
 		t.Fatalf("error requesting mint quote: %v", err)
 	}
 
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	// test without paying invoice
@@ -310,7 +310,7 @@ func TestMintTokens(t *testing.T) {
 
 	// test with invalid keyset in blinded messages
 	invalidKeyset := crypto.MintKeyset{Id: "0192384aa"}
-	invalidKeysetMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, invalidKeyset)
+	invalidKeysetMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, invalidKeyset.Id)
 	mintTokensRequest = nut04.PostMintBolt11Request{Quote: mintQuoteResponse.Id, Outputs: invalidKeysetMessages}
 	_, err = testMint.MintTokens(mintTokensRequest)
 	if !errors.Is(err, cashu.UnknownKeysetErr) {
@@ -425,7 +425,7 @@ func TestSwap(t *testing.T) {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 
 	newBlindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
 	overBlindedMessages, _, _, err := testutils.CreateBlindedMessages(amount+200, keyset)
@@ -502,7 +502,7 @@ func TestSwap(t *testing.T) {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	keyset = mintFees.GetActiveKeyset()
+	keyset = mintFees.GetActiveKeyset().Id
 
 	fees := mintFees.TransactionFees(proofs)
 	invalidAmtblindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
@@ -785,7 +785,7 @@ func TestMelt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error requesting mint quote: %v", err)
 	}
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 	blindedMessages, _, _, err := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	proofs, err := testutils.GetValidProofsForAmount(mintAmount, testMint, node2)
@@ -1141,7 +1141,7 @@ func TestPendingProofs(t *testing.T) {
 
 	// try to use currently pending proofs in another op.
 	// swap should return err saying proofs are pending
-	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(validProofs.Amount(), testMint.GetActiveKeyset())
+	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(validProofs.Amount(), testMint.GetActiveKeyset().Id)
 	_, err = testMint.Swap(validProofs, blindedMessages)
 	if !errors.Is(err, cashu.ProofPendingErr) {
 		t.Fatalf("expected error '%v' but got '%v' instead", cashu.ProofPendingErr, err)
@@ -1181,7 +1181,7 @@ func TestConcurrentMint(t *testing.T) {
 	mintQuoteRequest := nut04.PostMintQuoteBolt11Request{Amount: mintAmount, Unit: cashu.Sat.String()}
 	mintQuoteResponse, _ := testMint.RequestMintQuote(mintQuoteRequest)
 
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	//pay invoice
@@ -1224,7 +1224,7 @@ func TestConcurrentSwap(t *testing.T) {
 		t.Fatalf("error generating valid proofs: %v", err)
 	}
 
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -1380,7 +1380,7 @@ func TestProofsStateCheck(t *testing.T) {
 			Ys[i] = Yhex
 		}
 
-		blindedMessages, _, _, _ := testutils.CreateBlindedMessages(proofsToSpend.Amount(), testMint.GetActiveKeyset())
+		blindedMessages, _, _, _ := testutils.CreateBlindedMessages(proofsToSpend.Amount(), testMint.GetActiveKeyset().Id)
 		_, err = testMint.Swap(proofsToSpend, blindedMessages)
 		if err != nil {
 			t.Fatalf("unexpected error in swap: %v", err)
@@ -1428,7 +1428,7 @@ func TestRestoreSignatures(t *testing.T) {
 	}
 
 	// test with blinded messages that have not been previously signed
-	unsigned, _, _, _ := testutils.CreateBlindedMessages(4200, testMint.GetActiveKeyset())
+	unsigned, _, _, _ := testutils.CreateBlindedMessages(4200, testMint.GetActiveKeyset().Id)
 	outputs, signatures, err = testMint.RestoreSignatures(unsigned)
 	if err != nil {
 		t.Fatalf("unexpected error restoring signatures: %v\n", err)
@@ -1496,7 +1496,7 @@ func TestMintLimits(t *testing.T) {
 		t.Fatalf("error requesting mint quote: %v", err)
 	}
 
-	blindedMessages, secrets, rs, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
+	blindedMessages, secrets, rs, _ := testutils.CreateBlindedMessages(mintAmount, keyset.Id)
 
 	//pay invoice
 	if err := node2.PayInvoice(mintQuoteResponse.PaymentRequest); err != nil {
@@ -1530,7 +1530,7 @@ func TestMintLimits(t *testing.T) {
 	}
 
 	// test melt with invoice within limit
-	validProofs, err := testutils.ConstructProofs(blindedSignatures, secrets, rs, &keyset)
+	validProofs, err := testutils.ConstructProofs(blindedSignatures, secrets, rs, keyset)
 	invoice, err = node2.CreateInvoice(8000)
 	if err != nil {
 		t.Fatalf("error creating invoice: %v", err)
@@ -1560,7 +1560,7 @@ func TestMintLimits(t *testing.T) {
 func TestNUT11P2PK(t *testing.T) {
 	lock, _ := btcec.NewPrivateKey()
 
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 
 	var mintAmount uint64 = 1500
 	hexPubkey := hex.EncodeToString(lock.PubKey().SerializeCompressed())
@@ -1772,12 +1772,12 @@ func TestDLEQProofs(t *testing.T) {
 			t.Fatal("mint returned nil DLEQ proof")
 		}
 
-		if !nut12.VerifyProofDLEQ(proof, keyset.Keys[proof.Amount].PublicKey) {
+		if !nut12.VerifyProofDLEQ(proof, keyset.Keys[proof.Amount]) {
 			t.Fatal("generated invalid DLEQ proof from MintTokens")
 		}
 	}
 
-	blindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset)
+	blindedMessages, _, _, err := testutils.CreateBlindedMessages(amount, keyset.Id)
 	blindSignatures, err := testMint.Swap(proofs, blindedMessages)
 	if err != nil {
 		t.Fatalf("unexpected error in swap: %v", err)
@@ -1789,7 +1789,7 @@ func TestDLEQProofs(t *testing.T) {
 		}
 		if !nut12.VerifyBlindSignatureDLEQ(
 			*sig.DLEQ,
-			keyset.Keys[sig.Amount].PublicKey,
+			keyset.Keys[sig.Amount],
 			blindedMessages[i].B_,
 			sig.C_,
 		) {
@@ -1812,7 +1812,7 @@ func TestHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting locked proofs: %v", err)
 	}
-	keyset := testMint.GetActiveKeyset()
+	keyset := testMint.GetActiveKeyset().Id
 	blindedMessages, _, _, _ := testutils.CreateBlindedMessages(mintAmount, keyset)
 
 	// test with proofs that do not have a witness

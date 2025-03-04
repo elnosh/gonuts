@@ -28,6 +28,7 @@ import (
 	"github.com/elnosh/btc-docker-test/cln"
 	"github.com/elnosh/btc-docker-test/lnd"
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut01"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut10"
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
@@ -364,9 +365,9 @@ func (clnContainer *CLNBackend) NewAddress() (btcutil.Address, error) {
 }
 
 func (clnContainer *CLNBackend) ConnectToPeer(peer *Peer) error {
-	id := fmt.Sprintf("%s@%s", peer.Pubkey, peer.Addr)
 	body := map[string]string{
-		"id": id,
+		"id":   peer.Pubkey,
+		"host": peer.Addr,
 	}
 
 	resp, err := clnContainer.Post(clnContainer.url+"/connect", body)
@@ -396,8 +397,9 @@ func (clnContainer *CLNBackend) ConnectToPeer(peer *Peer) error {
 
 func (clnContainer *CLNBackend) OpenChannel(to *Peer, amount uint64) error {
 	body := map[string]any{
-		"id":     to.Pubkey,
-		"amount": amount,
+		"id":        to.Pubkey,
+		"amount":    amount,
+		"push_msat": (amount / 2) * 1000,
 	}
 
 	resp, err := clnContainer.Post(clnContainer.url+"/fundchannel", body)
@@ -455,7 +457,7 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
 	body := map[string]any{
-		"amount":      amount * 1000,
+		"amount_msat": amount * 1000,
 		"label":       time.Now().Unix(),
 		"description": "test",
 	}
@@ -769,7 +771,7 @@ func newBlindedMessage(id string, amount uint64, B_ *secp256k1.PublicKey) cashu.
 	return cashu.BlindedMessage{Amount: amount, B_: B_str, Id: id}
 }
 
-func CreateBlindedMessages(amount uint64, keyset crypto.MintKeyset) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
+func CreateBlindedMessages(amount uint64, keysetId string) (cashu.BlindedMessages, []string, []*secp256k1.PrivateKey, error) {
 	splitAmounts := cashu.AmountSplit(amount)
 	splitLen := len(splitAmounts)
 
@@ -800,7 +802,7 @@ func CreateBlindedMessages(amount uint64, keyset crypto.MintKeyset) (cashu.Blind
 			}
 		}
 
-		blindedMessage := newBlindedMessage(keyset.Id, amt, B_)
+		blindedMessage := newBlindedMessage(keysetId, amt, B_)
 		blindedMessages[i] = blindedMessage
 		secrets[i] = secret
 		rs[i] = r
@@ -810,7 +812,7 @@ func CreateBlindedMessages(amount uint64, keyset crypto.MintKeyset) (cashu.Blind
 }
 
 func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
-	secrets []string, rs []*secp256k1.PrivateKey, keyset *crypto.MintKeyset) (cashu.Proofs, error) {
+	secrets []string, rs []*secp256k1.PrivateKey, keyset nut01.Keyset) (cashu.Proofs, error) {
 
 	if len(blindedSignatures) != len(secrets) || len(blindedSignatures) != len(rs) {
 		return nil, errors.New("lengths do not match")
@@ -827,12 +829,12 @@ func ConstructProofs(blindedSignatures cashu.BlindedSignatures,
 			return nil, err
 		}
 
-		keyp, ok := keyset.Keys[blindedSignature.Amount]
+		publicKey, ok := keyset.Keys[blindedSignature.Amount]
 		if !ok {
 			return nil, errors.New("key not found")
 		}
 
-		C := crypto.UnblindSignature(C_, rs[i], keyp.PublicKey)
+		C := crypto.UnblindSignature(C_, rs[i], publicKey)
 		Cstr := hex.EncodeToString(C.SerializeCompressed())
 
 		r := hex.EncodeToString(rs[i].Serialize())
@@ -868,7 +870,7 @@ func GetBlindedSignatures(amount uint64, mint *mint.Mint, payer LightningBackend
 	}
 
 	keyset := mint.GetActiveKeyset()
-	blindedMessages, secrets, rs, err := CreateBlindedMessages(amount, keyset)
+	blindedMessages, secrets, rs, err := CreateBlindedMessages(amount, keyset.Id)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("error creating blinded message: %v", err)
 	}
@@ -896,7 +898,7 @@ func GetValidProofsForAmount(amount uint64, mint *mint.Mint, payer LightningBack
 		return nil, fmt.Errorf("error generating blinded signatures: %v", err)
 	}
 
-	proofs, err := ConstructProofs(blindedSignatures, secrets, rs, &keyset)
+	proofs, err := ConstructProofs(blindedSignatures, secrets, rs, keyset)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}
@@ -976,7 +978,7 @@ func GetProofsWithSpendingCondition(
 		return nil, fmt.Errorf("got unexpected error minting tokens: %v", err)
 	}
 
-	proofs, err := ConstructProofs(blindedSignatures, secrets, rs, &keyset)
+	proofs, err := ConstructProofs(blindedSignatures, secrets, rs, keyset)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing proofs: %v", err)
 	}

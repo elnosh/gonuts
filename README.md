@@ -32,7 +32,8 @@ Implemented [NUTs](https://github.com/cashubtc/nuts/):
 - [x] [NUT-15](https://github.com/cashubtc/nuts/blob/main/15.md)
 - [x] [NUT-17](https://github.com/cashubtc/nuts/blob/main/17.md)
 - [ ] [NUT-18](https://github.com/cashubtc/nuts/blob/main/18.md)
-- [ ] [NUT-20](https://github.com/cashubtc/nuts/blob/main/20.md)
+- [ ] [NUT-19](https://github.com/cashubtc/nuts/blob/main/19.md)
+- [x] [NUT-20](https://github.com/cashubtc/nuts/blob/main/20.md)
 
 # Installation
 
