@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -25,6 +26,8 @@ type CLNConfig struct {
 type CLNClient struct {
 	config CLNConfig
 	client *http.Client
+	mu        sync.Mutex // Ensures safe concurrent access to counter
+	invCount  int        // Counter to ensure unique labels
 }
 
 // SetupCLNClient initializes a CLNClient with a shared HTTP client
@@ -82,9 +85,16 @@ func (cln *CLNClient) ConnectionStatus() error {
 func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 	url := fmt.Sprintf("%s/v1/invoice", cln.config.RestURL)
 
+	// Generate unique label
+	cln.mu.Lock()
+	timestamp := time.Now().Unix()
+	label := fmt.Sprintf("cashu-%d-%d", timestamp, cln.invCount)
+	cln.invCount++
+	cln.mu.Unlock()
+
 	body := map[string]interface{}{
 		"amount_msat": fmt.Sprintf("%dmsat", amount*1000),
-		"label":       fmt.Sprintf("cashu-%d", time.Now().Unix()),
+		"label":       label,
 		"description": "Cashu Lightning Invoice",
 		"expiry":      InvoiceExpiryTimeCLN,
 	}
