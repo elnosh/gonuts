@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -15,7 +16,15 @@ import (
 const (
 	InvoiceExpiryTimeCLN = 3600 // 1 hour
 	FeePercentCLN        = 0.01
+	DebugLogging         = true // Toggle this for logs
 )
+
+// Log helper
+func debugLog(format string, args ...interface{}) {
+	if DebugLogging {
+		log.Printf(format, args...)
+	}
+}
 
 // CLNConfig holds configuration for the CLN backend
 type CLNConfig struct {
@@ -80,13 +89,10 @@ func (cln *CLNClient) ConnectionStatus() error {
 	return nil
 }
 
-// CreateInvoice generates a new invoice
+// Modify CreateInvoice to include debug logs
 func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 	url := fmt.Sprintf("%s/v1/invoice", cln.config.RestURL)
-
-	// Generate unique label
-	timestamp := time.Now().Unix()
-	label := fmt.Sprintf("cashu-%d-%s", timestamp, uuid.NewString())
+	label := fmt.Sprintf("cashu-%d-%s", time.Now().Unix(), uuid.NewString())
 
 	body := map[string]interface{}{
 		"amount_msat": fmt.Sprintf("%dmsat", amount*1000),
@@ -94,6 +100,9 @@ func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 		"description": "Cashu Lightning Invoice",
 		"expiry":      InvoiceExpiryTimeCLN,
 	}
+
+	debugLog("Creating invoice: %v", body) // Log request data
+
 	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return Invoice{}, err
@@ -109,6 +118,8 @@ func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 	if err != nil {
 		return Invoice{}, err
 	}
+
+	debugLog("Invoice response: %s", string(bodyBytes)) // Log response
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return Invoice{}, fmt.Errorf("failed to create invoice: %s - %s", resp.Status, string(bodyBytes))
@@ -123,7 +134,6 @@ func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 		return Invoice{}, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// If CLN returned an error message in the response, return it
 	if response.Error != "" {
 		return Invoice{}, fmt.Errorf("CLN error: %s", response.Error)
 	}
@@ -136,11 +146,13 @@ func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 	}, nil
 }
 
-// InvoiceStatus checks the status of an invoice
+// Modify InvoiceStatus to include logs
 func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 	url := fmt.Sprintf("%s/v1/listinvoices", cln.config.RestURL)
 
 	body := map[string]interface{}{"payment_hash": hash}
+	debugLog("Checking invoice status: %v", body)
+
 	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return Invoice{}, err
@@ -152,8 +164,14 @@ func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Invoice{}, err
+	}
+
+	debugLog("Invoice status response: %s", string(bodyBytes))
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return Invoice{}, fmt.Errorf("failed to get invoice status: %s - %s", resp.Status, string(bodyBytes))
 	}
 
@@ -164,12 +182,10 @@ func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 			PaymentHash  string `json:"payment_hash"`
 			AmountMsat   uint64 `json:"amount_msat"`
 			Status       string `json:"status"`
-			Description  string `json:"description"`
 			ExpiresAt    int64  `json:"expires_at"`
-			CreatedIndex int    `json:"created_index"`
 		} `json:"invoices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return Invoice{}, err
 	}
 
@@ -180,22 +196,24 @@ func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 	invoice := response.Invoices[0]
 	invoiceSettled := invoice.Status == "paid"
 
+	debugLog("Invoice %s status: %s", hash, invoice.Status)
+
 	return Invoice{
 		PaymentHash:    invoice.PaymentHash,
 		PaymentRequest: invoice.Bolt11,
 		Settled:        invoiceSettled,
-		Amount:         invoice.AmountMsat / 1000, // Convert from msats to sats
+		Amount:         invoice.AmountMsat / 1000,
 		Expiry:         uint64(invoice.ExpiresAt),
 	}, nil
 }
 
-// SendPayment pays an invoice
+// Modify SendPayment to include logs
 func (cln *CLNClient) SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error) {
 	url := fmt.Sprintf("%s/v1/pay", cln.config.RestURL)
 
-	body := map[string]interface{}{
-		"bolt11": request,
-	}
+	body := map[string]interface{}{"bolt11": request}
+	debugLog("Sending payment: %v", body)
+
 	req, err := cln.newRequest("POST", url, body)
 	if err != nil {
 		return PaymentStatus{}, err
@@ -211,6 +229,8 @@ func (cln *CLNClient) SendPayment(ctx context.Context, request string, maxFee ui
 	if err != nil {
 		return PaymentStatus{}, err
 	}
+
+	debugLog("Payment response: %s", string(bodyBytes))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return PaymentStatus{}, fmt.Errorf("failed to send payment: %s - %s", resp.Status, string(bodyBytes))
@@ -230,6 +250,8 @@ func (cln *CLNClient) SendPayment(ctx context.Context, request string, maxFee ui
 	} else if response.Status == "failed" {
 		status = Failed
 	}
+
+	debugLog("Payment status: %s, Preimage: %s", response.Status, response.Preimage)
 
 	return PaymentStatus{
 		Preimage:      response.Preimage,
