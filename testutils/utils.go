@@ -364,9 +364,9 @@ func (clnContainer *CLNBackend) NewAddress() (btcutil.Address, error) {
 }
 
 func (clnContainer *CLNBackend) ConnectToPeer(peer *Peer) error {
-	id := fmt.Sprintf("%s@%s", peer.Pubkey, peer.Addr)
 	body := map[string]string{
-		"id": id,
+		"id":   peer.Pubkey,
+		"host": peer.Addr,
 	}
 
 	resp, err := clnContainer.Post(clnContainer.url+"/connect", body)
@@ -396,8 +396,9 @@ func (clnContainer *CLNBackend) ConnectToPeer(peer *Peer) error {
 
 func (clnContainer *CLNBackend) OpenChannel(to *Peer, amount uint64) error {
 	body := map[string]any{
-		"id":     to.Pubkey,
-		"amount": amount,
+		"id":        to.Pubkey,
+		"amount":    amount,
+		"push_msat": (amount / 2) * 1000,
 	}
 
 	resp, err := clnContainer.Post(clnContainer.url+"/fundchannel", body)
@@ -455,7 +456,7 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
 	body := map[string]any{
-		"amount":      amount * 1000,
+		"amount_msat": amount * 1000,
 		"label":       time.Now().Unix(),
 		"description": "test",
 	}

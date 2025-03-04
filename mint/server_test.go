@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -107,9 +109,20 @@ func TestGetKeysetsHandler(t *testing.T) {
 		},
 	}
 
-	expectedJson, _ := json.Marshal(expectedKeysetsResponse)
-	if !bytes.Equal(expectedJson, w.Body.Bytes()) {
-		t.Fatal("responses do not match")
+	var keysetsResponse nut02.GetKeysetsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &keysetsResponse); err != nil {
+		t.Fatal(err)
+	}
+
+	keysets := keysetsResponse.Keysets
+	sort.Slice(keysets, func(i, j int) bool {
+		return keysets[i].InputFeePpk < keysets[j].InputFeePpk
+	})
+	keysetsResponse.Keysets = keysets
+
+	if !reflect.DeepEqual(expectedKeysetsResponse, keysetsResponse) {
+		t.Fatalf("keyset responses do not match. Expected '%+v' but got '%+v'",
+			expectedKeysetsResponse, keysetsResponse)
 	}
 }
 
