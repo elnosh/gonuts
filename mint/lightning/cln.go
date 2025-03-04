@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -100,10 +99,17 @@ func (cln *CLNClient) ConnectionStatus() error {
 	return nil
 }
 
+// Create a new rand source for safe usage
+var rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 // Modify CreateInvoice to include debug logs
 func (cln *CLNClient) CreateInvoice(amount uint64) (Invoice, error) {
 	url := fmt.Sprintf("%s/v1/invoice", cln.config.RestURL)
-	label := fmt.Sprintf("cashu-%d-%s", time.Now().Unix(), uuid.NewString())
+
+	// Generate a 6-digit random number
+	randomID := rnd.Intn(900000) + 100000 // Ensures a number between 100000-999999
+
+	label := fmt.Sprintf("cashu-%d-%d", time.Now().Unix(), randomID)
 
 	body := map[string]interface{}{
 		"amount_msat": fmt.Sprintf("%dmsat", amount*1000),
