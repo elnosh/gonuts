@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/mint"
@@ -51,6 +52,7 @@ func (s *Server) setupHttpServer() error {
 	r.HandleFunc("/redeemed/{keyset_id}", s.getRedeemedByKeyset).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/totalbalance", s.getTotalEcash).Methods(http.MethodGet, http.MethodOptions)
 	r.HandleFunc("/keysets", s.getKeysets).Methods(http.MethodGet, http.MethodOptions)
+	r.HandleFunc("/rotatekeyset", s.rotateKeyset).Methods(http.MethodPost, http.MethodOptions)
 
 	r.Use(setupHeaders)
 
@@ -216,6 +218,32 @@ func (s *Server) getTotalEcash(rw http.ResponseWriter, req *http.Request) {
 func (s *Server) getKeysets(rw http.ResponseWriter, req *http.Request) {
 	keysetsResponse := s.mint.ListKeysets()
 	response, _ := json.Marshal(keysetsResponse)
+	rw.Write(response)
+}
+
+func (s *Server) rotateKeyset(rw http.ResponseWriter, req *http.Request) {
+	fee := req.URL.Query().Get("fee")
+	if len(fee) == 0 {
+		rw.WriteHeader(http.StatusBadRequest)
+		rw.Write([]byte("fee for keyset not specified"))
+		return
+	}
+
+	keysetFee, err := strconv.Atoi(fee)
+	if err != nil || keysetFee < 0 {
+		rw.WriteHeader(http.StatusBadRequest)
+		rw.Write([]byte("invalid fee"))
+		return
+	}
+
+	newKeyset, err := s.mint.RotateKeyset(uint(keysetFee))
+	if err != nil {
+		rw.WriteHeader(http.StatusInternalServerError)
+		rw.Write([]byte(err.Error()))
+		return
+	}
+
+	response, _ := json.Marshal(newKeyset)
 	rw.Write(response)
 }
 
