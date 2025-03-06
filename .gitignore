@@ -1,5 +1,6 @@
 cmd/nutw/nutw
 cmd/nutw/*wallet*
+cmd/mint/mint-cli/mint-cli
 **/.env
 *.txt
 .vscode
