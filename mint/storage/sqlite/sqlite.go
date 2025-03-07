@@ -104,16 +104,6 @@ func (sqlite *SQLiteDB) Close() error {
 	return sqlite.db.Close()
 }
 
-func (sqlite *SQLiteDB) GetBalance() (uint64, error) {
-	var balance uint64
-	row := sqlite.db.QueryRow("SELECT balance FROM balance")
-	err := row.Scan(&balance)
-	if err != nil {
-		return 0, err
-	}
-	return balance, nil
-}
-
 func (sqlite *SQLiteDB) SaveSeed(seed []byte) error {
 	hexSeed := hex.EncodeToString(seed)
 
@@ -724,4 +714,46 @@ func (sqlite *SQLiteDB) GetBlindSignatures(B_s []string) (cashu.BlindedSignature
 	}
 
 	return signatures, nil
+}
+
+func (sqlite *SQLiteDB) GetIssuedEcash() (map[string]uint64, error) {
+	ecashIssued := make(map[string]uint64)
+
+	rows, err := sqlite.db.Query("SELECT * FROM total_issued")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var keysetId string
+		var amount uint64
+		if err := rows.Scan(&keysetId, &amount); err != nil {
+			return nil, err
+		}
+		ecashIssued[keysetId] = amount
+	}
+
+	return ecashIssued, nil
+}
+
+func (sqlite *SQLiteDB) GetRedeemedEcash() (map[string]uint64, error) {
+	ecashRedeemed := make(map[string]uint64)
+
+	rows, err := sqlite.db.Query("SELECT * FROM total_redeemed")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var keysetId string
+		var amount uint64
+		if err := rows.Scan(&keysetId, &amount); err != nil {
+			return nil, err
+		}
+		ecashRedeemed[keysetId] = amount
+	}
+
+	return ecashRedeemed, nil
 }

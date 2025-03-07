@@ -16,7 +16,7 @@ const (
 )
 
 type Config struct {
-	DerivationPathIdx uint32
+	RotateKeyset      bool
 	Port              int
 	MintPath          string
 	InputFeePpk       uint
@@ -25,6 +25,7 @@ type Config struct {
 	LightningClient   lightning.Client
 	EnableMPP         bool
 	LogLevel          LogLevel
+	EnableAdminServer bool
 	// NOTE: using this value for testing
 	MeltTimeout *time.Duration
 }

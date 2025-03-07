@@ -366,6 +366,88 @@ func TestBlindSignatures(t *testing.T) {
 
 }
 
+func TestBalanceViews(t *testing.T) {
+	dbpath := "./balanceviewsdb"
+	if err := os.MkdirAll(dbpath, 0750); err != nil {
+		t.Fatalf("could not create directory test db: %v", err)
+	}
+
+	db, err := InitSQLite(dbpath)
+	if err != nil {
+		t.Fatalf("unexpected error creating sqlite db: %v", err)
+	}
+	defer os.RemoveAll(dbpath)
+
+	count := 210
+	B_s := generateRandomB_s(count)
+	blindSignatures := generateBlindSignatures(count)
+	if err := db.SaveBlindSignatures(B_s, blindSignatures); err != nil {
+		t.Fatalf("unexpected error saving blind signatures: %v", err)
+	}
+	keysetId := blindSignatures[0].Id
+
+	// 2nd batch of blind signatures
+	B_s = generateRandomB_s(count)
+	blindSignatures2 := generateBlindSignatures(count)
+	if err := db.SaveBlindSignatures(B_s, blindSignatures2); err != nil {
+		t.Fatalf("unexpected error saving blind signatures: %v", err)
+	}
+	keysetId2 := blindSignatures[0].Id
+
+	proofs := generateRandomProofs(21)
+	if err := db.SaveProofs(proofs); err != nil {
+		t.Fatalf("unexpected error saving proofs: %v", err)
+	}
+	proofKeysetId := proofs[0].Id
+
+	// 2nd batch of proofs
+	proofs2 := generateRandomProofs(21)
+	if err := db.SaveProofs(proofs2); err != nil {
+		t.Fatalf("unexpected error saving proofs: %v", err)
+	}
+	proofKeysetId2 := proofs[0].Id
+
+	totalIssued := blindSignatures.Amount() + blindSignatures2.Amount()
+	ecashIssued, err := db.GetIssuedEcash()
+	if err != nil {
+		t.Fatalf("unexpected error getting issued ecash: %v", err)
+	}
+	if len(ecashIssued) != 2 {
+		t.Fatalf("expected map of length 2 but got '%v'", len(ecashIssued))
+	}
+	// check map hash both keyset ids
+	if _, ok := ecashIssued[keysetId]; !ok {
+		t.Fatalf("expected ecash issued with keyset id '%v' but it was not present", keysetId)
+	}
+	if _, ok := ecashIssued[keysetId2]; !ok {
+		t.Fatalf("expected ecash issued with keyset id '%v' but it was not present", keysetId2)
+	}
+	issuedFromDB := ecashIssued[keysetId] + ecashIssued[keysetId2]
+	if totalIssued != issuedFromDB {
+		t.Fatalf("expected total issued of '%v' but got '%v'", totalIssued, issuedFromDB)
+	}
+
+	totalRedeemed := proofs.Amount() + proofs2.Amount()
+	ecashRedeemed, err := db.GetRedeemedEcash()
+	if err != nil {
+		t.Fatalf("unexpected error getting redeemed ecash: %v", err)
+	}
+	if len(ecashRedeemed) != 2 {
+		t.Fatalf("expected map of length 2 but got '%v'", len(ecashRedeemed))
+	}
+	// check map hash both keyset ids
+	if _, ok := ecashRedeemed[proofKeysetId]; !ok {
+		t.Fatalf("expected ecash redeemed with keyset id '%v' but it was not present", proofKeysetId)
+	}
+	if _, ok := ecashRedeemed[proofKeysetId2]; !ok {
+		t.Fatalf("expected ecash redeemed with keyset id '%v' but it was not present", proofKeysetId2)
+	}
+	redeemedFromDB := ecashRedeemed[proofKeysetId] + ecashRedeemed[proofKeysetId2]
+	if totalRedeemed != redeemedFromDB {
+		t.Fatalf("expected total redeemed of '%v' but got '%v'", totalRedeemed, redeemedFromDB)
+	}
+}
+
 func generateRandomString(length int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
@@ -377,11 +459,12 @@ func generateRandomString(length int) string {
 
 func generateRandomProofs(num int) cashu.Proofs {
 	proofs := make(cashu.Proofs, num)
+	keysetId := generateRandomString(32)
 
 	for i := 0; i < num; i++ {
 		proof := cashu.Proof{
 			Amount: 21,
-			Id:     generateRandomString(32),
+			Id:     keysetId,
 			Secret: generateRandomString(64),
 			C:      generateRandomString(64),
 		}
@@ -456,10 +539,11 @@ func generateRandomB_s(num int) []string {
 
 func generateBlindSignatures(num int) cashu.BlindedSignatures {
 	blindSigs := make(cashu.BlindedSignatures, num)
+	keysetId := generateRandomString(32)
 	for i := 0; i < num; i++ {
 		sig := cashu.BlindedSignature{
 			C_:     generateRandomString(33),
-			Id:     generateRandomString(32),
+			Id:     keysetId,
 			Amount: 21,
 			DLEQ: &cashu.DLEQProof{
 				E: generateRandomString(33),
