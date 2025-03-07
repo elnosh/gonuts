@@ -244,6 +244,8 @@ func (ms *MintServer) mintRequest(rw http.ResponseWriter, req *http.Request) {
 	mintQuoteResponse := nut04.PostMintQuoteBolt11Response{
 		Quote:   mintQuote.Id,
 		Request: mintQuote.PaymentRequest,
+		Amount:  mintQuote.Amount,
+		Unit:    cashu.Sat.String(),
 		State:   mintQuote.State,
 		Expiry:  mintQuote.Expiry,
 	}
@@ -289,6 +291,8 @@ func (ms *MintServer) mintQuoteState(rw http.ResponseWriter, req *http.Request) 
 	mintQuoteStateResponse := nut04.PostMintQuoteBolt11Response{
 		Quote:   mintQuote.Id,
 		Request: mintQuote.PaymentRequest,
+		Amount:  mintQuote.Amount,
+		Unit:    cashu.Sat.String(),
 		State:   mintQuote.State,
 		Expiry:  mintQuote.Expiry,
 	}
@@ -411,7 +415,9 @@ func (ms *MintServer) meltQuoteRequest(rw http.ResponseWriter, req *http.Request
 
 	meltQuoteResponse := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
+		Request:    meltQuote.InvoiceRequest,
 		Amount:     meltQuote.Amount,
+		Unit:       cashu.Sat.String(),
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
 		Expiry:     meltQuote.Expiry,
@@ -458,7 +464,9 @@ func (ms *MintServer) meltQuoteState(rw http.ResponseWriter, req *http.Request) 
 
 	quoteState := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
+		Request:    meltQuote.InvoiceRequest,
 		Amount:     meltQuote.Amount,
+		Unit:       cashu.Sat.String(),
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
 		Expiry:     meltQuote.Expiry,
@@ -518,7 +526,9 @@ func (ms *MintServer) meltTokens(rw http.ResponseWriter, req *http.Request) {
 
 	meltQuoteResponse := &nut05.PostMeltQuoteBolt11Response{
 		Quote:      meltQuote.Id,
+		Request:    meltQuote.InvoiceRequest,
 		Amount:     meltQuote.Amount,
+		Unit:       cashu.Sat.String(),
 		FeeReserve: meltQuote.FeeReserve,
 		State:      meltQuote.State,
 		Expiry:     meltQuote.Expiry,

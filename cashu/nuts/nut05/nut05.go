@@ -55,7 +55,9 @@ type MppOption struct {
 
 type PostMeltQuoteBolt11Response struct {
 	Quote      string                  `json:"quote"`
+	Request    string                  `json:"request"`
 	Amount     uint64                  `json:"amount"`
+	Unit       string                  `json:"unit"`
 	FeeReserve uint64                  `json:"fee_reserve"`
 	State      State                   `json:"state"`
 	Expiry     uint64                  `json:"expiry"`
@@ -71,7 +73,9 @@ type PostMeltBolt11Request struct {
 
 type tempQuote struct {
 	Quote      string                  `json:"quote"`
+	Request    string                  `json:"request"`
 	Amount     uint64                  `json:"amount"`
+	Unit       string                  `json:"unit"`
 	FeeReserve uint64                  `json:"fee_reserve"`
 	State      string                  `json:"state"`
 	Expiry     uint64                  `json:"expiry"`
@@ -82,7 +86,9 @@ type tempQuote struct {
 func (quoteResponse *PostMeltQuoteBolt11Response) MarshalJSON() ([]byte, error) {
 	var tempQuote = tempQuote{
 		Quote:      quoteResponse.Quote,
+		Request:    quoteResponse.Request,
 		Amount:     quoteResponse.Amount,
+		Unit:       quoteResponse.Unit,
 		FeeReserve: quoteResponse.FeeReserve,
 		State:      quoteResponse.State.String(),
 		Expiry:     quoteResponse.Expiry,
@@ -100,7 +106,9 @@ func (quoteResponse *PostMeltQuoteBolt11Response) UnmarshalJSON(data []byte) err
 	}
 
 	quoteResponse.Quote = tempQuote.Quote
+	quoteResponse.Request = tempQuote.Request
 	quoteResponse.Amount = tempQuote.Amount
+	quoteResponse.Unit = tempQuote.Unit
 	quoteResponse.FeeReserve = tempQuote.FeeReserve
 	state := StringToState(tempQuote.State)
 	quoteResponse.State = state
