@@ -32,9 +32,9 @@ func configFromEnv() (*mint.Config, error) {
 		inputFeePpk = uint(fee)
 	}
 
-	derivationPathIdx, err := strconv.ParseUint(os.Getenv("DERIVATION_PATH_IDX"), 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid DERIVATION_PATH_IDX: %v", err)
+	rotateKeyset := false
+	if strings.ToLower(os.Getenv("ROTATE_KEYSET")) == "true" {
+		rotateKeyset = true
 	}
 
 	port, err := strconv.Atoi(os.Getenv("MINT_PORT"))
@@ -184,7 +184,7 @@ func configFromEnv() (*mint.Config, error) {
 	}
 
 	return &mint.Config{
-		DerivationPathIdx: uint32(derivationPathIdx),
+		RotateKeyset:      rotateKeyset,
 		Port:              port,
 		MintPath:          mintPath,
 		InputFeePpk:       inputFeePpk,
