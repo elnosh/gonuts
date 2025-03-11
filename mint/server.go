@@ -24,12 +24,30 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type ServerConfig struct {
+	Port int
+	// NOTE: using this value for testing
+	MeltTimeout *time.Duration
+}
+
 type MintServer struct {
 	httpServer       *http.Server
 	mint             *Mint
 	websocketManager *WebsocketManager
 	// NOTE: using this value for testing
 	meltTimeout *time.Duration
+}
+
+func SetupMintServer(m *Mint, config ServerConfig) *MintServer {
+	websocketManager := NewWebSocketManager(m)
+
+	mintServer := &MintServer{
+		mint:             m,
+		websocketManager: websocketManager,
+		meltTimeout:      config.MeltTimeout,
+	}
+	mintServer.setupHttpServer(config.Port)
+	return mintServer
 }
 
 func (ms *MintServer) Start() error {
@@ -41,26 +59,6 @@ func (ms *MintServer) Start() error {
 		ms.mint.logger.Info("shutdown complete")
 	}
 	return nil
-}
-
-func SetupMintServer(config Config) (*MintServer, error) {
-	mint, err := LoadMint(config)
-	if err != nil {
-		return nil, err
-	}
-
-	websocketManager := NewWebSocketManager(mint)
-
-	mintServer := &MintServer{
-		mint:             mint,
-		websocketManager: websocketManager,
-		meltTimeout:      config.MeltTimeout,
-	}
-	err = mintServer.setupHttpServer(config.Port)
-	if err != nil {
-		return nil, err
-	}
-	return mintServer, nil
 }
 
 func (ms *MintServer) Shutdown() error {
@@ -77,7 +75,7 @@ func (ms *MintServer) Shutdown() error {
 	return nil
 }
 
-func (ms *MintServer) setupHttpServer(port int) error {
+func (ms *MintServer) setupHttpServer(port int) {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/v1/keys", ms.getActiveKeysets).Methods(http.MethodGet, http.MethodOptions)
@@ -103,7 +101,6 @@ func (ms *MintServer) setupHttpServer(port int) error {
 	}
 
 	ms.httpServer = server
-	return nil
 }
 
 func setupHeaders(next http.Handler) http.Handler {
