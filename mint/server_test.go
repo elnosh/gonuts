@@ -28,7 +28,7 @@ func TestActiveKeysetsHandler(t *testing.T) {
 
 	seed, _ := hdkeychain.GenerateSeed(32)
 	master, _ := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
-	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 0)
+	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 0, true)
 
 	mint := &Mint{
 		activeKeysets: map[string]crypto.MintKeyset{
@@ -69,9 +69,8 @@ func TestGetKeysetsHandler(t *testing.T) {
 
 	seed, _ := hdkeychain.GenerateSeed(32)
 	master, _ := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
-	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 150)
-	inactiveKeyset, _ := crypto.GenerateKeyset(master, 1, 200)
-	inactiveKeyset.Active = false
+	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 150, true)
+	inactiveKeyset, _ := crypto.GenerateKeyset(master, 1, 200, false)
 
 	mint := &Mint{
 		activeKeysets: map[string]crypto.MintKeyset{
@@ -129,7 +128,7 @@ func TestGetKeysetsHandler(t *testing.T) {
 func TestGetKeysetByIdHandler(t *testing.T) {
 	seed, _ := hdkeychain.GenerateSeed(32)
 	master, _ := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
-	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 150)
+	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 150, true)
 	expectedActiveKeyset := nut01.GetKeysResponse{
 		Keysets: []nut01.Keyset{
 			{
@@ -141,8 +140,7 @@ func TestGetKeysetByIdHandler(t *testing.T) {
 	}
 	expectedActiveJson, _ := json.Marshal(expectedActiveKeyset)
 
-	inactiveKeyset, _ := crypto.GenerateKeyset(master, 1, 200)
-	inactiveKeyset.Active = false
+	inactiveKeyset, _ := crypto.GenerateKeyset(master, 1, 200, false)
 	expectedInactiveKeyset := nut01.GetKeysResponse{
 		Keysets: []nut01.Keyset{
 			{
