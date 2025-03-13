@@ -740,11 +740,13 @@ func CreateTestMintServer(
 		return nil, err
 	}
 
-	mintServer, err := mint.SetupMintServer(*config)
+	m, err := mint.LoadMint(*config)
 	if err != nil {
 		return nil, err
 	}
+	serverConfig := mint.ServerConfig{Port: port, MeltTimeout: config.MeltTimeout}
 
+	mintServer := mint.SetupMintServer(m, serverConfig)
 	return mintServer, nil
 }
 

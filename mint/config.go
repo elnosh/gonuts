@@ -24,6 +24,7 @@ type Config struct {
 	Limits            MintLimits
 	LightningClient   lightning.Client
 	EnableMPP         bool
+	EnableAdminServer bool
 	LogLevel          LogLevel
 	// NOTE: using this value for testing
 	MeltTimeout *time.Duration
