@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math"
+	"os"
 	"reflect"
 	"strconv"
 	"testing"
@@ -75,7 +76,7 @@ func TestConstructProofs(t *testing.T) {
 		"6cc59e6effb48d89a56ff7052dc31ef09fc3a531ac1e2236da167fa4b9d008ab",
 		"172233d8212522a84a1f6ff5472cabd949c2388f98420c222ef5e1229ac090bd",
 	}
-	keyset := generateWalletKeyset("mysecretkey", "0/0/0")
+	keyset := generateWalletKeyset("mysecretkey", "0/0/0", true, "")
 
 	expected := cashu.Proofs{
 		{
@@ -113,7 +114,7 @@ func TestConstructProofs(t *testing.T) {
 }
 
 func TestConstructProofsError(t *testing.T) {
-	keyset := generateWalletKeyset("mysecretkey", "0/0/0")
+	keyset := generateWalletKeyset("mysecretkey", "0/0/0", true, "")
 
 	tests := []struct {
 		signatures cashu.BlindedSignatures
@@ -182,7 +183,65 @@ func TestConstructProofsError(t *testing.T) {
 	}
 }
 
-func generateWalletKeyset(seed, derivationPath string) *crypto.WalletKeyset {
+func TestUpdateMintURL(t *testing.T) {
+	oldMintURL := "http://old-mint-url.com"
+	newMintURL := "http://new-mint-url.com"
+
+	activeKeyset := generateWalletKeyset("key1", "0/0/0", true, oldMintURL)
+	inactiveKeyset := generateWalletKeyset("key2", "0/0/0", false, oldMintURL)
+	mints := map[string]walletMint{
+		oldMintURL: {
+			mintURL:         oldMintURL,
+			activeKeyset:    *activeKeyset,
+			inactiveKeysets: map[string]crypto.WalletKeyset{inactiveKeyset.Id: *inactiveKeyset},
+		},
+	}
+
+	dbpath := ".testwallet"
+	if err := os.MkdirAll(dbpath, 0750); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dbpath)
+
+	db, err := InitStorage(dbpath)
+	if err != nil {
+		t.Fatalf("InitStorage: %v", err)
+	}
+
+	db.SaveKeyset(activeKeyset)
+	db.SaveKeyset(inactiveKeyset)
+
+	wallet := &Wallet{mints: mints, db: db, defaultMint: oldMintURL}
+
+	if err := wallet.UpdateMintURL(oldMintURL, newMintURL); err != nil {
+		t.Fatalf("UpdateMintURL failed: %v", err)
+	}
+
+	updatedMint, ok := wallet.mints[newMintURL]
+	if !ok {
+		t.Fatalf("mint not found by new mint url")
+	}
+	if updatedMint.mintURL != newMintURL {
+		t.Errorf("expected mintURL to be '%v' but got '%v'", newMintURL, updatedMint.mintURL)
+	}
+	if updatedMint.activeKeyset.MintURL != newMintURL {
+		t.Errorf("expected activeKeyset MintURL to be '%v' but got '%v'", newMintURL, updatedMint.activeKeyset.MintURL)
+	}
+	for _, inactiveKeyset := range updatedMint.inactiveKeysets {
+		if inactiveKeyset.MintURL != newMintURL {
+			t.Errorf("expected inactiveKeyset MintURL to be '%v' but got '%v'", newMintURL, inactiveKeyset.MintURL)
+		}
+	}
+
+	if _, ok := wallet.mints[oldMintURL]; ok {
+		t.Errorf("Old mint URL was not removed from wallet")
+	}
+	if wallet.defaultMint != newMintURL {
+		t.Errorf("expected defaultMint to be '%v' but got '%v'", newMintURL, wallet.defaultMint)
+	}
+}
+
+func generateWalletKeyset(seed, derivationPath string, active bool, mintURL string) *crypto.WalletKeyset {
 	keys := make(map[uint64]*secp256k1.PublicKey, 64)
 
 	for i := 0; i < 64; i++ {
@@ -192,5 +251,11 @@ func generateWalletKeyset(seed, derivationPath string) *crypto.WalletKeyset {
 		keys[amount] = pubKey
 	}
 	keysetId := crypto.DeriveKeysetId(keys)
-	return &crypto.WalletKeyset{Id: keysetId, Unit: "sat", Active: true, PublicKeys: keys}
+	return &crypto.WalletKeyset{
+		Id:         keysetId,
+		MintURL:    mintURL,
+		Unit:       cashu.Sat.String(),
+		Active:     active,
+		PublicKeys: keys,
+	}
 }
