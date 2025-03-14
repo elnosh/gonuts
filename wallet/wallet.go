@@ -1831,6 +1831,32 @@ func (w *Wallet) TrustedMints() []string {
 	return trustedMints
 }
 
+func (w *Wallet) UpdateMintURL(oldURL, newURL string) error {
+	mint, ok := w.mints[oldURL]
+	if !ok {
+		return ErrMintNotExist
+	}
+
+	if err := w.db.UpdateKeysetMintURL(oldURL, newURL); err != nil {
+		return fmt.Errorf("error updating mint URL in database: %v", err)
+	}
+
+	mint.mintURL = newURL
+	mint.activeKeyset.MintURL = newURL
+	for _, inactive := range mint.inactiveKeysets {
+		inactive.MintURL = newURL
+		mint.inactiveKeysets[inactive.Id] = inactive
+	}
+	w.mints[newURL] = mint
+
+	if oldURL == w.defaultMint {
+		w.defaultMint = newURL
+	}
+	delete(w.mints, oldURL)
+
+	return nil
+}
+
 // GetReceivePubkey retrieves public key to which
 // the wallet can receive locked ecash
 func (w *Wallet) GetReceivePubkey() *btcec.PublicKey {

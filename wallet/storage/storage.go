@@ -50,6 +50,7 @@ type WalletDB interface {
 	GetKeyset(string) *crypto.WalletKeyset
 	IncrementKeysetCounter(string, uint32) error
 	GetKeysetCounter(string) uint32
+	UpdateKeysetMintURL(oldURL, newURL string) error
 
 	SaveMintQuote(MintQuote) error
 	GetMintQuotes() []MintQuote

@@ -26,7 +26,8 @@ const (
 )
 
 var (
-	ProofNotFound = errors.New("proof not found")
+	ProofNotFound         = errors.New("proof not found")
+	KeysetMintURLNotFound = errors.New("keyset with mint url not found")
 )
 
 type BoltDB struct {
@@ -343,6 +344,9 @@ func (db *BoltDB) DeletePendingProofsByQuoteId(quoteId string) error {
 	})
 }
 
+// NOTE: Keysets are stored in nested buckets by mint URL. I.e a keyset with mint URL
+// http://mint.com will create a bucket inside the KEYSETS_BUCKET named by the mint URL
+// and inside this bucket, save the keysets by keyset id
 func (db *BoltDB) SaveKeyset(keyset *crypto.WalletKeyset) error {
 	jsonKeyset, err := json.Marshal(keyset)
 	if err != nil {
@@ -486,6 +490,53 @@ func (db *BoltDB) GetKeysetCounter(keysetId string) uint32 {
 	}
 
 	return counter
+}
+
+// UpdateKeysetMintURL creates a new bucket named with newURL. It will then
+// iterate over all the keysets that were stored in the oldURL bucket and copy
+// them over to the new bucket with newURL. It also needs to change the MintURL
+// field for each keyset.
+func (db *BoltDB) UpdateKeysetMintURL(oldURL, newURL string) error {
+	return db.bolt.Update(func(tx *bolt.Tx) error {
+		keysetsb := tx.Bucket([]byte(KEYSETS_BUCKET))
+
+		oldBucket := keysetsb.Bucket([]byte(oldURL))
+		if oldBucket == nil {
+			return KeysetMintURLNotFound
+		}
+
+		// create new bucket with new URL
+		newBucket, err := keysetsb.CreateBucketIfNotExists([]byte(newURL))
+		if err != nil {
+			return err
+		}
+
+		// iterate and update each keyset's MintURL field with the newURL
+		c := oldBucket.Cursor()
+		for keysetId, v := c.First(); keysetId != nil; keysetId, v = c.Next() {
+			var keyset crypto.WalletKeyset
+			if err := json.Unmarshal(v, &keyset); err != nil {
+				return err
+			}
+
+			keyset.MintURL = newURL
+
+			updatedKeyset, err := json.Marshal(&keyset)
+			if err != nil {
+				return err
+			}
+			if err = newBucket.Put(keysetId, updatedKeyset); err != nil {
+				return fmt.Errorf("error saving updated keyset: %v", err)
+			}
+		}
+
+		// delete bucket with oldURL if update was successful
+		if err := keysetsb.DeleteBucket([]byte(oldURL)); err != nil {
+			return fmt.Errorf("failed to delete old mint URL bucket: %v", err)
+		}
+
+		return nil
+	})
 }
 
 func (db *BoltDB) SaveMintQuote(quote MintQuote) error {
