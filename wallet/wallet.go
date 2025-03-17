@@ -55,6 +55,8 @@ type Wallet struct {
 
 	// list of mints that have been trusted
 	mints map[string]walletMint
+
+	mu sync.RWMutex
 }
 
 type walletMint struct {
@@ -348,6 +350,9 @@ func (w *Wallet) MintTokens(quoteId string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error getting active sat keyset: %v", err)
 	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	// get counter for keyset
 	counter := w.counterForKeyset(activeKeyset.Id)
 
@@ -409,6 +414,8 @@ func (w *Wallet) Send(amount uint64, mintURL string, includeFees bool) (cashu.Pr
 		return nil, ErrMintNotExist
 	}
 
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	proofsToSend, err := w.getProofsForAmount(amount, &selectedMint, includeFees)
 	if err != nil {
 		return nil, err
@@ -456,6 +463,9 @@ func (w *Wallet) SendToPubkey(
 		Data: hexPubkey,
 		Tags: serializedTags,
 	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	lockedProofs, err := w.swapToSend(amount, &selectedMint, &p2pkSpendingCondition, includeFees)
 	if err != nil {
 		return nil, err
@@ -502,6 +512,9 @@ func (w *Wallet) HTLCLockedProofs(
 		Data: hash,
 		Tags: serializedTags,
 	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	lockedProofs, err := w.swapToSend(amount, &selectedMint, &htlcSpendingCondition, includeFees)
 	if err != nil {
 		return nil, err
@@ -584,8 +597,10 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 			return 0, fmt.Errorf("could not swap proofs: %v", err)
 		}
 
-		err = w.db.IncrementKeysetCounter(req.keyset.Id, uint32(len(req.outputs)))
-		if err != nil {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+
+		if err = w.db.IncrementKeysetCounter(req.keyset.Id, uint32(len(req.outputs))); err != nil {
 			return 0, fmt.Errorf("error incrementing keyset counter: %v", err)
 		}
 
@@ -612,6 +627,8 @@ func (w *Wallet) ReceiveHTLC(token cashu.Token, preimage string) (uint64, error)
 		return 0, errors.New("invalid DLEQ proof")
 	}
 
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	nut10Secret, err := nut10.DeserializeSecret(proofs[0].Secret)
 	if err == nil && nut10Secret.Kind == nut10.HTLC {
 		proofs, err = nut14.AddWitnessHTLC(proofs, nut10Secret, preimage, w.privateKey)
