@@ -1500,7 +1500,11 @@ func (m *Mint) ListKeysets() nut02.GetKeysetsResponse {
 
 func (m *Mint) GetActiveKeyset() nut01.Keyset {
 	for _, k := range m.activeKeysets {
-		return nut01.Keyset{Id: k.Id, Unit: k.Unit, Keys: k.PublicKeys()}
+		return nut01.Keyset{
+			Id:   k.Id,
+			Unit: k.Unit,
+			Keys: k.PublicKeys(),
+		}
 	}
 	return nut01.Keyset{}
 }
@@ -1649,6 +1653,13 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 						nut17.Bolt11MintQuote.String(),
 					},
 				},
+			},
+		},
+		Nut19: nut06.Nut19Setting{
+			TTL: CACHE_ITEM_TTL,
+			CachedEndpoints: []nut06.CachedEndpoint{
+				{Method: "POST", Path: "/v1/mint/bolt11"},
+				{Method: "POST", Path: "/v1/swap"},
 			},
 		},
 		Nut20: nut06.Supported{Supported: true},

@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/elnosh/gonuts/cashu"
@@ -30,10 +32,85 @@ type ServerConfig struct {
 	MeltTimeout *time.Duration
 }
 
+const (
+	// 5 minutes
+	CACHE_ITEM_TTL    = 60 * 5
+	CACHE_ITEMS_LIMIT = 10000
+	// 2MB
+	REQUEST_BODY_SIZE_LIMIT = 2 * 1024 * 1024
+
+	ACTIVE_KEYSET = "active_keyset_key"
+	// 1 day
+	KEYSET_TTL = 60 * 60 * 24
+)
+
+type CacheItem struct {
+	value      []byte
+	expiration time.Time
+}
+
+type Cache struct {
+	items map[string]CacheItem
+	mu    sync.RWMutex
+	limit int
+}
+
+func NewCache() *Cache {
+	return &Cache{
+		items: make(map[string]CacheItem),
+		mu:    sync.RWMutex{},
+		limit: CACHE_ITEMS_LIMIT,
+	}
+}
+
+func (c *Cache) Set(key string, item []byte, expiration time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// only set if we are below limit
+	if len(c.items) <= c.limit {
+		c.items[key] = CacheItem{
+			value:      item,
+			expiration: time.Now().Add(expiration),
+		}
+	}
+}
+
+func (c *Cache) Get(key string) ([]byte, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	item, found := c.items[key]
+	if !found {
+		return nil, false
+	}
+
+	// if it's already expired, it does not hurt to return it still
+	// but delete it from cache
+	if time.Now().After(item.expiration) {
+		delete(c.items, key)
+	}
+
+	return item.value, true
+}
+
+func (c *Cache) DeleteExpired() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for k, item := range c.items {
+		if time.Now().After(item.expiration) {
+			delete(c.items, k)
+		}
+	}
+}
+
 type MintServer struct {
 	httpServer       *http.Server
 	mint             *Mint
 	websocketManager *WebsocketManager
+	cache            *Cache
+
 	// NOTE: using this value for testing
 	meltTimeout *time.Duration
 }
@@ -45,12 +122,25 @@ func SetupMintServer(m *Mint, config ServerConfig) *MintServer {
 		mint:             m,
 		websocketManager: websocketManager,
 		meltTimeout:      config.MeltTimeout,
+		cache:            NewCache(),
 	}
 	mintServer.setupHttpServer(config.Port)
 	return mintServer
 }
 
 func (ms *MintServer) Start() error {
+	// background goroutine to cleanup cache every 30s
+	go func() {
+		for {
+			select {
+			case <-time.Tick(time.Second * 30):
+				ms.cache.DeleteExpired()
+			case <-ms.mint.ctx.Done():
+				return
+			}
+		}
+	}()
+
 	ms.mint.logger.Info("mint server listening on: " + ms.httpServer.Addr)
 	err := ms.httpServer.ListenAndServe()
 	if err != nil && err != http.ErrServerClosed {
@@ -172,6 +262,9 @@ func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
+
+	ms.cache.Set(ACTIVE_KEYSET, jsonRes, time.Second*KEYSET_TTL)
+
 	ms.logRequest(req, http.StatusOK, "returning active keysets")
 	rw.Write(jsonRes)
 }
@@ -202,6 +295,8 @@ func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
 	}
+
+	ms.cache.Set(id, jsonRes, time.Second*KEYSET_TTL)
 
 	ms.logRequest(req, http.StatusOK, "returning keyset with id: %v", id)
 	rw.Write(jsonRes)
@@ -315,10 +410,25 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	var mintReq nut04.PostMintBolt11Request
-	err := decodeJsonReqBody(req, &mintReq)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	var mintReq nut04.PostMintBolt11Request
+	if err := decodeJsonReqBody(req, &mintReq); err != nil {
 		ms.writeErr(rw, req, err)
+		return
+	}
+
+	// check in cache first. Look at: https://github.com/cashubtc/nuts/blob/main/19.md
+	response, found := ms.cache.Get(req.Method + req.URL.String() + string(body))
+	if found {
+		ms.mint.logDebugf("returning signatures for mint quote '%v' from cache", mintReq.Quote)
+		ms.logRequest(req, http.StatusOK, "returning signatures on mint tokens request")
+		rw.Write(response)
 		return
 	}
 
@@ -345,15 +455,35 @@ func (ms *MintServer) mintTokensRequest(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// if less than 2MB, write request/response pair to cache
+	if len(body) < REQUEST_BODY_SIZE_LIMIT {
+		ms.cache.Set(req.Method+req.URL.String()+string(body), jsonRes, time.Second*CACHE_ITEM_TTL)
+	}
+
 	ms.logRequest(req, http.StatusOK, "returning signatures on mint tokens request")
 	rw.Write(jsonRes)
 }
 
 func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
-	var swapReq nut03.PostSwapRequest
-	err := decodeJsonReqBody(req, &swapReq)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
+		ms.writeErr(rw, req, cashu.StandardErr)
+		return
+	}
+
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	var swapReq nut03.PostSwapRequest
+	if err := decodeJsonReqBody(req, &swapReq); err != nil {
 		ms.writeErr(rw, req, err)
+		return
+	}
+
+	// check in cache first. Look at: https://github.com/cashubtc/nuts/blob/main/19.md
+	response, found := ms.cache.Get(req.Method + req.URL.String() + string(body))
+	if found {
+		ms.mint.logDebugf("returning signatures for swap request from cache")
+		ms.logRequest(req, http.StatusOK, "returning signatures on swap request")
+		rw.Write(response)
 		return
 	}
 
@@ -376,6 +506,11 @@ func (ms *MintServer) swapRequest(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		ms.writeErr(rw, req, cashu.StandardErr)
 		return
+	}
+
+	// if less than 2MB, write request/response pair to cache
+	if len(body) < REQUEST_BODY_SIZE_LIMIT {
+		ms.cache.Set(req.Method+req.URL.String()+string(body), jsonRes, time.Second*CACHE_ITEM_TTL)
 	}
 
 	ms.logRequest(req, http.StatusOK, "returning signatures on swap request")
