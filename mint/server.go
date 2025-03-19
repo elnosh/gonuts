@@ -134,6 +134,25 @@ func (ms *MintServer) Start() error {
 		for {
 			select {
 			case <-time.Tick(time.Second * 30):
+				// check if active keyset has changed and if so, remove from cache
+				value, found := ms.cache.Get(ACTIVE_KEYSET)
+				if found {
+					var activeKeysetCache nut01.GetKeysResponse
+					if err := json.Unmarshal(value, &activeKeysetCache); err != nil {
+						delete(ms.cache.items, ACTIVE_KEYSET)
+						continue
+					}
+
+					for _, k := range ms.mint.activeKeysets {
+						if len(activeKeysetCache.Keysets) > 0 {
+							if k.Id != activeKeysetCache.Keysets[0].Id {
+								delete(ms.cache.items, ACTIVE_KEYSET)
+								continue
+							}
+						}
+					}
+				}
+				// delete any expired items
 				ms.cache.DeleteExpired()
 			case <-ms.mint.ctx.Done():
 				return
@@ -255,6 +274,13 @@ func (ms *MintServer) writeErr(rw http.ResponseWriter, req *http.Request, errRes
 }
 
 func (ms *MintServer) getActiveKeysets(rw http.ResponseWriter, req *http.Request) {
+	activeKeysetResponse, found := ms.cache.Get(ACTIVE_KEYSET)
+	if found {
+		ms.logRequest(req, http.StatusOK, "returning active keyset from cache")
+		rw.Write(activeKeysetResponse)
+		return
+	}
+
 	activeKeyset := ms.mint.GetActiveKeyset()
 	activeKeysets := nut01.GetKeysResponse{Keysets: []nut01.Keyset{activeKeyset}}
 	jsonRes, err := json.Marshal(&activeKeysets)
@@ -283,6 +309,13 @@ func (ms *MintServer) getKeysetsList(rw http.ResponseWriter, req *http.Request) 
 func (ms *MintServer) getKeysetById(rw http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	id := vars["id"]
+
+	keysetResponse, found := ms.cache.Get(id)
+	if found {
+		ms.logRequest(req, http.StatusOK, "returning keyset with id: %v from cache", id)
+		rw.Write(keysetResponse)
+		return
+	}
 
 	keyset, err := ms.mint.GetKeysetById(id)
 	if err != nil {

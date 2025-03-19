@@ -36,7 +36,10 @@ func TestActiveKeysetsHandler(t *testing.T) {
 		},
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	mintServer := MintServer{mint: mint}
+	mintServer := MintServer{
+		mint:  mint,
+		cache: NewCache(),
+	}
 
 	w := httptest.NewRecorder()
 	mintServer.getActiveKeysets(w, req)
@@ -163,7 +166,10 @@ func TestGetKeysetByIdHandler(t *testing.T) {
 		},
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	mintServer := MintServer{mint: mint}
+	mintServer := MintServer{
+		mint:  mint,
+		cache: NewCache(),
+	}
 	r := mux.NewRouter()
 	r.HandleFunc("/v1/keys/{id}", mintServer.getKeysetById)
 
