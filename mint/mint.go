@@ -571,6 +571,7 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.UnitErrCode)
 	}
 
+	var quoteAmount uint64
 	// check invoice passed is valid
 	request := meltQuoteRequest.Request
 	bolt11, err := decodepay.Decodepay(request)
@@ -579,10 +580,23 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 		return storage.MeltQuote{}, cashu.BuildCashuError(errmsg, cashu.MeltQuoteErrCode)
 	}
 	if bolt11.MSatoshi == 0 {
-		return storage.MeltQuote{}, cashu.BuildCashuError("invoice has no amount", cashu.MeltQuoteErrCode)
+		// if amountless invoice, check amount specified in options
+		if meltQuoteRequest.Options.AmountlessOption == nil {
+			return storage.MeltQuote{}, cashu.InvoiceAmountMissingErr
+		} else {
+			amountless := meltQuoteRequest.Options.AmountlessOption
+			quoteAmount = amountless.AmountMsat / 1000
+		}
+	} else {
+		quoteAmount = uint64(bolt11.MSatoshi) / 1000
+
+		// if amountless option passed, check that amounts matched
+		if meltQuoteRequest.Options.AmountlessOption != nil {
+			if meltQuoteRequest.Options.AmountlessOption.AmountMsat != uint64(bolt11.MSatoshi) {
+				return storage.MeltQuote{}, cashu.MeltAmountlessMismatchErr
+			}
+		}
 	}
-	invoiceSatAmount := uint64(bolt11.MSatoshi) / 1000
-	quoteAmount := invoiceSatAmount
 
 	// check if a mint quote exists with the same invoice.
 	_, err = m.db.GetMintQuoteByPaymentHash(bolt11.PaymentHash)
@@ -594,31 +608,31 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 	isMpp := false
 	var amountMsat uint64 = 0
 	// check mpp option
-	if len(meltQuoteRequest.Options) > 0 {
-		mpp, ok := meltQuoteRequest.Options["mpp"]
-		if ok {
-			if m.mppEnabled {
-				// if this is an internal invoice, reject MPP request
-				if isInternal {
-					return storage.MeltQuote{},
-						cashu.BuildCashuError("mpp for internal invoice is not allowed", cashu.MeltQuoteErrCode)
-				}
-
-				// check mpp msat amount is less than invoice amount
-				if mpp.AmountMsat >= uint64(bolt11.MSatoshi) {
-					return storage.MeltQuote{},
-						cashu.BuildCashuError("mpp amount is not less than amount in invoice",
-							cashu.MeltQuoteErrCode)
-				}
-				isMpp = true
-				amountMsat = mpp.AmountMsat
-				quoteAmount = amountMsat / 1000
-				m.logInfof("got melt quote request to pay partial amount '%v' of invoice with amount '%v'",
-					quoteAmount, invoiceSatAmount)
-			} else {
+	if meltQuoteRequest.Options.MppOption != nil {
+		if m.mppEnabled {
+			// if this is an internal invoice, reject MPP request
+			if isInternal {
 				return storage.MeltQuote{},
-					cashu.BuildCashuError("MPP is not supported", cashu.MeltQuoteErrCode)
+					cashu.BuildCashuError("mpp for internal invoice is not allowed", cashu.MeltQuoteErrCode)
 			}
+
+			// check mpp msat amount is less than invoice amount
+			mppAmount := meltQuoteRequest.Options.MppOption.Amount
+			if mppAmount >= uint64(bolt11.MSatoshi) {
+				return storage.MeltQuote{},
+					cashu.BuildCashuError("mpp amount is not less than amount in invoice", cashu.MeltQuoteErrCode)
+			}
+			if mppAmount > 0 && bolt11.MSatoshi == 0 {
+				return storage.MeltQuote{}, cashu.BuildCashuError("invalid invoice for MPP option", cashu.MeltQuoteErrCode)
+			}
+			isMpp = true
+			amountMsat = mppAmount
+			quoteAmount = amountMsat / 1000
+			m.logInfof("got melt quote request to pay partial amount '%v' of invoice with amount '%v'",
+				quoteAmount, bolt11.MSatoshi/1000)
+		} else {
+			return storage.MeltQuote{},
+				cashu.BuildCashuError("MPP is not supported", cashu.MeltQuoteErrCode)
 		}
 	}
 
@@ -661,8 +675,8 @@ func (m *Mint) RequestMeltQuote(meltQuoteRequest nut05.PostMeltQuoteBolt11Reques
 		AmountMsat:     amountMsat,
 	}
 
-	m.logInfof("got melt quote request for invoice of amount '%v'. Setting fee reserve to %v",
-		invoiceSatAmount, meltQuote.FeeReserve)
+	m.logInfof("got melt quote request for amount '%v'. Setting fee reserve to %v",
+		quoteAmount, meltQuote.FeeReserve)
 
 	if err := m.db.SaveMeltQuote(meltQuote); err != nil {
 		errmsg := fmt.Sprintf("error saving melt quote to db: %v", err)
@@ -861,7 +875,12 @@ func (m *Mint) MeltTokens(ctx context.Context, meltTokensRequest nut05.PostMeltB
 			)
 		} else {
 			m.logInfof("attempting to pay invoice: %v", meltQuote.InvoiceRequest)
-			sendPaymentResponse, err = m.lightningClient.SendPayment(ctx, meltQuote.InvoiceRequest, meltQuote.Amount)
+			sendPaymentResponse, err = m.lightningClient.SendPayment(
+				ctx,
+				meltQuote.InvoiceRequest,
+				meltQuote.Amount,
+				meltQuote.FeeReserve,
+			)
 		}
 		if err != nil {
 			// if SendPayment failed do not return yet, an extra check will be done
@@ -1625,10 +1644,11 @@ func (m *Mint) SetMintInfo(mintInfo MintInfo) {
 		Nut05: nut06.NutSetting{
 			Methods: []nut06.MethodSetting{
 				{
-					Method:    cashu.BOLT11_METHOD,
-					Unit:      cashu.Sat.String(),
-					MinAmount: m.limits.MeltingSettings.MinAmount,
-					MaxAmount: m.limits.MeltingSettings.MaxAmount,
+					Method:     cashu.BOLT11_METHOD,
+					Unit:       cashu.Sat.String(),
+					MinAmount:  m.limits.MeltingSettings.MinAmount,
+					MaxAmount:  m.limits.MeltingSettings.MaxAmount,
+					Amountless: true,
 				},
 			},
 			Disabled: false,

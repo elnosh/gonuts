@@ -44,13 +44,22 @@ func StringToState(state string) State {
 }
 
 type PostMeltQuoteBolt11Request struct {
-	Request string               `json:"request"`
-	Unit    string               `json:"unit"`
-	Options map[string]MppOption `json:"options,omitempty"`
+	Request string      `json:"request"`
+	Unit    string      `json:"unit"`
+	Options MeltOptions `json:"options,omitempty"`
 }
 
-type MppOption struct {
-	AmountMsat uint64 `json:"amount"`
+type MeltOptions struct {
+	MppOption        *Amount     `json:"mpp,omitempty"`
+	AmountlessOption *AmountMsat `json:"amountless,omitempty"`
+}
+
+type Amount struct {
+	Amount uint64 `json:"amount"`
+}
+
+type AmountMsat struct {
+	AmountMsat uint64 `json:"amount_msat"`
 }
 
 type PostMeltQuoteBolt11Response struct {
