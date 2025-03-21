@@ -456,14 +456,17 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 }
 
 // Create a new rand source for safe usage
-var rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
+var rnd = mathrand.New(mathrand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
 
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+	// Generate a unique ID using a combination of timestamp and random number
+	timestamp := time.Now().Unix()
+	randomPart := rnd.Uint64() // Generate a random 64-bit unsigned integer
 
-	// Generate a 6-digit random number
-	randomID := rnd.Intn(900000) + 100000 // Ensures a number between 100000-999999
+	// Combine timestamp and random part to create a unique ID
+	uniqueID := fmt.Sprintf("%d%016x", timestamp, randomPart)
 
-	label := fmt.Sprintf("cln-%d-%d", time.Now().Unix(), randomID)
+	label := fmt.Sprintf("cln-%s", uniqueID)
 
 	body := map[string]any{
 		"amount_msat": amount * 1000,
