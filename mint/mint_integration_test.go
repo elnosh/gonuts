@@ -119,25 +119,42 @@ func testMain(m *testing.M) (int, error) {
 			lnd3.Terminate(ctx)
 		}()
 	case "CLN":
-		// NOTE: Putting as placeholder for now. Tests here will fail.
-		// Would still need to add some setup when CLN support is added.
 		cln1, err := cln.NewCLN(ctx, bitcoind)
 		if err != nil {
 			return 1, err
 		}
-
 		cln2, err := cln.NewCLN(ctx, bitcoind)
 		if err != nil {
 			return 1, err
 		}
+		cln3, err := cln.NewCLN(ctx, bitcoind)
+		if err != nil {
+			return 1, err
+		}
+	
+		lightningClient1, err = testutils.CLNClient(cln1)
+		if err != nil {
+			return 1, err
+		}
+		lightningClient2, err = testutils.CLNClient(cln2)
+		if err != nil {
+			return 1, err
+		}
+		lightningClient3, err = testutils.CLNClient(cln3)
+		if err != nil {
+			return 1, err
+		}
+	
 		node1 = testutils.NewCLNBackend(cln1)
 		node2 = testutils.NewCLNBackend(cln2)
-
+		node3 = testutils.NewCLNBackend(cln3)
+	
 		defer func() {
 			cln1.Terminate(ctx)
 			cln2.Terminate(ctx)
+			cln3.Terminate(ctx)
 		}()
-
+	
 	default:
 		return 1, errors.New("invalid lightning backend specified")
 	}
