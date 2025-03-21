@@ -194,12 +194,12 @@ func (cln *CLNClient) InvoiceStatus(hash string) (Invoice, error) {
 
 	var response struct {
 		Invoices []struct {
-			Label        string `json:"label"`
-			Bolt11       string `json:"bolt11"`
-			PaymentHash  string `json:"payment_hash"`
-			AmountMsat   uint64 `json:"amount_msat"`
-			Status       string `json:"status"`
-			ExpiresAt    int64  `json:"expires_at"`
+			Label       string `json:"label"`
+			Bolt11      string `json:"bolt11"`
+			PaymentHash string `json:"payment_hash"`
+			AmountMsat  uint64 `json:"amount_msat"`
+			Status      string `json:"status"`
+			ExpiresAt   int64  `json:"expires_at"`
 		} `json:"invoices"`
 	}
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {

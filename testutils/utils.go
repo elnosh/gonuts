@@ -455,10 +455,19 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 	return nil
 }
 
+// Create a new rand source for safe usage
+var rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+
+	// Generate a 6-digit random number
+	randomID := rnd.Intn(900000) + 100000 // Ensures a number between 100000-999999
+
+	label := fmt.Sprintf("cln-%d-%d", time.Now().Unix(), randomID)
+
 	body := map[string]any{
 		"amount_msat": amount * 1000,
-		"label":       time.Now().Unix(),
+		"label":       label,
 		"description": "test",
 	}
 
@@ -726,7 +735,6 @@ func CLNClient(clnNode *cln.CLN) (*lightning.CLNClient, error) {
 
 	return clnClient, nil
 }
-
 
 func CreateTestMint(
 	backend lightning.Client,
