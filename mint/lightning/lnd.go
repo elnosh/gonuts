@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	decodepay "github.com/nbd-wtf/ln-decodepay"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -112,12 +113,27 @@ func (lnd *LndClient) InvoiceStatus(hash string) (Invoice, error) {
 	return invoice, nil
 }
 
-func (lnd *LndClient) SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error) {
+func (lnd *LndClient) SendPayment(
+	ctx context.Context,
+	request string,
+	amount uint64,
+	maxFee uint64,
+) (PaymentStatus, error) {
 	feeLimit := &lnrpc.FeeLimit{Limit: &lnrpc.FeeLimit_Fixed{Fixed: int64(maxFee)}}
 	sendPaymentRequest := lnrpc.SendRequest{
 		PaymentRequest: request,
 		FeeLimit:       feeLimit,
 	}
+
+	bolt11, err := decodepay.Decodepay(request)
+	if err != nil {
+		return PaymentStatus{}, err
+	}
+	// if this is an amountless invoice, pay the amount specified
+	if bolt11.MSatoshi == 0 {
+		sendPaymentRequest.Amt = int64(amount)
+	}
+
 	sendPaymentResponse, err := lnd.grpcClient.SendPaymentSync(ctx, &sendPaymentRequest)
 	if err != nil {
 		// if context deadline is exceeded (1 min), mark payment as pending

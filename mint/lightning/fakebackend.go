@@ -81,7 +81,12 @@ func (fb *FakeBackend) InvoiceStatus(hash string) (Invoice, error) {
 	return fb.Invoices[invoiceIdx].ToInvoice(), nil
 }
 
-func (fb *FakeBackend) SendPayment(ctx context.Context, request string, maxFee uint64) (PaymentStatus, error) {
+func (fb *FakeBackend) SendPayment(
+	ctx context.Context,
+	request string,
+	amount uint64,
+	maxFee uint64,
+) (PaymentStatus, error) {
 	invoice, err := decodepay.Decodepay(request)
 	if err != nil {
 		return PaymentStatus{}, fmt.Errorf("error decoding invoice: %v", err)

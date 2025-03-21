@@ -179,7 +179,10 @@ func (lndContainer *LndBackend) PayInvoice(invoice string) error {
 
 func (lndContainer *LndBackend) CreateInvoice(amount uint64) (*Invoice, error) {
 	ctx := context.Background()
-	invoice := lnrpc.Invoice{Value: int64(amount)}
+	invoice := lnrpc.Invoice{}
+	if amount > 0 {
+		invoice.Value = int64(amount)
+	}
 	addInvoiceResponse, err := lndContainer.Client.AddInvoice(ctx, &invoice)
 	if err != nil {
 		return nil, err
@@ -456,9 +459,11 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
 	body := map[string]any{
-		"amount_msat": amount * 1000,
 		"label":       time.Now().Unix(),
 		"description": "test",
+	}
+	if amount > 0 {
+		body["amount_msat"] = amount * 1000
 	}
 
 	resp, err := clnContainer.Post(clnContainer.url+"/invoice", body)
