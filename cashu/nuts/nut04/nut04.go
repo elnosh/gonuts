@@ -57,6 +57,8 @@ type PostMintQuoteBolt11Request struct {
 type PostMintQuoteBolt11Response struct {
 	Quote   string `json:"quote"`
 	Request string `json:"request"`
+	Amount  uint64 `json:"amount"`
+	Unit    string `json:"unit"`
 	State   State  `json:"state"`
 	Expiry  uint64 `json:"expiry"`
 	Pubkey  string `json:"pubkey,omitempty"`
@@ -75,6 +77,8 @@ type PostMintBolt11Response struct {
 type tempQuote struct {
 	Quote   string `json:"quote"`
 	Request string `json:"request"`
+	Amount  uint64 `json:"amount"`
+	Unit    string `json:"unit"`
 	State   string `json:"state"`
 	Expiry  uint64 `json:"expiry"`
 	Pubkey  string `json:"pubkey,omitempty"`
@@ -84,6 +88,8 @@ func (quoteResponse *PostMintQuoteBolt11Response) MarshalJSON() ([]byte, error) 
 	var tempQuote = tempQuote{
 		Quote:   quoteResponse.Quote,
 		Request: quoteResponse.Request,
+		Amount:  quoteResponse.Amount,
+		Unit:    quoteResponse.Unit,
 		State:   quoteResponse.State.String(),
 		Expiry:  quoteResponse.Expiry,
 		Pubkey:  quoteResponse.Pubkey,
@@ -100,6 +106,8 @@ func (quoteResponse *PostMintQuoteBolt11Response) UnmarshalJSON(data []byte) err
 
 	quoteResponse.Quote = tempQuote.Quote
 	quoteResponse.Request = tempQuote.Request
+	quoteResponse.Amount = tempQuote.Amount
+	quoteResponse.Unit = tempQuote.Unit
 	state := StringToState(tempQuote.State)
 	quoteResponse.State = state
 	quoteResponse.Expiry = tempQuote.Expiry

@@ -2,15 +2,19 @@ package storage
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"log"
+	"math"
 	"math/rand/v2"
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
@@ -218,6 +222,44 @@ func TestKeysets(t *testing.T) {
 	if counter != incrementBy+3 {
 		t.Fatalf("expected counter for keyset '%v' to %v but got %v", keyset1.Id, incrementBy+3, counter)
 	}
+
+	// test update mint url
+	oldURL := "http://localhost:3338"
+	newURL := "http://localhost:3339"
+
+	keyset1 = *db.GetKeyset(keyset1.Id)
+	keyset2 = *db.GetKeyset(keyset2.Id)
+
+	if err := db.UpdateKeysetMintURL(oldURL, newURL); err != nil {
+		t.Fatalf("error updating mint url: %v", err)
+	}
+
+	keysets := db.GetKeysets()
+
+	// oldURL should be removed and newURL should be added
+	if _, exists := keysets[oldURL]; exists {
+		t.Fatalf("expected old URL '%v' to be removed from keysets map", oldURL)
+	}
+	if _, exists := keysets[newURL]; !exists {
+		t.Fatalf("expected new URL '%v' to be present in keysets map", newURL)
+	}
+
+	keyset1.MintURL = newURL
+	keyset2.MintURL = newURL
+	expectedKeysets := []crypto.WalletKeyset{keyset1, keyset2}
+	newURLKeysets := keysets[newURL]
+
+	sortKeysets(expectedKeysets)
+	sortKeysets(newURLKeysets)
+
+	if !reflect.DeepEqual(newURLKeysets, expectedKeysets) {
+		t.Fatalf("keysets %v do not match expected %v", newURLKeysets, expectedKeysets)
+	}
+
+	keyset := db.GetKeyset(keyset1.Id)
+	if !reflect.DeepEqual(keyset1, *keyset) {
+		t.Fatalf("expected keyset from db to be updated but got '%v'", keyset)
+	}
 }
 
 func TestMintQuotes(t *testing.T) {
@@ -307,31 +349,6 @@ func TestMeltQuotes(t *testing.T) {
 	}
 }
 
-func generateRandomString(length int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = letters[rand.IntN(len(letters))]
-	}
-	return string(b)
-}
-
-func generateRandomProofs(keysetId string, num int) cashu.Proofs {
-	proofs := make(cashu.Proofs, num)
-
-	for i := 0; i < num; i++ {
-		proof := cashu.Proof{
-			Amount: 21,
-			Id:     keysetId,
-			Secret: generateRandomString(64),
-			C:      generateRandomString(64),
-		}
-		proofs[i] = proof
-	}
-
-	return proofs
-}
-
 func toDBProofs(proofs cashu.Proofs, quoteId string) []DBProof {
 	dbProofs := make([]DBProof, len(proofs))
 
@@ -366,13 +383,53 @@ func sortDBProofs(proofs []DBProof) {
 	})
 }
 
+func sortKeysets(keysets []crypto.WalletKeyset) {
+	slices.SortFunc(keysets, func(a, b crypto.WalletKeyset) int {
+		return strings.Compare(a.Id, b.Id)
+	})
+}
+
+func generateRandomProofs(keysetId string, num int) cashu.Proofs {
+	proofs := make(cashu.Proofs, num)
+
+	for i := 0; i < num; i++ {
+		proof := cashu.Proof{
+			Amount: 21,
+			Id:     keysetId,
+			Secret: generateRandomString(64),
+			C:      generateRandomString(64),
+		}
+		proofs[i] = proof
+	}
+
+	return proofs
+}
+
+func generateRandomString(length int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = letters[rand.IntN(len(letters))]
+	}
+	return string(b)
+}
+
 func generateKeyset(mint string) crypto.WalletKeyset {
+	keygen := generateRandomString(32)
+	keys := make(map[uint64]*secp256k1.PublicKey, 64)
+	for i := 0; i < 64; i++ {
+		amount := uint64(math.Pow(2, float64(i)))
+		hash := sha256.Sum256([]byte(keygen + strconv.FormatUint(amount, 10)))
+		_, pubKey := btcec.PrivKeyFromBytes(hash[:])
+		keys[amount] = pubKey
+	}
+
 	return crypto.WalletKeyset{
 		Id:          generateRandomString(32),
 		MintURL:     mint,
 		Unit:        cashu.Sat.String(),
 		Active:      true,
-		PublicKeys:  make(map[uint64]*secp256k1.PublicKey),
+		PublicKeys:  keys,
 		InputFeePpk: 100,
 	}
 }

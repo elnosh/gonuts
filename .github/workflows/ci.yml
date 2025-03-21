@@ -15,7 +15,7 @@ jobs:
         - name: Set up Go
           uses: actions/setup-go@v4
           with:
-            go-version: 1.22.2
+            go-version: 1.23.7
         
         - name: Go Fmt
           run: go fmt ./...
@@ -40,7 +40,7 @@ jobs:
         - name: Set up Go
           uses: actions/setup-go@v4
           with:
-            go-version: 1.22.2
+            go-version: 1.23.7
 
         - name: Integration Tests
           run: go test -v --tags=integration ./mint

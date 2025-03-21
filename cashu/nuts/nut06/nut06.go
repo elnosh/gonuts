@@ -79,6 +79,16 @@ type Supported struct {
 	Supported bool `json:"supported"`
 }
 
+type Nut19Setting struct {
+	TTL             int              `json:"ttl"`
+	CachedEndpoints []CachedEndpoint `json:"cached_endpoints"`
+}
+
+type CachedEndpoint struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+}
+
 type Nuts struct {
 	Nut04 NutSetting        `json:"4"`
 	Nut05 NutSetting        `json:"5"`
@@ -91,6 +101,7 @@ type Nuts struct {
 	Nut14 Supported         `json:"14"`
 	Nut15 *NutSetting       `json:"15,omitempty"`
 	Nut17 nut17.InfoSetting `json:"17"`
+	Nut19 Nut19Setting      `json:"19"`
 	Nut20 Supported         `json:"20"`
 }
 
@@ -110,6 +121,7 @@ func (nuts *Nuts) UnmarshalJSON(data []byte) error {
 		Nut14 Supported         `json:"14"`
 		Nut15 json.RawMessage   `json:"15,omitempty"`
 		Nut17 nut17.InfoSetting `json:"17"`
+		Nut19 Nut19Setting      `json:"19"`
 		Nut20 Supported         `json:"20"`
 	}
 
@@ -127,6 +139,7 @@ func (nuts *Nuts) UnmarshalJSON(data []byte) error {
 	nuts.Nut12 = tempNuts.Nut12
 	nuts.Nut14 = tempNuts.Nut14
 	nuts.Nut17 = tempNuts.Nut17
+	nuts.Nut19 = tempNuts.Nut19
 	nuts.Nut20 = tempNuts.Nut20
 
 	if err := json.Unmarshal(tempNuts.Nut15, &nuts.Nut15); err != nil {

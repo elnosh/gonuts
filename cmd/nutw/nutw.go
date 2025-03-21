@@ -23,6 +23,7 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut11"
 	"github.com/elnosh/gonuts/cashu/nuts/nut17"
 	"github.com/elnosh/gonuts/wallet"
+	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/elnosh/gonuts/wallet/submanager"
 	"github.com/joho/godotenv"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -113,6 +114,7 @@ func main() {
 			mnemonicCmd,
 			restoreCmd,
 			currentMintCmd,
+			updateMintCmd,
 			decodeCmd,
 		},
 	}
@@ -915,6 +917,38 @@ func setCurrentMint(ctx *cli.Context) error {
 
 	fmt.Println("updated mint successfully")
 
+	return nil
+}
+
+var updateMintCmd = &cli.Command{
+	Name:      "update-mint-url",
+	ArgsUsage: "[old] [new]",
+	Usage:     "Update mint URL",
+	Before:    setupWallet,
+	Action:    updateMintURL,
+}
+
+func updateMintURL(ctx *cli.Context) error {
+	if ctx.NArg() != 2 {
+		return fmt.Errorf("expected old and new URLs as arguments")
+	}
+	oldURL := ctx.Args().Get(0)
+	newURL := ctx.Args().Get(1)
+
+	_, err := url.ParseRequestURI(newURL)
+	if err != nil {
+		printErr(fmt.Errorf("invalid URL: %v", err))
+	}
+
+	_, err = client.GetMintInfo(newURL)
+	if err != nil {
+		printErr(fmt.Errorf("new provided URL does not point to a valid mint: %v", err))
+	}
+
+	if err := nutw.UpdateMintURL(oldURL, newURL); err != nil {
+		printErr(err)
+	}
+	fmt.Println("Mint URL updated successfully")
 	return nil
 }
 

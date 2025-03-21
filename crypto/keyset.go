@@ -53,7 +53,7 @@ func DeriveKeysetPath(key *hdkeychain.ExtendedKey, index uint32) (*hdkeychain.Ex
 	return keysetPath, nil
 }
 
-func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk uint) (*MintKeyset, error) {
+func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk uint, active bool) (*MintKeyset, error) {
 	keys := make(map[uint64]KeyPair, MAX_ORDER)
 
 	keysetPath, err := DeriveKeysetPath(master, index)
@@ -86,7 +86,7 @@ func GenerateKeyset(master *hdkeychain.ExtendedKey, index uint32, inputFeePpk ui
 	return &MintKeyset{
 		Id:                keysetId,
 		Unit:              cashu.Sat.String(),
-		Active:            true,
+		Active:            active,
 		DerivationPathIdx: index,
 		Keys:              keys,
 		InputFeePpk:       inputFeePpk,

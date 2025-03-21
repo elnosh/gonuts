@@ -152,10 +152,8 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 				w.mints[mintURL] = mint
 			}
 		}
-	}
-
-	// check if input_fee_ppk changed for current active
-	if !activeChanged {
+	} else {
+		// check if input_fee_ppk changed for current active
 		if activeInputFeePpk != activeKeyset.InputFeePpk {
 			activeKeyset.InputFeePpk = activeInputFeePpk
 			if err := w.db.SaveKeyset(&activeKeyset); err != nil {
