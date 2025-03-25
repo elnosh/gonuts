@@ -22,7 +22,7 @@ const (
 
 func main() {
 	app := &cli.App{
-		Name:  "gonuts-cli",
+		Name:  "mint-cli",
 		Usage: "cli to interact with the Gonuts mint",
 		Commands: []*cli.Command{
 			{
