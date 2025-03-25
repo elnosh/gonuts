@@ -1063,7 +1063,9 @@ func (w *Wallet) MultiMintPayment(request string, split map[string]uint64) ([]nu
 				meltRequest := nut05.PostMeltQuoteBolt11Request{
 					Request: invoice,
 					Unit:    w.unit.String(),
-					Options: map[string]nut05.MppOption{"mpp": {AmountMsat: amount}},
+					Options: nut05.MeltOptions{
+						MppOption: &nut05.Amount{Amount: amount},
+					},
 				}
 				meltQuoteResponse, err := client.PostMeltQuoteBolt11(mint, meltRequest)
 				if err != nil {

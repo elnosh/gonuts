@@ -502,6 +502,7 @@ const (
 	AmountLimitExceeded            CashuErrCode = 11006
 	DuplicateInputErrCode          CashuErrCode = 11007
 	DuplicateOutputErrCode         CashuErrCode = 11008
+	AmountlessMismatchErrCode      CashuErrCode = 11012
 
 	UnknownKeysetErrCode  CashuErrCode = 12001
 	InactiveKeysetErrCode CashuErrCode = 12002
@@ -514,8 +515,7 @@ const (
 	LightningPaymentErrCode     CashuErrCode = 20004
 	MeltQuotePendingErrCode     CashuErrCode = 20005
 	MeltQuoteAlreadyPaidErrCode CashuErrCode = 20006
-
-	MeltQuoteErrCode CashuErrCode = 20009
+	MeltQuoteErrCode            CashuErrCode = 20010
 )
 
 var (
@@ -531,6 +531,8 @@ var (
 	MintQuoteAlreadyIssued       = Error{Detail: "quote already issued", Code: MintQuoteAlreadyIssuedErrCode}
 	MintingDisabled              = Error{Detail: "minting is disabled", Code: MintingDisabledErrCode}
 	MintAmountExceededErr        = Error{Detail: "max amount for minting exceeded", Code: AmountLimitExceeded}
+	MeltAmountlessMismatchErr    = Error{Detail: "invoice amount and amountless option do not match", Code: AmountlessMismatchErrCode}
+	InvoiceAmountMissingErr      = Error{Detail: "amountless option not specified for amountless invoice request", Code: AmountlessMismatchErrCode}
 	MintQuoteInvalidSigErr       = Error{Detail: "Mint quote with pubkey but no valid signature provided.", Code: MintQuoteInvalidSigErrCode}
 	OutputsOverQuoteAmountErr    = Error{Detail: "sum of the output amounts is greater than quote amount", Code: StandardErrCode}
 	ProofAlreadyUsedErr          = Error{Detail: "proof already used", Code: ProofAlreadyUsedErrCode}

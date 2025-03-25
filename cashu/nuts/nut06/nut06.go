@@ -69,10 +69,11 @@ type NutSetting struct {
 }
 
 type MethodSetting struct {
-	Method    string `json:"method"`
-	Unit      string `json:"unit"`
-	MinAmount uint64 `json:"min_amount,omitempty"`
-	MaxAmount uint64 `json:"max_amount,omitempty"`
+	Method     string `json:"method"`
+	Unit       string `json:"unit"`
+	MinAmount  uint64 `json:"min_amount,omitempty"`
+	MaxAmount  uint64 `json:"max_amount,omitempty"`
+	Amountless bool   `json:"amountless,omitempty"`
 }
 
 type Supported struct {
