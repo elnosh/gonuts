@@ -1135,6 +1135,10 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 	}
 
 	for _, proof := range proofs {
+		if len(proof.Secret) > cashu.MAX_SECRET_LENGTH {
+			return cashu.SecretTooLongErr
+		}
+
 		// check that id in the proof matches id of any
 		// of the mint's keyset
 		var k *secp256k1.PrivateKey
