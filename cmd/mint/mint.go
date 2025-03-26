@@ -128,7 +128,7 @@ func configFromEnv() (*mint.Config, error) {
 	var lightningClient lightning.Client
 	switch os.Getenv("LIGHTNING_BACKEND") {
 	case "Lnd":
-		// read values for setting up LND
+		// Existing LND setup code remains unchanged
 		host := os.Getenv("LND_GRPC_HOST")
 		if host == "" {
 			return nil, errors.New("LND_GRPC_HOST cannot be empty")
@@ -170,8 +170,31 @@ func configFromEnv() (*mint.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error setting LND client: %v", err)
 		}
+
+	case "CLN":
+		// CLN setup
+		restURL := os.Getenv("CLN_REST_URL")
+		if restURL == "" {
+			return nil, errors.New("CLN_REST_URL cannot be empty")
+		}
+		runeToken := os.Getenv("CLN_REST_RUNE")
+		if runeToken == "" {
+			return nil, errors.New("CLN_REST_RUNE cannot be empty")
+		}
+
+		clnConfig := lightning.CLNConfig{
+			RestURL: restURL,
+			Rune:    runeToken,
+		}
+
+		lightningClient, err = lightning.SetupCLNClient(clnConfig)
+		if err != nil {
+			return nil, fmt.Errorf("error setting up CLN client: %v", err)
+		}
+
 	case "FakeBackend":
 		lightningClient = &lightning.FakeBackend{}
+
 	default:
 		return nil, errors.New("invalid lightning backend")
 	}

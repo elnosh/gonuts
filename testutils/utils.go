@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	mathrand "math/rand/v2"
 	"net"
 	"net/http"
@@ -454,10 +455,22 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 	return nil
 }
 
+// Create a new rand source for safe usage
+var rnd = mathrand.New(mathrand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+	// Generate a unique ID using a combination of timestamp and random number
+	timestamp := time.Now().Unix()
+	randomPart := rnd.Uint64() // Generate a random 64-bit unsigned integer
+
+	// Combine timestamp and random part to create a unique ID
+	uniqueID := fmt.Sprintf("%d%016x", timestamp, randomPart)
+
+	label := fmt.Sprintf("cln-%s", uniqueID)
+
 	body := map[string]any{
 		"amount_msat": amount * 1000,
-		"label":       time.Now().Unix(),
+		"label":       label,
 		"description": "test",
 	}
 
@@ -708,6 +721,22 @@ func LndClient(lnd *lnd.Lnd) (*lightning.LndClient, error) {
 	}
 
 	return lndClient, nil
+}
+
+func CLNClient(clnNode *cln.CLN) (*lightning.CLNClient, error) {
+	clnConfig := lightning.CLNConfig{
+		RestURL: fmt.Sprintf("http://%s:%s", clnNode.Host, clnNode.RestPort),
+		Rune:    clnNode.Rune,
+	}
+
+	log.Printf("Setting up CLN client with RestURL: %s, Rune: %s", clnConfig.RestURL, clnConfig.Rune)
+
+	clnClient, err := lightning.SetupCLNClient(clnConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error setting CLN client: %v", err)
+	}
+
+	return clnClient, nil
 }
 
 func CreateTestMint(
