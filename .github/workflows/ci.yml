@@ -32,8 +32,11 @@ jobs:
         - name: Fuzz Uint64 subtraction
           run: go test -v -fuzz=FuzzUnderflowSubUint64 -fuzztime=60s ./cashu
 
-    integration-tests:
+    mint-integration-tests:
         runs-on: ubuntu-latest
+        strategy:
+          matrix:
+            backend: [LND, CLN]
         steps:
         - uses: actions/checkout@v4
 
@@ -42,11 +45,18 @@ jobs:
           with:
             go-version: 1.23.7
 
-        - name: Mint Integration Tests LND
-          run: go test -v --tags=integration ./mint
+        - name: Mint Integration Tests
+          run: go test -v --tags=integration ./mint -args -backend ${{ matrix.backend }}
 
-        - name: Mint Integration Tests CLN
-          run: go test -v --tags=integration ./mint -args -backend=CLN 
+    wallet-integration-tests:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v4
+
+        - name: Set up Go
+          uses: actions/setup-go@v4
+          with:
+            go-version: 1.23.7
 
         - name: Wallet Integration Tests 
           run: go test -v --tags=integration ./wallet

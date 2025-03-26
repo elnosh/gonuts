@@ -1195,6 +1195,11 @@ func TestPendingProofs(t *testing.T) {
 		}
 	}
 
+	time.Sleep(time.Second * 2)
+
+	meltContext, cancel = context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
 	meltQuote, err = testMint.GetMeltQuoteState(context.Background(), melt.Id)
 	if err != nil {
 		t.Fatalf("unexpected error getting melt quote state: %v", err)
