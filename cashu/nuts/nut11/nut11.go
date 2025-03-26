@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -344,4 +345,60 @@ func ParseSignature(signature string) (*schnorr.Signature, error) {
 	}
 
 	return sig, nil
+}
+
+func VerifyP2PKLockedProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
+	var p2pkWitness P2PKWitness
+	json.Unmarshal([]byte(proof.Witness), &p2pkWitness)
+
+	p2pkTags, err := ParseP2PKTags(proofSecret.Data.Tags)
+	if err != nil {
+		return err
+	}
+
+	signaturesRequired := 1
+	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
+	// if refund pubkey present, check signature
+	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
+		if len(p2pkTags.Refund) == 0 {
+			return nil
+		} else {
+			hash := sha256.Sum256([]byte(proof.Secret))
+			if len(p2pkWitness.Signatures) < 1 {
+				return InvalidWitness
+			}
+			if !HasValidSignatures(hash[:], p2pkWitness.Signatures, signaturesRequired, p2pkTags.Refund) {
+				return NotEnoughSignaturesErr
+			}
+		}
+	} else {
+		pubkey, err := ParsePublicKey(proofSecret.Data.Data)
+		if err != nil {
+			return err
+		}
+		keys := []*btcec.PublicKey{pubkey}
+		// message to sign
+		hash := sha256.Sum256([]byte(proof.Secret))
+
+		if p2pkTags.NSigs > 0 {
+			signaturesRequired = p2pkTags.NSigs
+			if len(p2pkTags.Pubkeys) == 0 {
+				return EmptyPubkeysErr
+			}
+			keys = append(keys, p2pkTags.Pubkeys...)
+		}
+
+		if len(p2pkWitness.Signatures) < 1 {
+			return InvalidWitness
+		}
+
+		if DuplicateSignatures(p2pkWitness.Signatures) {
+			return DuplicateSignaturesErr
+		}
+
+		if !HasValidSignatures(hash[:], p2pkWitness.Signatures, signaturesRequired, keys) {
+			return NotEnoughSignaturesErr
+		}
+	}
+	return nil
 }

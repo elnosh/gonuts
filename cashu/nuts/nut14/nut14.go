@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -115,4 +116,65 @@ func AddWitnessHTLCToOutputs(
 	}
 
 	return outputs, nil
+}
+
+func VerifyHTLCProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
+	var htlcWitness HTLCWitness
+	json.Unmarshal([]byte(proof.Witness), &htlcWitness)
+
+	p2pkTags, err := nut11.ParseP2PKTags(proofSecret.Data.Tags)
+	if err != nil {
+		return err
+	}
+
+	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
+	// if refund pubkey present, check signature
+	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
+		if len(p2pkTags.Refund) == 0 {
+			return nil
+		} else {
+			hash := sha256.Sum256([]byte(proof.Secret))
+			if len(htlcWitness.Signatures) < 1 {
+				return nut11.InvalidWitness
+			}
+			if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, 1, p2pkTags.Refund) {
+				return nut11.NotEnoughSignaturesErr
+			}
+		}
+		return nil
+	}
+
+	// verify valid preimage
+	preimageBytes, err := hex.DecodeString(htlcWitness.Preimage)
+	if err != nil {
+		return InvalidPreimageErr
+	}
+	hashBytes := sha256.Sum256(preimageBytes)
+	hash := hex.EncodeToString(hashBytes[:])
+
+	if len(proofSecret.Data.Data) != 64 {
+		return InvalidHashErr
+	}
+	if hash != proofSecret.Data.Data {
+		return InvalidPreimageErr
+	}
+
+	// if n_sigs flag present, verify signatures
+	if p2pkTags.NSigs > 0 {
+		if len(htlcWitness.Signatures) < 1 {
+			return nut11.NoSignaturesErr
+		}
+
+		hash := sha256.Sum256([]byte(proof.Secret))
+
+		if nut11.DuplicateSignatures(htlcWitness.Signatures) {
+			return nut11.DuplicateSignaturesErr
+		}
+
+		if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, p2pkTags.NSigs, p2pkTags.Pubkeys) {
+			return nut11.NotEnoughSignaturesErr
+		}
+	}
+
+	return nil
 }
