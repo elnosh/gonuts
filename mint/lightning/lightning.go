@@ -1,6 +1,9 @@
 package lightning
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Client interface to interact with a Lightning backend
 type Client interface {
@@ -13,6 +16,16 @@ type Client interface {
 	FeeReserve(amount uint64) uint64
 	SubscribeInvoice(ctx context.Context, paymentHash string) (InvoiceSubscriptionClient, error)
 }
+
+const (
+	// 1 hour
+	InvoiceExpiryTime         = 3600
+	FeePercent        float64 = 0.01
+)
+
+var (
+	OutgoingPaymentNotFound = errors.New("outgoing payment not found")
+)
 
 type Invoice struct {
 	PaymentRequest string

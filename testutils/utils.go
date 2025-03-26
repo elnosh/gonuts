@@ -60,10 +60,7 @@ type LightningBackend interface {
 	CreateInvoice(amount uint64) (*Invoice, error)
 	LookupInvoice(hash string) (*Invoice, error)
 	CreateHodlInvoice(amount uint64, hash string) (*Invoice, error)
-	// CLN does not support HODL invoices (unless using a plugin)
-	// passing invoice and payer as a hack. Payer will pay the invoice
-	// just like a regular invoice.
-	SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error
+	SettleHodlInvoice(preimage string) error
 }
 
 type Peer struct {
@@ -209,8 +206,7 @@ func (lndContainer *LndBackend) CreateHodlInvoice(amount uint64, hash string) (*
 	}, nil
 }
 
-// NOTE: invoice and payer are not used. Those are an ugly hack for CLN
-func (lndContainer *LndBackend) SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error {
+func (lndContainer *LndBackend) SettleHodlInvoice(preimage string) error {
 	preimageBytes, err := hex.DecodeString(preimage)
 	if err != nil {
 		return err
@@ -455,9 +451,10 @@ func (clnContainer *CLNBackend) PayInvoice(invoice string) error {
 }
 
 func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
+	r := mathrand.New(mathrand.NewPCG(uint64(time.Now().UnixMicro()), uint64(time.Now().UnixMilli())))
 	body := map[string]any{
 		"amount_msat": amount * 1000,
-		"label":       time.Now().Unix(),
+		"label":       time.Now().Unix() + int64(r.Int()),
 		"description": "test",
 	}
 
@@ -489,16 +486,13 @@ func (clnContainer *CLNBackend) CreateInvoice(amount uint64) (*Invoice, error) {
 	}, nil
 }
 
+// NOTE: CLN does not support HODL invoices (unless using a plugin). These will not be used
+// in the tests. Rather will do it through LND.
 func (clnContainer *CLNBackend) CreateHodlInvoice(amount uint64, hash string) (*Invoice, error) {
 	return clnContainer.CreateInvoice(amount)
 }
 
-func (clnContainer *CLNBackend) SettleHodlInvoice(preimage string, invoice string, payer *CLNBackend) error {
-	if err := payer.PayInvoice(invoice); err != nil {
-		return err
-	}
-	return nil
-}
+func (clnContainer *CLNBackend) SettleHodlInvoice(preimage string) error { return nil }
 
 func (clnContainer *CLNBackend) LookupInvoice(hash string) (*Invoice, error) {
 	body := map[string]string{
@@ -708,6 +702,20 @@ func LndClient(lnd *lnd.Lnd) (*lightning.LndClient, error) {
 	}
 
 	return lndClient, nil
+}
+
+func CLNClient(clnNode *cln.CLN) (*lightning.CLNClient, error) {
+	clnConfig := lightning.CLNConfig{
+		RestURL: fmt.Sprintf("http://%s:%s", clnNode.Host, clnNode.RestPort),
+		Rune:    clnNode.Rune,
+	}
+
+	clnClient, err := lightning.SetupCLNClient(clnConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error setting CLN client: %v", err)
+	}
+
+	return clnClient, nil
 }
 
 func CreateTestMint(

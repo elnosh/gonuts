@@ -16,12 +16,6 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-const (
-	// 1 hour
-	InvoiceExpiryTime         = 3600
-	FeePercent        float64 = 0.01
-)
-
 type LndConfig struct {
 	GRPCHost string
 	Cert     credentials.TransportCredentials
