@@ -51,8 +51,8 @@ const (
 type Mint struct {
 	db storage.MintDB
 
-	// active keysets
-	activeKeysets map[string]crypto.MintKeyset
+	// active keyset
+	activeKeyset *crypto.MintKeyset
 
 	// map of all keysets (both active and inactive)
 	keysets map[string]crypto.MintKeyset
@@ -111,15 +111,14 @@ func LoadMint(config Config) (*Mint, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	mint := &Mint{
-		db:            db,
-		activeKeysets: make(map[string]crypto.MintKeyset),
-		keysets:       make(map[string]crypto.MintKeyset, len(dbKeysets)),
-		limits:        config.Limits,
-		logger:        logger,
-		mppEnabled:    config.EnableMPP,
-		publisher:     pubsub.NewPubSub(),
-		ctx:           ctx,
-		cancel:        cancel,
+		db:         db,
+		keysets:    make(map[string]crypto.MintKeyset, len(dbKeysets)),
+		limits:     config.Limits,
+		logger:     logger,
+		mppEnabled: config.EnableMPP,
+		publisher:  pubsub.NewPubSub(),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 
 	// if no keysets stored, just create a new one
@@ -128,7 +127,7 @@ func LoadMint(config Config) (*Mint, error) {
 		if err != nil {
 			return nil, err
 		}
-		mint.activeKeysets[keyset.Id] = *keyset
+		mint.activeKeyset = keyset
 		mint.keysets[keyset.Id] = *keyset
 		hexseed := hex.EncodeToString(seed)
 		activeDbKeyset := storage.DBKeyset{
@@ -155,7 +154,7 @@ func LoadMint(config Config) (*Mint, error) {
 				return nil, err
 			}
 			if keyset.Active {
-				mint.activeKeysets[keyset.Id] = *keyset
+				mint.activeKeyset = keyset
 			}
 			mint.keysets[keyset.Id] = *keyset
 		}
@@ -167,12 +166,8 @@ func LoadMint(config Config) (*Mint, error) {
 		}
 	}
 
-	var activeKeyset *crypto.MintKeyset
-	for _, keyset := range mint.activeKeysets {
-		activeKeyset = &keyset
-	}
-
-	logger.Info(fmt.Sprintf("setting active keyset '%v' with fee %v", activeKeyset.Id, activeKeyset.InputFeePpk))
+	logger.Info(fmt.Sprintf("setting active keyset '%v' with fee %v",
+		mint.activeKeyset.Id, mint.activeKeyset.InputFeePpk))
 
 	if config.LightningClient == nil {
 		return nil, errors.New("invalid lightning client")
@@ -1410,8 +1405,7 @@ func verifyBlindedMessages(proofs cashu.Proofs, blindedMessages cashu.BlindedMes
 	return nil
 }
 
-// signBlindedMessages will sign the blindedMessages and
-// return the blindedSignatures
+// signBlindedMessages will sign the blindedMessages and return the blindedSignatures
 func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu.BlindedSignatures, error) {
 	blindedSignatures := make(cashu.BlindedSignatures, len(blindedMessages))
 
@@ -1420,11 +1414,10 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 			return nil, cashu.UnknownKeysetErr
 		}
 		var k *secp256k1.PrivateKey
-		keyset, ok := m.activeKeysets[msg.Id]
-		if !ok {
+		if msg.Id != m.activeKeyset.Id {
 			return nil, cashu.InactiveKeysetSignatureRequest
 		} else {
-			if key, ok := keyset.Keys[msg.Amount]; ok {
+			if key, ok := m.activeKeyset.Keys[msg.Amount]; ok {
 				k = key.PrivateKey
 			} else {
 				return nil, cashu.InvalidBlindedMessageAmount
@@ -1450,7 +1443,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 		blindedSignature := cashu.BlindedSignature{
 			Amount: msg.Amount,
 			C_:     C_hex,
-			Id:     keyset.Id,
+			Id:     m.activeKeyset.Id,
 			DLEQ: &cashu.DLEQProof{
 				E: hex.EncodeToString(e.Serialize()),
 				S: hex.EncodeToString(s.Serialize()),
@@ -1462,8 +1455,7 @@ func (m *Mint) signBlindedMessages(blindedMessages cashu.BlindedMessages) (cashu
 	return blindedSignatures, nil
 }
 
-// requestInvoice requests an invoice from the Lightning backend
-// for the given amount
+// requestInvoice requests an invoice from the Lightning backend for the given amount
 func (m *Mint) requestInvoice(amount uint64) (*lightning.Invoice, error) {
 	invoice, err := m.lightningClient.CreateInvoice(amount)
 	if err != nil {
@@ -1499,14 +1491,11 @@ func (m *Mint) ListKeysets() nut02.GetKeysetsResponse {
 }
 
 func (m *Mint) GetActiveKeyset() nut01.Keyset {
-	for _, k := range m.activeKeysets {
-		return nut01.Keyset{
-			Id:   k.Id,
-			Unit: k.Unit,
-			Keys: k.PublicKeys(),
-		}
+	return nut01.Keyset{
+		Id:   m.activeKeyset.Id,
+		Unit: m.activeKeyset.Unit,
+		Keys: m.activeKeyset.PublicKeys(),
 	}
-	return nut01.Keyset{}
 }
 
 func (m *Mint) GetKeysetById(id string) (nut01.Keyset, error) {
@@ -1532,10 +1521,7 @@ func (m *Mint) RotateKeyset(fee uint) (*nut02.Keyset, error) {
 		return nil, err
 	}
 
-	var currentActiveKeyset *crypto.MintKeyset
-	for _, active := range m.activeKeysets {
-		currentActiveKeyset = &active
-	}
+	currentActiveKeyset := m.activeKeyset
 
 	newDerivationPathIdx := currentActiveKeyset.DerivationPathIdx + 1
 	newKeyset, err := crypto.GenerateKeyset(
@@ -1555,9 +1541,8 @@ func (m *Mint) RotateKeyset(fee uint) (*nut02.Keyset, error) {
 	if err := m.db.UpdateKeysetActive(currentActiveKeyset.Id, false); err != nil {
 		return nil, fmt.Errorf("could not update active state of keyset in db: %v", err)
 	}
-	// delete previous active from active list
-	delete(m.activeKeysets, currentActiveKeyset.Id)
-	m.activeKeysets[newKeyset.Id] = *newKeyset
+	m.activeKeyset = newKeyset
+
 	m.keysets[newKeyset.Id] = *newKeyset
 
 	hexseed := hex.EncodeToString(seed)
