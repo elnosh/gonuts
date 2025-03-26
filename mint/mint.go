@@ -1152,12 +1152,12 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 		nut10Secret, err := nut10.DeserializeSecret(proof.Secret)
 		if err == nil {
 			if nut10Secret.Kind == nut10.P2PK {
-				if err := verifyP2PKLockedProof(proof, nut10Secret); err != nil {
+				if err := nut11.VerifyP2PKLockedProof(proof, nut10Secret); err != nil {
 					return err
 				}
 				m.logDebugf("verified P2PK locked proof")
 			} else if nut10Secret.Kind == nut10.HTLC {
-				if err := verifyHTLCProof(proof, nut10Secret); err != nil {
+				if err := nut14.VerifyHTLCProof(proof, nut10Secret); err != nil {
 					return err
 				}
 				m.logDebugf("verified HTLC proof")
@@ -1179,123 +1179,6 @@ func (m *Mint) verifyProofs(proofs cashu.Proofs, Ys []string) error {
 			return cashu.InvalidProofErr
 		}
 	}
-	return nil
-}
-
-func verifyP2PKLockedProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
-	var p2pkWitness nut11.P2PKWitness
-	json.Unmarshal([]byte(proof.Witness), &p2pkWitness)
-
-	p2pkTags, err := nut11.ParseP2PKTags(proofSecret.Data.Tags)
-	if err != nil {
-		return err
-	}
-
-	signaturesRequired := 1
-	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
-	// if refund pubkey present, check signature
-	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
-		if len(p2pkTags.Refund) == 0 {
-			return nil
-		} else {
-			hash := sha256.Sum256([]byte(proof.Secret))
-			if len(p2pkWitness.Signatures) < 1 {
-				return nut11.InvalidWitness
-			}
-			if !nut11.HasValidSignatures(hash[:], p2pkWitness.Signatures, signaturesRequired, p2pkTags.Refund) {
-				return nut11.NotEnoughSignaturesErr
-			}
-		}
-	} else {
-		pubkey, err := nut11.ParsePublicKey(proofSecret.Data.Data)
-		if err != nil {
-			return err
-		}
-		keys := []*btcec.PublicKey{pubkey}
-		// message to sign
-		hash := sha256.Sum256([]byte(proof.Secret))
-
-		if p2pkTags.NSigs > 0 {
-			signaturesRequired = p2pkTags.NSigs
-			if len(p2pkTags.Pubkeys) == 0 {
-				return nut11.EmptyPubkeysErr
-			}
-			keys = append(keys, p2pkTags.Pubkeys...)
-		}
-
-		if len(p2pkWitness.Signatures) < 1 {
-			return nut11.InvalidWitness
-		}
-
-		if nut11.DuplicateSignatures(p2pkWitness.Signatures) {
-			return nut11.DuplicateSignaturesErr
-		}
-
-		if !nut11.HasValidSignatures(hash[:], p2pkWitness.Signatures, signaturesRequired, keys) {
-			return nut11.NotEnoughSignaturesErr
-		}
-	}
-	return nil
-}
-
-func verifyHTLCProof(proof cashu.Proof, proofSecret nut10.WellKnownSecret) error {
-	var htlcWitness nut14.HTLCWitness
-	json.Unmarshal([]byte(proof.Witness), &htlcWitness)
-
-	p2pkTags, err := nut11.ParseP2PKTags(proofSecret.Data.Tags)
-	if err != nil {
-		return err
-	}
-
-	// if locktime is expired and there is no refund pubkey, treat as anyone can spend
-	// if refund pubkey present, check signature
-	if p2pkTags.Locktime > 0 && time.Now().Local().Unix() > p2pkTags.Locktime {
-		if len(p2pkTags.Refund) == 0 {
-			return nil
-		} else {
-			hash := sha256.Sum256([]byte(proof.Secret))
-			if len(htlcWitness.Signatures) < 1 {
-				return nut11.InvalidWitness
-			}
-			if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, 1, p2pkTags.Refund) {
-				return nut11.NotEnoughSignaturesErr
-			}
-		}
-		return nil
-	}
-
-	// verify valid preimage
-	preimageBytes, err := hex.DecodeString(htlcWitness.Preimage)
-	if err != nil {
-		return nut14.InvalidPreimageErr
-	}
-	hashBytes := sha256.Sum256(preimageBytes)
-	hash := hex.EncodeToString(hashBytes[:])
-
-	if len(proofSecret.Data.Data) != 64 {
-		return nut14.InvalidHashErr
-	}
-	if hash != proofSecret.Data.Data {
-		return nut14.InvalidPreimageErr
-	}
-
-	// if n_sigs flag present, verify signatures
-	if p2pkTags.NSigs > 0 {
-		if len(htlcWitness.Signatures) < 1 {
-			return nut11.NoSignaturesErr
-		}
-
-		hash := sha256.Sum256([]byte(proof.Secret))
-
-		if nut11.DuplicateSignatures(htlcWitness.Signatures) {
-			return nut11.DuplicateSignaturesErr
-		}
-
-		if !nut11.HasValidSignatures(hash[:], htlcWitness.Signatures, p2pkTags.NSigs, p2pkTags.Pubkeys) {
-			return nut11.NotEnoughSignaturesErr
-		}
-	}
-
 	return nil
 }
 
