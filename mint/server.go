@@ -143,12 +143,9 @@ func (ms *MintServer) Start() error {
 						continue
 					}
 
-					for _, k := range ms.mint.activeKeysets {
-						if len(activeKeysetCache.Keysets) > 0 {
-							if k.Id != activeKeysetCache.Keysets[0].Id {
-								delete(ms.cache.items, ACTIVE_KEYSET)
-								continue
-							}
+					if len(activeKeysetCache.Keysets) > 0 {
+						if ms.mint.activeKeyset.Id != activeKeysetCache.Keysets[0].Id {
+							delete(ms.cache.items, ACTIVE_KEYSET)
 						}
 					}
 				}
