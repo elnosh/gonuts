@@ -21,7 +21,8 @@ type Unit int
 const (
 	Sat Unit = iota
 
-	BOLT11_METHOD = "bolt11"
+	BOLT11_METHOD     = "bolt11"
+	MAX_SECRET_LENGTH = 512
 )
 
 func (unit Unit) String() string {
@@ -494,6 +495,7 @@ const (
 
 	BlindedMessageAlreadySignedErrCode CashuErrCode = 10002
 	InvalidProofErrCode                CashuErrCode = 10003
+	SecretTooLongErrCode               CashuErrCode = 10004
 
 	ProofAlreadyUsedErrCode        CashuErrCode = 11001
 	InsufficientProofAmountErrCode CashuErrCode = 11002
@@ -536,6 +538,7 @@ var (
 	ProofAlreadyUsedErr          = Error{Detail: "proof already used", Code: ProofAlreadyUsedErrCode}
 	ProofPendingErr              = Error{Detail: "proof is pending", Code: ProofAlreadyUsedErrCode}
 	InvalidProofErr              = Error{Detail: "invalid proof", Code: InvalidProofErrCode}
+	SecretTooLongErr             = Error{Detail: "secret too long", Code: SecretTooLongErrCode}
 	NoProofsProvided             = Error{Detail: "no proofs provided", Code: InvalidProofErrCode}
 	DuplicateProofs              = Error{Detail: "duplicate inputs", Code: DuplicateInputErrCode}
 	DuplicateOutputs             = Error{Detail: "duplicate outputs", Code: DuplicateOutputErrCode}
