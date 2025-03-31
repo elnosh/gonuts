@@ -132,8 +132,8 @@ func (sqlite *SQLiteDB) GetSeed() ([]byte, error) {
 
 func (sqlite *SQLiteDB) SaveKeyset(keyset storage.DBKeyset) error {
 	_, err := sqlite.db.Exec(`
-		INSERT INTO keysets (id, unit, active, seed, derivation_path_idx, input_fee_ppk) VALUES (?, ?, ?, ?, ?, ?)
-	`, keyset.Id, keyset.Unit, keyset.Active, keyset.Seed, keyset.DerivationPathIdx, keyset.InputFeePpk)
+		INSERT INTO keysets (id, unit, active, derivation_path_idx, input_fee_ppk) VALUES (?, ?, ?, ?, ?)
+	`, keyset.Id, keyset.Unit, keyset.Active, keyset.DerivationPathIdx, keyset.InputFeePpk)
 
 	return err
 }
@@ -153,7 +153,6 @@ func (sqlite *SQLiteDB) GetKeysets() ([]storage.DBKeyset, error) {
 			&keyset.Id,
 			&keyset.Unit,
 			&keyset.Active,
-			&keyset.Seed,
 			&keyset.DerivationPathIdx,
 			&keyset.InputFeePpk,
 		)

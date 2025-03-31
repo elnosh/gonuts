@@ -1,0 +1,1 @@
+ALTER TABLE keysets DROP COLUMN seed;
