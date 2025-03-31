@@ -22,11 +22,8 @@ func TestKeysetRotations(t *testing.T) {
 	mint, _ := LoadMint(config)
 	firstActiveKeyset := mint.GetActiveKeyset()
 
-	if len(mint.activeKeysets) != 1 || len(mint.keysets) != 1 {
-		t.Fatal("length of keysets list is not 1")
-	}
-	if k, _ := mint.activeKeysets[firstActiveKeyset.Id]; k.InputFeePpk != 100 {
-		t.Fatalf("expected keyset with fee of %v but got %v", 100, k.InputFeePpk)
+	if mint.activeKeyset.InputFeePpk != 100 {
+		t.Fatalf("expected keyset with fee of %v but got %v", 100, mint.activeKeyset.InputFeePpk)
 	}
 
 	// rotate keyset
@@ -35,21 +32,21 @@ func TestKeysetRotations(t *testing.T) {
 
 	newActiveKeyset := mint.GetActiveKeyset()
 
-	if len(mint.activeKeysets) != 1 {
-		t.Fatal("length of active keysets list is not 1")
-	}
 	if len(mint.keysets) != 2 {
 		t.Fatalf("expected keyset list length of 2 but got %v", len(mint.keysets))
 	}
 
-	if _, ok := mint.keysets[firstActiveKeyset.Id]; !ok {
+	if prevActive, ok := mint.keysets[firstActiveKeyset.Id]; !ok {
 		t.Fatalf("previous existing keyset '%v' was not found", firstActiveKeyset.Id)
+	} else {
+		if prevActive.Active {
+			t.Fatal("previous active keyset has active status")
+		}
 	}
-	if _, ok := mint.activeKeysets[firstActiveKeyset.Id]; ok {
-		t.Fatalf("deactived keyset '%v' was found in list of active ones", firstActiveKeyset.Id)
-	}
-	if _, ok := mint.activeKeysets[newActiveKeyset.Id]; !ok {
-		t.Fatalf("expected active keyset '%v' was found in list of active ones", newActiveKeyset.Id)
+
+	if mint.activeKeyset.Id != newActiveKeyset.Id {
+		t.Fatalf("active keyset ids do not match. Expected '%v' but got '%v'",
+			mint.activeKeyset.Id, newActiveKeyset.Id)
 	}
 
 	secondActiveKeyset := mint.GetActiveKeyset()
@@ -57,18 +54,20 @@ func TestKeysetRotations(t *testing.T) {
 	// load without rotating keyset.
 	config.RotateKeyset = false
 	mint, _ = LoadMint(config)
-	if len(mint.activeKeysets) != 1 {
-		t.Fatal("length of active keysets list is not 1")
-	}
 	if len(mint.keysets) != 2 {
 		t.Fatalf("expected keyset list length of 2 but got %v", len(mint.keysets))
 	}
 
-	if _, ok := mint.keysets[firstActiveKeyset.Id]; !ok {
+	if prevActive, ok := mint.keysets[firstActiveKeyset.Id]; !ok {
 		t.Fatalf("previous existing keyset '%v' was not found", firstActiveKeyset.Id)
+	} else {
+		if prevActive.Active {
+			t.Fatal("previous active keyset has active status")
+		}
 	}
-	if _, ok := mint.activeKeysets[firstActiveKeyset.Id]; ok {
-		t.Fatalf("deactived keyset '%v' was found in list of active ones", firstActiveKeyset.Id)
+	if mint.activeKeyset.Id != secondActiveKeyset.Id {
+		t.Fatalf("active keyset ids do not match. Expected '%v' but got '%v'",
+			mint.activeKeyset.Id, secondActiveKeyset.Id)
 	}
 
 	// rotate keyset again
@@ -76,11 +75,8 @@ func TestKeysetRotations(t *testing.T) {
 	config.InputFeePpk = 200
 	mint, _ = LoadMint(config)
 
-	activeKeyset := mint.GetActiveKeyset()
+	newActiveKeyset = mint.GetActiveKeyset()
 
-	if len(mint.activeKeysets) != 1 {
-		t.Fatal("length of active keysets list is not 1")
-	}
 	if len(mint.keysets) != 3 {
 		t.Fatalf("expected keyset list length of 3 but got %v", len(mint.keysets))
 	}
@@ -91,15 +87,13 @@ func TestKeysetRotations(t *testing.T) {
 	if _, ok := mint.keysets[secondActiveKeyset.Id]; !ok {
 		t.Fatalf("previous existing keyset '%v' was not found", secondActiveKeyset.Id)
 	}
-	if _, ok := mint.activeKeysets[secondActiveKeyset.Id]; ok {
-		t.Fatalf("deactived keyset '%v' was found in list of active ones", secondActiveKeyset.Id)
+
+	if mint.activeKeyset.Id != newActiveKeyset.Id {
+		t.Fatalf("active keyset ids do not match. Expected '%v' but got '%v'",
+			mint.activeKeyset.Id, newActiveKeyset.Id)
 	}
 
-	newActive, ok := mint.activeKeysets[activeKeyset.Id]
-	if !ok {
-		t.Fatalf("expected active keyset '%v' is not in list of active ones", activeKeyset.Id)
-	}
-	if newActive.InputFeePpk != 200 {
-		t.Fatalf("expected fee of '%v' but got '%v'", 200, newActive.InputFeePpk)
+	if mint.activeKeyset.InputFeePpk != 200 {
+		t.Fatalf("expected fee of '%v' but got '%v'", 200, mint.activeKeyset.InputFeePpk)
 	}
 }

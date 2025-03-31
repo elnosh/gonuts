@@ -31,10 +31,8 @@ func TestActiveKeysetsHandler(t *testing.T) {
 	activeKeyset, _ := crypto.GenerateKeyset(master, 0, 0, true)
 
 	mint := &Mint{
-		activeKeysets: map[string]crypto.MintKeyset{
-			activeKeyset.Id: *activeKeyset,
-		},
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		activeKeyset: activeKeyset,
+		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	mintServer := MintServer{
 		mint:  mint,
@@ -76,9 +74,7 @@ func TestGetKeysetsHandler(t *testing.T) {
 	inactiveKeyset, _ := crypto.GenerateKeyset(master, 1, 200, false)
 
 	mint := &Mint{
-		activeKeysets: map[string]crypto.MintKeyset{
-			activeKeyset.Id: *activeKeyset,
-		},
+		activeKeyset: activeKeyset,
 		keysets: map[string]crypto.MintKeyset{
 			activeKeyset.Id:   *activeKeyset,
 			inactiveKeyset.Id: *inactiveKeyset,
@@ -157,9 +153,7 @@ func TestGetKeysetByIdHandler(t *testing.T) {
 	expectedKeysetNotFound, _ := json.Marshal(cashu.UnknownKeysetErr)
 
 	mint := &Mint{
-		activeKeysets: map[string]crypto.MintKeyset{
-			activeKeyset.Id: *activeKeyset,
-		},
+		activeKeyset: activeKeyset,
 		keysets: map[string]crypto.MintKeyset{
 			activeKeyset.Id:   *activeKeyset,
 			inactiveKeyset.Id: *inactiveKeyset,
