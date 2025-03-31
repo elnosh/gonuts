@@ -1,0 +1,1 @@
+ALTER TABLE keysets ADD COLUMN seed TEXT;

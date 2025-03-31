@@ -48,7 +48,6 @@ type DBKeyset struct {
 	Id                string
 	Unit              string
 	Active            bool
-	Seed              string
 	DerivationPathIdx uint32
 	InputFeePpk       uint
 }

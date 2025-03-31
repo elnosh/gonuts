@@ -129,12 +129,10 @@ func LoadMint(config Config) (*Mint, error) {
 		}
 		mint.activeKeyset = keyset
 		mint.keysets[keyset.Id] = *keyset
-		hexseed := hex.EncodeToString(seed)
 		activeDbKeyset := storage.DBKeyset{
 			Id:                keyset.Id,
 			Unit:              keyset.Unit,
 			Active:            true,
-			Seed:              hexseed,
 			DerivationPathIdx: keyset.DerivationPathIdx,
 			InputFeePpk:       keyset.InputFeePpk,
 		}
@@ -1432,12 +1430,10 @@ func (m *Mint) RotateKeyset(fee uint) (*nut02.Keyset, error) {
 
 	m.keysets[newKeyset.Id] = *newKeyset
 
-	hexseed := hex.EncodeToString(seed)
 	activeDbKeyset := storage.DBKeyset{
 		Id:                newKeyset.Id,
 		Unit:              newKeyset.Unit,
 		Active:            true,
-		Seed:              hexseed,
 		DerivationPathIdx: newKeyset.DerivationPathIdx,
 		InputFeePpk:       newKeyset.InputFeePpk,
 	}
