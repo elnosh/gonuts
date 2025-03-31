@@ -502,6 +502,23 @@ func TestSwap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got unexpected error in swap: %v", err)
 	}
+
+	// test secret too long
+	validAmtBlindedMessages, _, _, _ = testutils.CreateBlindedMessages(amount-uint64(fees), keyset)
+	proofs, err = testutils.GetValidProofsForAmount(amount, testMint, node2)
+	if err != nil {
+		t.Fatalf("error generating valid proofs: %v", err)
+	}
+
+	for i, _ := range proofs {
+		proofs[i].Secret = strings.Repeat("a", 515)
+	}
+
+	_, err = mintFees.Swap(proofs, validAmtBlindedMessages)
+	if !errors.Is(err, cashu.SecretTooLongErr) {
+		t.Fatalf("expected error '%v' but got '%v' instead", cashu.SecretTooLongErr, err)
+	}
+
 }
 
 func TestRequestMeltQuote(t *testing.T) {
