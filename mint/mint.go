@@ -891,7 +891,7 @@ func (m *Mint) MeltTokens(ctx context.Context, meltTokensRequest nut05.PostMeltB
 			// if got failed from SendPayment
 			// do additional check by calling to get outgoing payment status
 			paymentStatus, err := m.lightningClient.OutgoingPaymentStatus(ctx, meltQuote.PaymentHash)
-			if status.Code(err) == codes.NotFound {
+			if errors.Is(err, lightning.OutgoingPaymentNotFound) || status.Code(err) == codes.NotFound {
 				m.logInfof("no outgoing payment found with hash: %v. Removing pending proofs and marking quote '%v' as unpaid",
 					meltQuote.PaymentHash, meltQuote.Id)
 
