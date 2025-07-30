@@ -2,6 +2,7 @@ package nut13
 
 import (
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -71,4 +72,27 @@ func TestSecretDerivation(t *testing.T) {
 		}
 	}
 
+}
+
+func TestCollisionOfIdNoCollision(t *testing.T) {
+	keysetId := []string{"009a1f293253e41e"}
+
+	keysets := []string{"009a1f293253d41e", "009a1f283253e41e"}
+
+	err := CheckCollidingKeysets(keysetId, keysets)
+
+	if err != nil {
+		t.Errorf("There should not have been any keyset collision")
+	}
+}
+func TestCollisionOfIdWithCollision(t *testing.T) {
+	keysetId := []string{"009a1f293253e41e", "009a1f293253e41d"}
+
+	oldKeysets := []string{"009b1f293253e41d", "009a1f293253e41e"}
+
+	err := CheckCollidingKeysets(keysetId, oldKeysets)
+
+	if !errors.Is(err, ErrCollidingKeysetId) {
+		t.Errorf("there should have been a keyset collition error")
+	}
 }

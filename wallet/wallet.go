@@ -155,6 +155,15 @@ func LoadWallet(config Config) (*Wallet, error) {
 				return nil, fmt.Errorf("error getting keyset from mint: %v", err)
 			}
 
+			// Verify there is no collision with other keysets
+			newMintKeysetIdList := getListOfIdsFromMap(activeKeysets)
+			keysetsMap := db.GetKeysets()
+			listOfCurrentKeysets := keysetsMap.GetAllKeysetIds()
+			err = nut13.CheckCollidingKeysets(listOfCurrentKeysets, newMintKeysetIdList)
+			if err != nil {
+				return nil, err
+			}
+
 			for i, keyset := range activeKeysets {
 				storedKeyset := db.GetKeyset(keyset.Id)
 				// save new keyset
@@ -190,6 +199,17 @@ func mintInfo(mintURL string) (*walletMint, error) {
 	return &walletMint{mintURL, activeKeysets, inactiveKeysets}, nil
 }
 
+func getListOfIdsFromMap(walletMap map[string]crypto.WalletKeyset) []string {
+
+	keysetIdList := []string{}
+	for _, keyset := range walletMap {
+
+		keysetIdList = append(keysetIdList, keyset.Id)
+
+	}
+	return keysetIdList
+}
+
 // addMint adds the mint to the list of mints trusted by the wallet
 func (w *Wallet) addMint(mint string) (*walletMint, error) {
 	url, err := url.Parse(mint)
@@ -203,8 +223,22 @@ func (w *Wallet) addMint(mint string) (*walletMint, error) {
 		return nil, err
 	}
 
-	for _, keyset := range mintInfo.activeKeysets {
+	if mintInfo == nil {
+		return nil, fmt.Errorf("Mint info is nil")
+	}
 
+	newMintKeysetIdList := getListOfIdsFromMap(mintInfo.activeKeysets)
+	newMintKeysetIdList = append(newMintKeysetIdList, getListOfIdsFromMap(mintInfo.inactiveKeysets)...)
+
+	keysetsMap := w.db.GetKeysets()
+	listOfCurrentKeysets := keysetsMap.GetAllKeysetIds()
+
+	err = nut13.CheckCollidingKeysets(listOfCurrentKeysets, newMintKeysetIdList)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, keyset := range mintInfo.activeKeysets {
 		w.db.SaveKeyset(&keyset)
 	}
 	for _, keyset := range mintInfo.inactiveKeysets {
@@ -626,6 +660,17 @@ func (w *Wallet) swapToTrusted(token cashu.Token) (cashu.Proofs, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Verify there is no collision with other keysets
+	newMintKeysetIdList := getListOfIdsFromMap(activeKeysets)
+	keysetsMap := w.db.GetKeysets()
+	listOfCurrentKeysets := keysetsMap.GetAllKeysetIds()
+
+	err = nut13.CheckCollidingKeysets(listOfCurrentKeysets, newMintKeysetIdList)
+	if err != nil {
+		return nil, err
+	}
+
 	mint := &walletMint{mintURL: tokenMintURL, activeKeysets: activeKeysets}
 
 	fees := uint64(w.fees(proofsToSwap, mint))
@@ -1402,6 +1447,7 @@ func (w *Wallet) getActiveSatKeyset(mintURL string) (*crypto.WalletKeyset, error
 
 	// if new active, save it to db and inactivate previous
 	if activeChanged {
+
 		// inactivate previous active
 		activeKeyset.Active = false
 		w.db.SaveKeyset(&activeKeyset)
@@ -1428,6 +1474,13 @@ func (w *Wallet) getActiveSatKeyset(mintURL string) (*crypto.WalletKeyset, error
 					Active:      true,
 					PublicKeys:  keys,
 					InputFeePpk: keyset.InputFeePpk,
+				}
+				// Verify there is no collision with other keysets
+				keysetsMap := w.db.GetKeysets()
+				listOfCurrentKeysets := keysetsMap.GetAllKeysetIds()
+				err = nut13.CheckCollidingKeysets(listOfCurrentKeysets, []string{activeKeyset.Id})
+				if err != nil {
+					return nil, err
 				}
 
 				w.db.SaveKeyset(&activeKeyset)
