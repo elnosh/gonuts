@@ -3,18 +3,32 @@ package nut13
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
-func DeriveKeysetPath(master *hdkeychain.ExtendedKey, keysetId string) (*hdkeychain.ExtendedKey, error) {
+var (
+	ErrCollidingKeysetId = errors.New("Error: colliding keyset Id")
+)
+
+func keysetIdToBigInt(keysetId string) (uint64, error) {
 	keysetBytes, err := hex.DecodeString(keysetId)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	bigEndianBytes := binary.BigEndian.Uint64(keysetBytes)
 	keysetIdInt := bigEndianBytes % (1<<31 - 1)
+	return keysetIdInt, nil
+}
+
+func DeriveKeysetPath(master *hdkeychain.ExtendedKey, keysetId string) (*hdkeychain.ExtendedKey, error) {
+	keysetIdInt, err := keysetIdToBigInt(keysetId)
+	if err != nil {
+		return nil, err
+	}
 
 	// m/129372
 	purpose, err := master.Derive(hdkeychain.HardenedKeyStart + 129372)
@@ -80,4 +94,31 @@ func DeriveSecret(keysetPath *hdkeychain.ExtendedKey, counter uint32) (string, e
 	secret := hex.EncodeToString(secretBytes)
 
 	return secret, nil
+}
+
+func CheckCollidingKeysets(currentKeysetIds []string, newMintKeysetIds []string) error {
+
+	for i := range currentKeysetIds {
+		keysetIdInt, err := keysetIdToBigInt(currentKeysetIds[i])
+		if err != nil {
+			return err
+		}
+
+		for j := range newMintKeysetIds {
+			if currentKeysetIds[i] == newMintKeysetIds[j] {
+				return fmt.Errorf("%w. KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i])
+			}
+
+			keysetIdIntToCompare, err := keysetIdToBigInt(newMintKeysetIds[j])
+			if err != nil {
+				return err
+			}
+
+			if keysetIdInt == keysetIdIntToCompare {
+				return fmt.Errorf("%w. KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i])
+			}
+		}
+	}
+
+	return nil
 }
