@@ -1,27 +1,43 @@
 package nut13
 
 import (
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
+
+	"encoding/base64"
+	"regexp"
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 var (
-	ErrCollidingKeysetId = errors.New("Error: colliding keyset Id")
+	ErrCollidingKeysetId = errors.New("error: colliding keyset detected")
 )
 
-func keysetIdToBigInt(keysetId string) (uint64, error) {
-	keysetBytes, err := hex.DecodeString(keysetId)
-	if err != nil {
-		return 0, err
+func keysetIdToBigInt(id string) (*big.Int, error) {
+	hexPattern := regexp.MustCompile("^[0-9a-fA-F]+$")
+
+	var result *big.Int
+	modulus := big.NewInt(2147483647) // 2^31 - 1
+
+	if hexPattern.MatchString(id) {
+		result = new(big.Int)
+		result.SetString(id, 16)
+	} else {
+		decoded, err := base64.StdEncoding.DecodeString(id)
+		if err != nil {
+			return nil, err
+		}
+
+		hexStr := hex.EncodeToString(decoded)
+		result = new(big.Int)
+		result.SetString(hexStr, 16)
 	}
-	bigEndianBytes := binary.BigEndian.Uint64(keysetBytes)
-	keysetIdInt := bigEndianBytes % (1<<31 - 1)
-	return keysetIdInt, nil
+
+	return result.Mod(result, modulus), nil
 }
 
 func DeriveKeysetPath(master *hdkeychain.ExtendedKey, keysetId string) (*hdkeychain.ExtendedKey, error) {
@@ -43,7 +59,7 @@ func DeriveKeysetPath(master *hdkeychain.ExtendedKey, keysetId string) (*hdkeych
 	}
 
 	// m/129372'/0'/keyset_k_int'
-	keysetPath, err := coinType.Derive(hdkeychain.HardenedKeyStart + uint32(keysetIdInt))
+	keysetPath, err := coinType.Derive(hdkeychain.HardenedKeyStart + uint32(keysetIdInt.Uint64()))
 	if err != nil {
 		return nil, err
 	}
