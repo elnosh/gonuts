@@ -122,7 +122,7 @@ func CheckCollidingKeysets(currentKeysetIds []string, newMintKeysetIds []string)
 
 		for j := range newMintKeysetIds {
 			if currentKeysetIds[i] == newMintKeysetIds[j] {
-				return fmt.Errorf("%w. KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i])
+				return fmt.Errorf("%w. KeysetId: %+v. New KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i], newMintKeysetIds[j])
 			}
 
 			keysetIdIntToCompare, err := keysetIdToBigInt(newMintKeysetIds[j])
@@ -130,8 +130,8 @@ func CheckCollidingKeysets(currentKeysetIds []string, newMintKeysetIds []string)
 				return err
 			}
 
-			if keysetIdInt == keysetIdIntToCompare {
-				return fmt.Errorf("%w. KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i])
+			if keysetIdInt.Cmp(keysetIdIntToCompare) == 0 {
+				return fmt.Errorf("%w. KeysetId: %+v. New KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i], newMintKeysetIds[j])
 			}
 		}
 	}
