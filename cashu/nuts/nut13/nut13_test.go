@@ -85,6 +85,7 @@ func TestCollisionOfIdNoCollision(t *testing.T) {
 		t.Errorf("There should not have been any keyset collision")
 	}
 }
+
 func TestCollisionOfIdWithCollision(t *testing.T) {
 	keysetId := []string{"009a1f293253e41e", "009a1f293253e41d"}
 
@@ -94,5 +95,16 @@ func TestCollisionOfIdWithCollision(t *testing.T) {
 
 	if !errors.Is(err, ErrCollidingKeysetId) {
 		t.Errorf("there should have been a keyset collition error")
+	}
+}
+
+func TestCollitionForIntegerValues(t *testing.T) {
+	currentKeysetIds := []string{"00682d5c11e19b7c"}
+	newKeysetIds := []string{"0059051691ffec07"}
+
+	err := CheckCollidingKeysets(currentKeysetIds, newKeysetIds)
+
+	if !errors.Is(err, ErrCollidingKeysetId) {
+		t.Errorf("there should have been a keyset collition error based on the big int value")
 	}
 }
