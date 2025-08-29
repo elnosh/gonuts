@@ -33,11 +33,12 @@ func processNostrRequests(wallet *Wallet) {
 	}
 	eventsChan := wallet.nostrClient.GetEventsChan()
 
-	for event := range eventsChan {
-		// Log that we received an event
-		log.Printf("\n Nostr event received: id=%s pubkey=%s", event.ID, event.PubKey)
-		// Try to decode the event content as a PaymentRequestPayload
+	for {
+		event, ok := <-eventsChan
+		if !ok {
+			log.Println("Nostr events channel closed, will retry acquiring channel")
+			break
+		}
 		wallet.handleNostrEvent(event)
-
 	}
 }
