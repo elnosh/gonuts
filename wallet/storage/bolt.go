@@ -807,7 +807,7 @@ func (db *BoltDB) SavePaymentRequest(payReq nut18.PaymentRequest) error {
 		TimesPaid:      0,
 	}
 
-	if dbPayReq.Id == "" {
+	if dbPayReq.Id == nil || *dbPayReq.Id == "" {
 		return fmt.Errorf("Id needs to be set")
 	}
 
@@ -818,7 +818,7 @@ func (db *BoltDB) SavePaymentRequest(payReq nut18.PaymentRequest) error {
 
 	if err := db.bolt.Update(func(tx *bolt.Tx) error {
 		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
-		key := []byte(payReq.Id)
+		key := []byte(*payReq.Id)
 		return paymentReqb.Put(key, jsonbytes)
 	}); err != nil {
 		return fmt.Errorf("error saving invoice: %v", err)

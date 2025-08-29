@@ -2131,18 +2131,19 @@ func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []s
 		return nil, err
 	}
 
+	unit := cashu.Sat.String()
 	paymentRequest := nut18.PaymentRequest{
-		Id:          id,
-		Unit:        cashu.Sat.String(),
-		Single:      singleUse,
-		Description: description,
+		Id:          &id,
+		Unit:        &unit,
+		Single:      &singleUse,
+		Description: &description,
 		Mints:       mints,
 	}
 	if amount != 0 {
-		paymentRequest.Amount = amount
+		paymentRequest.Amount = &amount
 	}
 
-	if paymentRequest.Id == "" {
+	if paymentRequest.Id == nil || *paymentRequest.Id == "" {
 		log.Panicf("Payment request should always have an Id %+v", paymentRequest)
 	}
 
@@ -2168,10 +2169,10 @@ func (w *Wallet) ReceivePaymentRequestPayload(payload nut18.PaymentRequestPayloa
 	if paymentRequest == nil {
 		return w.receive(payload.Proofs, payload.Mint, true)
 	} else {
-		if paymentRequest.PaymentRequest.Single && paymentRequest.TimesPaid > 0 {
+		if paymentRequest.PaymentRequest.Single != nil && *paymentRequest.PaymentRequest.Single && paymentRequest.TimesPaid > 0 {
 			return 0, ErrPaymentRequestAlreadyPaid
 		}
-		if paymentRequest.Amount > 0 && paymentRequest.Amount != payload.Proofs.Amount() {
+		if paymentRequest.Amount != nil && *paymentRequest.Amount > 0 && *paymentRequest.Amount != payload.Proofs.Amount() {
 			return 0, ErrPaymentRequestAmountIncorrect
 		}
 
