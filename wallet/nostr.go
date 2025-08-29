@@ -10,33 +10,34 @@ import (
 
 // handleNostrEvent processes a single nostr event.
 func (w *Wallet) handleNostrEvent(event n.Event) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("recovered from panic in nostr event processing: %v", r)
-		}
-	}()
-
 	var payload nut18.PaymentRequestPayload
 	err := json.Unmarshal([]byte(event.Content), &payload)
 	if err != nil {
-		// not a payment request, ignore
 		return
 	}
+	// Log detection of a PaymentRequestPayload
+	log.Printf("\n Detected PaymentRequestPayload: id=%s mint=%s proofs=%d", payload.Id, payload.Mint, len(payload.Proofs))
 
-	_, err = w.ReceivePaymentRequestPayload(payload)
+	amount, err := w.ReceivePaymentRequestPayload(payload)
 	if err != nil {
 		log.Printf("error processing payment request payload: %v", err)
+		return
 	}
+	log.Printf("\n Received  %+v Sats", amount)
 }
 
 func processNostrRequests(wallet *Wallet) {
 	if wallet.nostrClient == nil || wallet.nostrClient.GetEventsChan() == nil {
-		log.Println("Nostr client or event channel is not available, stopping request processing.")
+		log.Println("\n Nostr client or event channel is not available, stopping request processing.")
 		return
 	}
 	eventsChan := wallet.nostrClient.GetEventsChan()
 
 	for event := range eventsChan {
-		go wallet.handleNostrEvent(event)
+		// Log that we received an event
+		log.Printf("\n Nostr event received: id=%s pubkey=%s", event.ID, event.PubKey)
+		// Try to decode the event content as a PaymentRequestPayload
+		wallet.handleNostrEvent(event)
+
 	}
 }

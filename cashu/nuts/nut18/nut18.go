@@ -33,9 +33,9 @@ type PaymentRequest struct {
 	Amount      *uint64                `json:"a,omitempty" cbor:"a,omitempty"`
 	Unit        *string                `json:"u,omitempty" cbor:"u,omitempty"`
 	Single      *bool                  `json:"s,omitempty" cbor:"s,omitempty"`
-	Mints       []string              `json:"m,omitempty" cbor:"m,omitempty"`
+	Mints       []string               `json:"m,omitempty" cbor:"m,omitempty"`
 	Description *string                `json:"d,omitempty" cbor:"d,omitempty"`
-	Transport   []Transport           `json:"t,omitempty" cbor:"t,omitempty"`
+	Transport   []Transport            `json:"t,omitempty" cbor:"t,omitempty"`
 	Nut10       *nut10.WellKnownSecret `json:"nut10,omitempty" cbor:"nut10,omitempty"`
 }
 
