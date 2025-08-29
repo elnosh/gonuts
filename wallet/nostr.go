@@ -13,32 +13,39 @@ func (w *Wallet) handleNostrEvent(event n.Event) {
 	var payload nut18.PaymentRequestPayload
 	err := json.Unmarshal([]byte(event.Content), &payload)
 	if err != nil {
+		// not a payment request, ignore
 		return
 	}
-	// Log detection of a PaymentRequestPayload
-	log.Printf("\n Detected PaymentRequestPayload: id=%s mint=%s proofs=%d", payload.Id, payload.Mint, len(payload.Proofs))
 
-	amount, err := w.ReceivePaymentRequestPayload(payload)
+	_, err = w.ReceivePaymentRequestPayload(payload)
 	if err != nil {
 		log.Printf("error processing payment request payload: %v", err)
-		return
 	}
-	log.Printf("\n Received  %+v Sats", amount)
 }
 
+// processNostrRequests listens for events from the nostr client and exits when
+// wallet.nostrCtx is cancelled. It assumes wallet.nostrClient has been set by
+// the caller (LoadWallet) before starting this goroutine.
 func processNostrRequests(wallet *Wallet) {
-	if wallet.nostrClient == nil || wallet.nostrClient.GetEventsChan() == nil {
-		log.Println("\n Nostr client or event channel is not available, stopping request processing.")
+	if wallet == nil || wallet.nostrClient == nil {
+		log.Println("processNostrRequests: nostr client is not available, exiting")
 		return
 	}
+
 	eventsChan := wallet.nostrClient.GetEventsChan()
+	log.Println("Listening for Nostr events")
 
 	for {
-		event, ok := <-eventsChan
-		if !ok {
-			log.Println("Nostr events channel closed, will retry acquiring channel")
-			break
+		select {
+		case <-wallet.nostrCtx.Done():
+			log.Println("processNostrRequests: context cancelled, exiting listener")
+			return
+		case event, ok := <-eventsChan:
+			if !ok {
+				log.Println("Nostr events channel closed, exiting listener")
+				return
+			}
+			wallet.handleNostrEvent(event)
 		}
-		wallet.handleNostrEvent(event)
 	}
 }

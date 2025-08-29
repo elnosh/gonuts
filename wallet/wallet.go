@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -65,6 +66,11 @@ type Wallet struct {
 
 	// nostr client for payment request communications
 	nostrClient *nostr.NostrClient
+
+	// context and waitgroup to manage nostr listener lifecycle
+	nostrCtx    context.Context
+	nostrCancel context.CancelFunc
+	nostrWg     sync.WaitGroup
 
 	mu sync.RWMutex
 }
@@ -178,10 +184,16 @@ func LoadWallet(config Config) (*Wallet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error setting up Nostr client: %v", err)
 		}
-
 		// Store client in wallet and set support flag
 		wallet.nostrClient = nostrClient
-		go processNostrRequests(wallet)
+
+		// create context and waitgroup for listener lifecycle
+		wallet.nostrCtx, wallet.nostrCancel = context.WithCancel(context.Background())
+		wallet.nostrWg.Add(1)
+		go func() {
+			defer wallet.nostrWg.Done()
+			processNostrRequests(wallet)
+		}()
 	}
 
 	isErr = false
@@ -189,6 +201,13 @@ func LoadWallet(config Config) (*Wallet, error) {
 }
 
 func (w *Wallet) Shutdown() error {
+	// Stop nostr listener if running
+	if w.nostrCancel != nil {
+		w.nostrCancel()
+		// wait for listener goroutine to exit
+		w.nostrWg.Wait()
+	}
+
 	// Close Nostr client if it exists
 	if w.nostrClient != nil {
 		if err := w.nostrClient.Close(); err != nil {
