@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/elnosh/gonuts/cashu"
+	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/crypto"
 	"github.com/elnosh/gonuts/wallet/client"
 )
@@ -77,6 +78,17 @@ func GetKeysetKeys(mintURL, id string) (crypto.PublicKeys, error) {
 	return keysetsResponse.Keysets[0].Keys, nil
 }
 
+func getListOfIdsFromMap(walletMap map[string]crypto.WalletKeyset) []string {
+
+	keysetIdList := []string{}
+	for _, keyset := range walletMap {
+
+		keysetIdList = append(keysetIdList, keyset.Id)
+
+	}
+	return keysetIdList
+}
+
 // getActiveKeyset returns the active keyset for the mint passed.
 // if mint passed is known and the latest active keyset has changed,
 // it will inactivate the previous active and save new active to db
@@ -124,6 +136,15 @@ func (w *Wallet) getActiveKeyset(mintURL string) (*crypto.WalletKeyset, error) {
 				if storedKeyset != nil {
 					storedKeyset.Active = true
 					storedKeyset.InputFeePpk = keyset.InputFeePpk
+
+					// Verify before collision
+					keysetsMap := w.db.GetKeysets()
+					listOfCurrentKeysets := keysetsMap.GetAllKeysetIds()
+					err = nut13.CheckCollidingKeysets(listOfCurrentKeysets, []string{activeKeyset.Id})
+					if err != nil {
+						return nil, err
+					}
+
 					if err := w.db.SaveKeyset(storedKeyset); err != nil {
 						return nil, err
 					}

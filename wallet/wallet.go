@@ -224,6 +224,17 @@ func (w *Wallet) AddMint(mint string) (*walletMint, error) {
 		return nil, err
 	}
 
+	newMintKeysetIdList := []string{activeKeyset.Id}
+	newMintKeysetIdList = append(newMintKeysetIdList, getListOfIdsFromMap(inactiveKeysets)...)
+
+	keysetsMap := w.db.GetKeysets()
+	listOfCurrentKeysets := keysetsMap.GetAllKeysetIds()
+
+	err = nut13.CheckCollidingKeysets(listOfCurrentKeysets, newMintKeysetIdList)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := w.db.SaveKeyset(activeKeyset); err != nil {
 		return nil, err
 	}

@@ -1,20 +1,50 @@
 package nut13
 
 import (
-	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/big"
+
+	"encoding/base64"
+	"regexp"
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
+var (
+	ErrCollidingKeysetId = errors.New("error: colliding keyset detected")
+)
+
+func keysetIdToBigInt(id string) (*big.Int, error) {
+	hexPattern := regexp.MustCompile("^[0-9a-fA-F]+$")
+
+	var result *big.Int
+	modulus := big.NewInt(2147483647) // 2^31 - 1
+
+	if hexPattern.MatchString(id) {
+		result = new(big.Int)
+		result.SetString(id, 16)
+	} else {
+		decoded, err := base64.StdEncoding.DecodeString(id)
+		if err != nil {
+			return nil, err
+		}
+
+		hexStr := hex.EncodeToString(decoded)
+		result = new(big.Int)
+		result.SetString(hexStr, 16)
+	}
+
+	return result.Mod(result, modulus), nil
+}
+
 func DeriveKeysetPath(master *hdkeychain.ExtendedKey, keysetId string) (*hdkeychain.ExtendedKey, error) {
-	keysetBytes, err := hex.DecodeString(keysetId)
+	keysetIdInt, err := keysetIdToBigInt(keysetId)
 	if err != nil {
 		return nil, err
 	}
-	bigEndianBytes := binary.BigEndian.Uint64(keysetBytes)
-	keysetIdInt := bigEndianBytes % (1<<31 - 1)
 
 	// m/129372
 	purpose, err := master.Derive(hdkeychain.HardenedKeyStart + 129372)
@@ -29,7 +59,7 @@ func DeriveKeysetPath(master *hdkeychain.ExtendedKey, keysetId string) (*hdkeych
 	}
 
 	// m/129372'/0'/keyset_k_int'
-	keysetPath, err := coinType.Derive(hdkeychain.HardenedKeyStart + uint32(keysetIdInt))
+	keysetPath, err := coinType.Derive(hdkeychain.HardenedKeyStart + uint32(keysetIdInt.Uint64()))
 	if err != nil {
 		return nil, err
 	}
@@ -80,4 +110,31 @@ func DeriveSecret(keysetPath *hdkeychain.ExtendedKey, counter uint32) (string, e
 	secret := hex.EncodeToString(secretBytes)
 
 	return secret, nil
+}
+
+func CheckCollidingKeysets(currentKeysetIds []string, newMintKeysetIds []string) error {
+
+	for i := range currentKeysetIds {
+		keysetIdInt, err := keysetIdToBigInt(currentKeysetIds[i])
+		if err != nil {
+			return err
+		}
+
+		for j := range newMintKeysetIds {
+			if currentKeysetIds[i] == newMintKeysetIds[j] {
+				return fmt.Errorf("%w. KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i])
+			}
+
+			keysetIdIntToCompare, err := keysetIdToBigInt(newMintKeysetIds[j])
+			if err != nil {
+				return err
+			}
+
+			if keysetIdInt == keysetIdIntToCompare {
+				return fmt.Errorf("%w. KeysetId: %+v", ErrCollidingKeysetId, currentKeysetIds[i])
+			}
+		}
+	}
+
+	return nil
 }

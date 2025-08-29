@@ -286,6 +286,17 @@ func (kp *KeyPair) UnmarshalJSON(data []byte) error {
 // KeysetsMap maps a mint url to map of string keyset id to keyset
 type KeysetsMap map[string][]WalletKeyset
 
+func (k KeysetsMap) GetAllKeysetIds() []string {
+	keysetList := []string{}
+	for _, mint := range k {
+		for _, walletKeyset := range mint {
+			keysetList = append(keysetList, walletKeyset.Id)
+		}
+	}
+
+	return keysetList
+}
+
 type WalletKeyset struct {
 	Id          string
 	MintURL     string
