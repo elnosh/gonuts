@@ -827,7 +827,7 @@ func (db *BoltDB) SavePaymentRequest(payReq nut18.PaymentRequest) error {
 }
 
 func (db *BoltDB) GetPaymentRequestById(paymentRequestId string) *DBPaymentRequest {
-	var paymentRequest DBPaymentRequest
+	var paymentRequest *DBPaymentRequest
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
@@ -839,7 +839,7 @@ func (db *BoltDB) GetPaymentRequestById(paymentRequestId string) *DBPaymentReque
 
 		return nil
 	})
-	return &paymentRequest
+	return paymentRequest
 }
 
 func (db *BoltDB) IncreseTimedPaidOfPaymentRequest(id string) error {
@@ -895,17 +895,36 @@ func (db *BoltDB) SavePaymentRequestPayload(payload nut18.PaymentRequestPayload)
 }
 
 func (db *BoltDB) GetPaymentRequestPayload(id string) *DBPaymentRequestPayload {
-	var paymentRequest DBPaymentRequestPayload
+	var paymentRequest *DBPaymentRequestPayload
 
 	db.bolt.View(func(tx *bolt.Tx) error {
 		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST_PAYLOADS_BUCKET))
 		invoiceBytes := paymentReqb.Get([]byte(id))
-		err := json.Unmarshal(invoiceBytes, &paymentRequest)
-		if err != nil {
-			return nil
+		if err := json.Unmarshal(invoiceBytes, &paymentRequest); err != nil {
+			paymentRequest = nil
 		}
 
 		return nil
 	})
-	return &paymentRequest
+	return paymentRequest
+}
+func (db *BoltDB) GetListPaymentRequest() []DBPaymentRequest {
+	paymentRequestSlice := make([]DBPaymentRequest, 0)
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
+		return paymentReqb.ForEach(func(payReqId, v []byte) error {
+			var paymentRequest DBPaymentRequest
+			keysetBytes := paymentReqb.Get([]byte(payReqId))
+			if keysetBytes != nil {
+				err := json.Unmarshal(keysetBytes, &paymentRequest)
+				if err != nil {
+					return err
+				}
+				paymentRequestSlice = append(paymentRequestSlice, paymentRequest)
+			}
+			return nil
+		})
+	})
+	return paymentRequestSlice
 }

@@ -40,7 +40,8 @@ import (
 	"github.com/elnosh/gonuts/wallet/storage"
 	"github.com/tyler-smith/go-bip39"
 
-	n "github.com/nbd-wtf/go-nostr"
+	gonostr "github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
 
@@ -177,13 +178,14 @@ func LoadWallet(config Config) (*Wallet, error) {
 
 		// Use current time as timestamp for Nostr client setup
 		// This will listen for events from current time onwards
-		timestamp := n.Timestamp(time.Now().Unix())
+		timestamp := gonostr.Timestamp(time.Now().Add(-12 * time.Hour).Unix())
 
 		// Setup Nostr client with derived private key
 		nostrClient, err := nostr.SetupNostrClient(nostrPrivKey, timestamp, nostr.DefaultRelays)
 		if err != nil {
 			return nil, fmt.Errorf("error setting up Nostr client: %v", err)
 		}
+
 		// Store client in wallet and set support flag
 		wallet.nostrClient = nostrClient
 
@@ -2144,7 +2146,7 @@ func (w *Wallet) GetMeltQuoteById(id string) *storage.MeltQuote {
 // / Generates a payment request
 // / if amount is set to 0 we accept any amount
 // / if mints is empty we just accept any mint
-func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []string, description string) (*nut18.PaymentRequest, error) {
+func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []string, description string, lockToP2PK bool) (*nut18.PaymentRequest, error) {
 	id, err := cashu.GenerateRandomQuoteId()
 	if err != nil {
 		return nil, err
@@ -2156,8 +2158,12 @@ func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []s
 		Unit:        &unit,
 		Single:      &singleUse,
 		Description: &description,
-		Mints:       mints,
 	}
+
+	if len(mints) > 0 {
+		paymentRequest.SetMints(mints)
+	}
+
 	if amount != 0 {
 		paymentRequest.Amount = &amount
 	}
@@ -2167,12 +2173,30 @@ func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []s
 	}
 
 	if w.nostrClient != nil {
+		pb, err := w.nostrClient.GetKeyer().GetPublicKey(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		nprofile, err := nip19.EncodeProfile(pb, nostr.DefaultRelays)
+		if err != nil {
+			return nil, err
+		}
 		nostrTransport := nut18.Transport{
-			Type: nut18.Nostr,
-			// Target: ,
-			Tags: [][]string{{"n", nut18.NIP17}},
+			Type:   nut18.Nostr,
+			Target: nprofile,
+			Tags:   [][]string{{"n", nut18.NIP17}},
 		}
 		paymentRequest.Transport = []nut18.Transport{nostrTransport}
+	}
+
+	if lockToP2PK {
+		nut10Lock := nut18.Nut10Lock{
+			Data: hex.EncodeToString(w.GetReceivePubkey().SerializeCompressed()),
+			Key:  "P2PK",
+			Tags: nil,
+		}
+
+		paymentRequest.AddNut10Lock(nut10Lock)
 	}
 
 	err = w.db.SavePaymentRequest(paymentRequest)
@@ -2182,11 +2206,84 @@ func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []s
 	return &paymentRequest, nil
 }
 
+func (w *Wallet) ParseRequestForPayment(payReq nut18.PaymentRequest, amount uint64, memo string) (*nut18.PaymentRequestPayload, error) {
+	paymentRequestDb := w.db.GetPaymentRequestById(*payReq.Id)
+	if paymentRequestDb != nil && paymentRequestDb.Single != nil && *paymentRequestDb.Single && paymentRequestDb.TimesPaid > 0 {
+		return nil, errors.New("Payment request already payed")
+	}
+
+	if payReq.Unit != nil && *payReq.Unit != cashu.Sat.String() {
+		return nil, errors.New("payment request only supports Sats")
+	}
+
+	mintsToCheck := make(map[string]walletMint)
+	// if mints exists in the payload we check if we have them available
+	if len(payReq.Mints) > 0 {
+		for _, mintUrl := range payReq.Mints {
+			walletMint, exists := w.mints[mintUrl]
+			if exists {
+				mintsToCheck[mintUrl] = walletMint
+			}
+		}
+		if len(mintsToCheck) == 0 {
+			return nil, errors.New("The wallets doesn't have mints from the payload")
+		}
+	}
+
+	// INFO: if there are no mints set we set the wallets mints to check for enough tokens
+	if len(mintsToCheck) == 0 {
+		mintsToCheck = w.mints
+	}
+	amountToCheck := amount
+	// if no amount in the payReq we use the one in the function argument
+	if payReq.Amount != nil {
+		amountToCheck = *payReq.Amount
+	}
+
+	var payload *nut18.PaymentRequestPayload
+	for _, payloadMint := range mintsToCheck {
+		proofs, err := w.getProofsForAmount(amountToCheck, &payloadMint, false)
+		if err != nil {
+			log.Printf("w.getProofsForAmount(amountToCheck, &payloadMint, false). %+v", err)
+			continue
+		}
+		payload = &nut18.PaymentRequestPayload{
+			Id:     *payReq.Id,
+			Memo:   memo,
+			Mint:   payloadMint.mintURL,
+			Unit:   cashu.Sat.String(),
+			Proofs: proofs,
+		}
+		break
+	}
+
+	if payload == nil {
+		return nil, errors.New("Not enough proofs for payment request")
+	}
+
+	if amountToCheck != payload.Proofs.Amount() {
+		log.Panicf("\n amountToCheck and amount in proofs is not the same. This should have never happened. \n amountToCheck: %v, \n payload.Proofs: %v ", amountToCheck, payload.Proofs.Amount())
+	}
+
+	return payload, nil
+}
+
+func (w *Wallet) SendPaymentRequestPayloadThroughNostr(payload nut18.PaymentRequestPayload, transport nut18.Transport) error {
+	if transport.Type != nut18.Nostr {
+		return fmt.Errorf("Transport type is not nostr")
+	}
+	if w.nostrClient == nil {
+		return fmt.Errorf("nostr client is not enabled in the wallet")
+	}
+
+	return w.nostrClient.SendPaymentToNostrProfile(payload, transport.Target)
+}
+
 func (w *Wallet) ReceivePaymentRequestPayload(payload nut18.PaymentRequestPayload) (uint64, error) {
 	paymentRequest := w.db.GetPaymentRequestById(payload.Id)
 	// INFO: if there is no payment request registered to id we just try to take the proofs from the payload
 	if paymentRequest == nil {
-		return w.receive(payload.Proofs, payload.Mint, true)
+		return w.receive(payload.Proofs, payload.Mint, false)
 	} else {
 		if paymentRequest.PaymentRequest.Single != nil && *paymentRequest.PaymentRequest.Single && paymentRequest.TimesPaid > 0 {
 			return 0, ErrPaymentRequestAlreadyPaid
@@ -2195,11 +2292,11 @@ func (w *Wallet) ReceivePaymentRequestPayload(payload nut18.PaymentRequestPayloa
 			return 0, ErrPaymentRequestAmountIncorrect
 		}
 
-		amount, err := w.receive(payload.Proofs, payload.Mint, true)
+		amount, err := w.receive(payload.Proofs, payload.Mint, false)
 		if err != nil {
 			return 0, err
 		}
-		err = w.db.IncreseTimedPaidOfPaymentRequest(payload.Id)
+		err = w.db.IncreseTimedPaidOfPaymentRequest(*paymentRequest.Id)
 		if err != nil {
 			return 0, err
 		}

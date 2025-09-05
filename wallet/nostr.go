@@ -10,6 +10,11 @@ import (
 
 // handleNostrEvent processes a single nostr event.
 func (w *Wallet) handleNostrEvent(event n.Event) {
+	if w.nostrClient.SeenPaymentPayload.PaymentIdAlreadyExists(event.ID) {
+		return
+	}
+	w.nostrClient.SeenPaymentPayload.AddNostrId(event.ID)
+
 	var payload nut18.PaymentRequestPayload
 	err := json.Unmarshal([]byte(event.Content), &payload)
 	if err != nil {
@@ -17,10 +22,12 @@ func (w *Wallet) handleNostrEvent(event n.Event) {
 		return
 	}
 
-	_, err = w.ReceivePaymentRequestPayload(payload)
+	amount, err := w.ReceivePaymentRequestPayload(payload)
 	if err != nil {
 		log.Printf("error processing payment request payload: %v", err)
+		return
 	}
+	log.Printf("\n proceesed payment request payload for value: %v Sats", amount)
 }
 
 // processNostrRequests listens for events from the nostr client and exits when

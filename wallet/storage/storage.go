@@ -68,6 +68,7 @@ type WalletDB interface {
 
 	SavePaymentRequestPayload(nut18.PaymentRequestPayload) error
 	GetPaymentRequestPayload(id string) *DBPaymentRequestPayload
+	GetListPaymentRequest() []DBPaymentRequest
 
 	Close() error
 }
