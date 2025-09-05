@@ -1,11 +1,14 @@
 package wallet
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+
 	"fmt"
+	"log"
 	"math"
 	"net/url"
 	"os"
@@ -29,19 +32,25 @@ import (
 	"github.com/elnosh/gonuts/cashu/nuts/nut13"
 	"github.com/elnosh/gonuts/cashu/nuts/nut14"
 	"github.com/elnosh/gonuts/cashu/nuts/nut15"
+	"github.com/elnosh/gonuts/cashu/nuts/nut18"
 	"github.com/elnosh/gonuts/cashu/nuts/nut20"
 	"github.com/elnosh/gonuts/crypto"
+	"github.com/elnosh/gonuts/nostr"
 	"github.com/elnosh/gonuts/wallet/client"
 	"github.com/elnosh/gonuts/wallet/storage"
 	"github.com/tyler-smith/go-bip39"
 
+	gonostr "github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 )
 
 var (
-	ErrMintNotExist            = errors.New("mint does not exist")
-	ErrInsufficientMintBalance = errors.New("not enough funds in selected mint")
-	ErrQuoteNotFound           = errors.New("quote not found")
+	ErrMintNotExist                  = errors.New("mint does not exist")
+	ErrInsufficientMintBalance       = errors.New("not enough funds in selected mint")
+	ErrQuoteNotFound                 = errors.New("quote not found")
+	ErrPaymentRequestAlreadyPaid     = errors.New("This payment request has already been paid")
+	ErrPaymentRequestAmountIncorrect = errors.New("The amount given for payment request is not correct")
 )
 
 type Wallet struct {
@@ -56,6 +65,14 @@ type Wallet struct {
 	// list of mints that have been trusted
 	mints map[string]walletMint
 
+	// nostr client for payment request communications
+	nostrClient *nostr.NostrClient
+
+	// context and waitgroup to manage nostr listener lifecycle
+	nostrCtx    context.Context
+	nostrCancel context.CancelFunc
+	nostrWg     sync.WaitGroup
+
 	mu sync.RWMutex
 }
 
@@ -68,6 +85,8 @@ type walletMint struct {
 type Config struct {
 	WalletPath     string
 	CurrentMintURL string
+	// used for listening to nostr events for payment requests
+	NostrSupport bool
 }
 
 func InitStorage(path string) (storage.WalletDB, error) {
@@ -149,12 +168,63 @@ func LoadWallet(config Config) (*Wallet, error) {
 		}
 	}
 
+	// Setup Nostr client if NostrSupport is enabled
+	if config.NostrSupport {
+		// Derive dedicated private key for Nostr communications
+		nostrPrivKey, err := DeriveNostrKey(masterKey)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving Nostr private key: %v", err)
+		}
+
+		// Use current time as timestamp for Nostr client setup
+		// This will listen for events from current time onwards
+		timestamp := gonostr.Timestamp(time.Now().Add(-12 * time.Hour).Unix())
+
+		// Setup Nostr client with derived private key
+		nostrClient, err := nostr.SetupNostrClient(nostrPrivKey, timestamp, nostr.DefaultRelays)
+		if err != nil {
+			return nil, fmt.Errorf("error setting up Nostr client: %v", err)
+		}
+
+		// Store client in wallet and set support flag
+		wallet.nostrClient = nostrClient
+
+		// create context and waitgroup for listener lifecycle
+		wallet.nostrCtx, wallet.nostrCancel = context.WithCancel(context.Background())
+		wallet.nostrWg.Add(1)
+		go func() {
+			defer wallet.nostrWg.Done()
+			processNostrRequests(wallet)
+		}()
+	}
+
 	isErr = false
 	return wallet, nil
 }
 
 func (w *Wallet) Shutdown() error {
+	// Stop nostr listener if running
+	if w.nostrCancel != nil {
+		w.nostrCancel()
+		// wait for listener goroutine to exit
+		w.nostrWg.Wait()
+	}
+
+	// Close Nostr client if it exists
+	if w.nostrClient != nil {
+		if err := w.nostrClient.Close(); err != nil {
+			// Log error but don't fail shutdown for this
+			log.Printf("Warning: error closing Nostr client: %v", err)
+		}
+		w.nostrClient = nil
+	}
+
 	return w.db.Close()
+}
+
+// GetNostrClient returns the Nostr client if available
+func (w *Wallet) GetNostrClient() *nostr.NostrClient {
+	return w.nostrClient
 }
 
 // AddMint adds the mint to the list of mints trusted by the wallet
@@ -540,6 +610,10 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 	proofsToSwap := token.Proofs()
 	tokenMint := token.Mint()
 
+	return w.receive(proofsToSwap, tokenMint, swapToTrusted)
+}
+
+func (w *Wallet) receive(proofsToSwap cashu.Proofs, tokenMint string, swapToTrusted bool) (uint64, error) {
 	keyset, err := w.getActiveKeyset(tokenMint)
 	if err != nil {
 		return 0, fmt.Errorf("could not get active keyset: %v", err)
@@ -620,6 +694,7 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		}
 		return newProofs.Amount(), nil
 	}
+
 }
 
 // ReceiveHTLC will add the preimage and any signatures if needed in order to redeem the
@@ -2019,6 +2094,7 @@ func (w *Wallet) ReclaimUnspentProofs() (uint64, error) {
 }
 
 // GetPendingMeltQuotes return a list of pending quote ids
+
 func (w *Wallet) GetPendingMeltQuotes() []string {
 	pendingProofs := w.db.GetPendingProofs()
 	pendingProofsMap := make(map[string][]storage.DBProof)
@@ -2065,4 +2141,165 @@ func (w *Wallet) GetMeltQuotes() []storage.MeltQuote {
 
 func (w *Wallet) GetMeltQuoteById(id string) *storage.MeltQuote {
 	return nil
+}
+
+// / Generates a payment request
+// / if amount is set to 0 we accept any amount
+// / if mints is empty we just accept any mint
+func (w *Wallet) GeneratePaymentRequest(amount uint64, singleUse bool, mints []string, description string, lockToP2PK bool) (*nut18.PaymentRequest, error) {
+	id, err := cashu.GenerateRandomQuoteId()
+	if err != nil {
+		return nil, err
+	}
+
+	unit := cashu.Sat.String()
+	paymentRequest := nut18.PaymentRequest{
+		Id:          &id,
+		Unit:        &unit,
+		Single:      &singleUse,
+		Description: &description,
+	}
+
+	if len(mints) > 0 {
+		paymentRequest.SetMints(mints)
+	}
+
+	if amount != 0 {
+		paymentRequest.Amount = &amount
+	}
+
+	if paymentRequest.Id == nil || *paymentRequest.Id == "" {
+		log.Panicf("Payment request should always have an Id %+v", paymentRequest)
+	}
+
+	if w.nostrClient != nil {
+		pb, err := w.nostrClient.GetKeyer().GetPublicKey(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		nprofile, err := nip19.EncodeProfile(pb, nostr.DefaultRelays)
+		if err != nil {
+			return nil, err
+		}
+		nostrTransport := nut18.Transport{
+			Type:   nut18.Nostr,
+			Target: nprofile,
+			Tags:   [][]string{{"n", nut18.NIP17}},
+		}
+		paymentRequest.Transport = []nut18.Transport{nostrTransport}
+	}
+
+	if lockToP2PK {
+		nut10Lock := nut18.Nut10Lock{
+			Data: hex.EncodeToString(w.GetReceivePubkey().SerializeCompressed()),
+			Key:  "P2PK",
+			Tags: nil,
+		}
+
+		paymentRequest.AddNut10Lock(nut10Lock)
+	}
+
+	err = w.db.SavePaymentRequest(paymentRequest)
+	if err != nil {
+		return nil, err
+	}
+	return &paymentRequest, nil
+}
+
+func (w *Wallet) ParseRequestForPayment(payReq nut18.PaymentRequest, amount uint64, memo string) (*nut18.PaymentRequestPayload, error) {
+	paymentRequestDb := w.db.GetPaymentRequestById(*payReq.Id)
+	if paymentRequestDb != nil && paymentRequestDb.Single != nil && *paymentRequestDb.Single && paymentRequestDb.TimesPaid > 0 {
+		return nil, errors.New("Payment request already payed")
+	}
+
+	if payReq.Unit != nil && *payReq.Unit != cashu.Sat.String() {
+		return nil, errors.New("payment request only supports Sats")
+	}
+
+	mintsToCheck := make(map[string]walletMint)
+	// if mints exists in the payload we check if we have them available
+	if len(payReq.Mints) > 0 {
+		for _, mintUrl := range payReq.Mints {
+			walletMint, exists := w.mints[mintUrl]
+			if exists {
+				mintsToCheck[mintUrl] = walletMint
+			}
+		}
+		if len(mintsToCheck) == 0 {
+			return nil, errors.New("The wallets doesn't have mints from the payload")
+		}
+	}
+
+	// INFO: if there are no mints set we set the wallets mints to check for enough tokens
+	if len(mintsToCheck) == 0 {
+		mintsToCheck = w.mints
+	}
+	amountToCheck := amount
+	// if no amount in the payReq we use the one in the function argument
+	if payReq.Amount != nil {
+		amountToCheck = *payReq.Amount
+	}
+
+	var payload *nut18.PaymentRequestPayload
+	for _, payloadMint := range mintsToCheck {
+		proofs, err := w.getProofsForAmount(amountToCheck, &payloadMint, false)
+		if err != nil {
+			log.Printf("w.getProofsForAmount(amountToCheck, &payloadMint, false). %+v", err)
+			continue
+		}
+		payload = &nut18.PaymentRequestPayload{
+			Id:     *payReq.Id,
+			Memo:   memo,
+			Mint:   payloadMint.mintURL,
+			Unit:   cashu.Sat.String(),
+			Proofs: proofs,
+		}
+		break
+	}
+
+	if payload == nil {
+		return nil, errors.New("Not enough proofs for payment request")
+	}
+
+	if amountToCheck != payload.Proofs.Amount() {
+		log.Panicf("\n amountToCheck and amount in proofs is not the same. This should have never happened. \n amountToCheck: %v, \n payload.Proofs: %v ", amountToCheck, payload.Proofs.Amount())
+	}
+
+	return payload, nil
+}
+
+func (w *Wallet) SendPaymentRequestPayloadThroughNostr(payload nut18.PaymentRequestPayload, transport nut18.Transport) error {
+	if transport.Type != nut18.Nostr {
+		return fmt.Errorf("Transport type is not nostr")
+	}
+	if w.nostrClient == nil {
+		return fmt.Errorf("nostr client is not enabled in the wallet")
+	}
+
+	return w.nostrClient.SendPaymentToNostrProfile(payload, transport.Target)
+}
+
+func (w *Wallet) ReceivePaymentRequestPayload(payload nut18.PaymentRequestPayload) (uint64, error) {
+	paymentRequest := w.db.GetPaymentRequestById(payload.Id)
+	// INFO: if there is no payment request registered to id we just try to take the proofs from the payload
+	if paymentRequest == nil {
+		return w.receive(payload.Proofs, payload.Mint, false)
+	} else {
+		if paymentRequest.PaymentRequest.Single != nil && *paymentRequest.PaymentRequest.Single && paymentRequest.TimesPaid > 0 {
+			return 0, ErrPaymentRequestAlreadyPaid
+		}
+		if paymentRequest.Amount != nil && *paymentRequest.Amount > 0 && *paymentRequest.Amount != payload.Proofs.Amount() {
+			return 0, ErrPaymentRequestAmountIncorrect
+		}
+
+		amount, err := w.receive(payload.Proofs, payload.Mint, false)
+		if err != nil {
+			return 0, err
+		}
+		err = w.db.IncreseTimedPaidOfPaymentRequest(*paymentRequest.Id)
+		if err != nil {
+			return 0, err
+		}
+		return amount, nil
+	}
 }

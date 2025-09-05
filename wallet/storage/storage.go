@@ -7,6 +7,7 @@ import (
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut18"
 	"github.com/elnosh/gonuts/crypto"
 )
 
@@ -54,11 +55,20 @@ type WalletDB interface {
 
 	SaveMintQuote(MintQuote) error
 	GetMintQuotes() []MintQuote
+
 	GetMintQuoteById(string) *MintQuote
 
 	SaveMeltQuote(MeltQuote) error
 	GetMeltQuotes() []MeltQuote
 	GetMeltQuoteById(string) *MeltQuote
+
+	SavePaymentRequest(nut18.PaymentRequest) error
+	GetPaymentRequestById(string) *DBPaymentRequest
+	IncreseTimedPaidOfPaymentRequest(id string) error
+
+	SavePaymentRequestPayload(nut18.PaymentRequestPayload) error
+	GetPaymentRequestPayload(id string) *DBPaymentRequestPayload
+	GetListPaymentRequest() []DBPaymentRequest
 
 	Close() error
 }
@@ -179,4 +189,16 @@ type Invoice struct {
 	Paid           bool
 	SettledAt      int64
 	QuoteExpiry    uint64
+}
+
+type DBPaymentRequest struct {
+	nut18.PaymentRequest
+	CreatedAt int64
+	TimesPaid uint64
+}
+
+type DBPaymentRequestPayload struct {
+	nut18.PaymentRequestPayload
+	SeenAt int64 `json:"seen_at"`
+	Nostr  bool  `json:"nostr"`
 }

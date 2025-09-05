@@ -980,6 +980,13 @@ func decode(ctx *cli.Context) error {
 	return nil
 }
 
+const (
+	Amount      = "amount"
+	SingleUse   = "single-use"
+	Mints       = "mints"
+	Description = "descriptions"
+)
+
 func promptMintSelection(action string) string {
 	balanceByMints := nutw.GetBalanceByMints()
 	mintsLen := len(balanceByMints)

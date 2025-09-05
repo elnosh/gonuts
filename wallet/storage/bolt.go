@@ -6,23 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/elnosh/gonuts/cashu"
 	"github.com/elnosh/gonuts/cashu/nuts/nut04"
 	"github.com/elnosh/gonuts/cashu/nuts/nut05"
+	"github.com/elnosh/gonuts/cashu/nuts/nut18"
 	"github.com/elnosh/gonuts/crypto"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	KEYSETS_BUCKET        = "keysets"
-	PROOFS_BUCKET         = "proofs"
-	PENDING_PROOFS_BUCKET = "pending_proofs"
-	MINT_QUOTES_BUCKET    = "mint_quotes"
-	MELT_QUOTES_BUCKET    = "melt_quotes"
-	INVOICES_BUCKET       = "invoices"
-	SEED_BUCKET           = "seed"
-	MNEMONIC_KEY          = "mnemonic"
+	KEYSETS_BUCKET                  = "keysets"
+	PROOFS_BUCKET                   = "proofs"
+	PENDING_PROOFS_BUCKET           = "pending_proofs"
+	MINT_QUOTES_BUCKET              = "mint_quotes"
+	MELT_QUOTES_BUCKET              = "melt_quotes"
+	INVOICES_BUCKET                 = "invoices"
+	SEED_BUCKET                     = "seed"
+	MNEMONIC_KEY                    = "mnemonic"
+	PAYMENT_REQUEST                 = "payment_request"
+	PAYMENT_REQUEST_PAYLOADS_BUCKET = "payment_request_payloads"
 )
 
 var (
@@ -85,6 +89,15 @@ func (db *BoltDB) initWalletBuckets() error {
 		}
 
 		_, err = tx.CreateBucketIfNotExists([]byte(SEED_BUCKET))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte(PAYMENT_REQUEST))
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateBucketIfNotExists([]byte(PAYMENT_REQUEST_PAYLOADS_BUCKET))
 		if err != nil {
 			return err
 		}
@@ -784,4 +797,134 @@ func (db *BoltDB) GetInvoices() []Invoice {
 		return nil
 	})
 	return invoices
+}
+
+func (db *BoltDB) SavePaymentRequest(payReq nut18.PaymentRequest) error {
+	createdAt := time.Now().Unix()
+	dbPayReq := DBPaymentRequest{
+		PaymentRequest: payReq,
+		CreatedAt:      createdAt,
+		TimesPaid:      0,
+	}
+
+	if dbPayReq.Id == nil || *dbPayReq.Id == "" {
+		return fmt.Errorf("Id needs to be set")
+	}
+
+	jsonbytes, err := json.Marshal(dbPayReq)
+	if err != nil {
+		return fmt.Errorf("invalid invoice: %v", err)
+	}
+
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
+		key := []byte(*payReq.Id)
+		return paymentReqb.Put(key, jsonbytes)
+	}); err != nil {
+		return fmt.Errorf("error saving invoice: %v", err)
+	}
+	return nil
+}
+
+func (db *BoltDB) GetPaymentRequestById(paymentRequestId string) *DBPaymentRequest {
+	var paymentRequest *DBPaymentRequest
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
+		invoiceBytes := paymentReqb.Get([]byte(paymentRequestId))
+		err := json.Unmarshal(invoiceBytes, &paymentRequest)
+		if err != nil {
+			return nil
+		}
+
+		return nil
+	})
+	return paymentRequest
+}
+
+func (db *BoltDB) IncreseTimedPaidOfPaymentRequest(id string) error {
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		var paymentRequest *DBPaymentRequest
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
+		key := []byte(id)
+		payreqBytes := paymentReqb.Get(key)
+		err := json.Unmarshal(payreqBytes, &paymentRequest)
+		if err != nil {
+			paymentRequest = nil
+		}
+		paymentRequest.TimesPaid++
+
+		jsonbytes, err := json.Marshal(paymentRequest)
+		if err != nil {
+			return fmt.Errorf("invalid invoice: %v", err)
+		}
+
+		return paymentReqb.Put(key, jsonbytes)
+	}); err != nil {
+		return fmt.Errorf("error saving invoice: %v", err)
+	}
+	return nil
+}
+
+func (db *BoltDB) SavePaymentRequestPayload(payload nut18.PaymentRequestPayload) error {
+	seenAt := time.Now().Unix()
+	dbPayload := DBPaymentRequestPayload{
+		PaymentRequestPayload: payload,
+		SeenAt:                seenAt,
+		Nostr:                 true,
+	}
+
+	if dbPayload.Id == "" {
+		return fmt.Errorf("Id needs to be set")
+	}
+
+	jsonbytes, err := json.Marshal(dbPayload)
+	if err != nil {
+		return fmt.Errorf("invalid invoice: %v", err)
+	}
+
+	if err := db.bolt.Update(func(tx *bolt.Tx) error {
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST_PAYLOADS_BUCKET))
+		key := []byte(dbPayload.Id)
+		return paymentReqb.Put(key, jsonbytes)
+	}); err != nil {
+		return fmt.Errorf("error saving invoice: %v", err)
+	}
+
+	return nil
+}
+
+func (db *BoltDB) GetPaymentRequestPayload(id string) *DBPaymentRequestPayload {
+	var paymentRequest *DBPaymentRequestPayload
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST_PAYLOADS_BUCKET))
+		invoiceBytes := paymentReqb.Get([]byte(id))
+		if err := json.Unmarshal(invoiceBytes, &paymentRequest); err != nil {
+			paymentRequest = nil
+		}
+
+		return nil
+	})
+	return paymentRequest
+}
+func (db *BoltDB) GetListPaymentRequest() []DBPaymentRequest {
+	paymentRequestSlice := make([]DBPaymentRequest, 0)
+
+	db.bolt.View(func(tx *bolt.Tx) error {
+		paymentReqb := tx.Bucket([]byte(PAYMENT_REQUEST))
+		return paymentReqb.ForEach(func(payReqId, v []byte) error {
+			var paymentRequest DBPaymentRequest
+			keysetBytes := paymentReqb.Get([]byte(payReqId))
+			if keysetBytes != nil {
+				err := json.Unmarshal(keysetBytes, &paymentRequest)
+				if err != nil {
+					return err
+				}
+				paymentRequestSlice = append(paymentRequestSlice, paymentRequest)
+			}
+			return nil
+		})
+	})
+	return paymentRequestSlice
 }
