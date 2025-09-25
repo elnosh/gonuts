@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -557,10 +558,7 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		if !nut11.CanSign(nut10Secret, w.privateKey) {
 			return 0, fmt.Errorf("cannot sign locked proofs")
 		}
-		proofsToSwap, err = nut11.AddSignatureToInputs(proofsToSwap, w.privateKey)
-		if err != nil {
-			return 0, fmt.Errorf("error signing inputs: %v", err)
-		}
+
 	}
 
 	// if mint in token is already the default mint, do not swap to trusted
@@ -594,12 +592,31 @@ func (w *Wallet) Receive(token cashu.Token, swapToTrusted bool) (uint64, error) 
 		if err != nil {
 			return 0, fmt.Errorf("could not create swap request: %v", err)
 		}
+		nut10Secret, err := nut10.DeserializeSecret(proofsToSwap[0].Secret)
+		if err == nil && nut10Secret.Kind == nut10.P2PK && nut11.IsSigAll(nut10Secret) {
+			if nut11.IsSigAll(nut10Secret) {
+				msgToSign := nut10.SigAllMessageToSign(req.inputs, req.outputs, false, "")
 
-		//if P2PK locked ecash has `SIG_ALL` flag, sign outputs
-		if nut10Secret.Kind == nut10.P2PK && nut11.IsSigAll(nut10Secret) {
-			req.outputs, err = nut11.AddSignatureToOutputs(req.outputs, w.privateKey)
-			if err != nil {
-				return 0, fmt.Errorf("error signing outputs: %v", err)
+				sig, err := nut10.SignMessage(msgToSign, w.privateKey)
+				if err != nil {
+					return 0, fmt.Errorf("error signing sigall message: %v", err)
+				}
+
+				sigAllWitness := nut11.P2PKWitness{
+					Signatures: []string{hex.EncodeToString(sig.Serialize())},
+				}
+
+				witness, err := json.Marshal(sigAllWitness)
+				if err != nil {
+					return 0, err
+				}
+				// sign only the first input and keep the rest as unsigned
+				req.inputs[0].Witness = string(witness)
+			} else {
+				req.inputs, err = nut11.AddSignatureToInputs(req.inputs, w.privateKey)
+				if err != nil {
+					return 0, fmt.Errorf("error signing inputs: %v", err)
+				}
 			}
 		}
 
@@ -754,9 +771,30 @@ func (w *Wallet) swapToTrusted(proofs cashu.Proofs, mint *walletMint) (uint64, e
 		if err != nil {
 			return 0, fmt.Errorf("could not create swap request: %v", err)
 		}
-		req.outputs, err = nut11.AddSignatureToOutputs(req.outputs, w.privateKey)
-		if err != nil {
-			return 0, fmt.Errorf("error signing outputs: %v", err)
+		if nut11.IsSigAll(nut10Secret) {
+			msgToSign := nut10.SigAllMessageToSign(req.inputs, req.outputs, false, "")
+
+			sig, err := nut10.SignMessage(msgToSign, w.privateKey)
+			if err != nil {
+				return 0, fmt.Errorf("error signing sigall message: %v", err)
+			}
+
+			sigAllWitness := nut11.P2PKWitness{
+				Signatures: []string{hex.EncodeToString(sig.Serialize())},
+			}
+
+			witness, err := json.Marshal(sigAllWitness)
+			if err != nil {
+				return 0, err
+			}
+			// sign only the first input and keep the rest as unsigned
+			req.inputs[0].Witness = string(witness)
+
+		} else {
+			req.inputs, err = nut11.AddSignatureToInputs(req.inputs, w.privateKey)
+			if err != nil {
+				return 0, fmt.Errorf("error signing inputs: %v", err)
+			}
 		}
 
 		newProofs, err := swap(mint.mintURL, req)

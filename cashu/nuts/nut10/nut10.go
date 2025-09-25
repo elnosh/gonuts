@@ -2,10 +2,15 @@ package nut10
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/elnosh/gonuts/cashu"
 )
 
 type SecretKind int
@@ -118,4 +123,28 @@ func NewSecretFromSpendingCondition(spendingCondition SpendingCondition) (string
 	}
 
 	return secret, nil
+}
+func SigAllMessageToSign(inputs cashu.Proofs, outputs cashu.BlindedMessages, isMelt bool, meltquote string) string {
+	message := ""
+	for _, proof := range inputs {
+		message = message + proof.Secret
+	}
+	for _, blindMessage := range outputs {
+		message = message + blindMessage.B_
+	}
+	if isMelt {
+		message = message + meltquote
+	}
+	return message
+
+}
+func SignMessage(message string, privateKey *btcec.PrivateKey) (*schnorr.Signature, error) {
+	hashMessage := sha256.Sum256([]byte(message))
+	signature, err := schnorr.Sign(privateKey, hashMessage[:])
+	if err != nil {
+		return nil, err
+	}
+
+	return signature, nil
+
 }
